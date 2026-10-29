@@ -1,0 +1,98 @@
+{
+  "source_archive": "pcbuilder.rar",
+  "expected_count": 18,
+  "subdirectory": "pcbuilder",
+  "files": [
+    {
+      "file": "cart.png",
+      "size_bytes": 1307022,
+      "crc32": "cf3a5682"
+    },
+    {
+      "file": "Header.png",
+      "size_bytes": 1572587,
+      "crc32": "16b6d5fe"
+    },
+    {
+      "file": "item page.png",
+      "size_bytes": 1514409,
+      "crc32": "1583c6d6"
+    },
+    {
+      "file": "main footer black.png",
+      "size_bytes": 1807929,
+      "crc32": "38fd77fd"
+    },
+    {
+      "file": "main header black.png",
+      "size_bytes": 2092089,
+      "crc32": "2dbd1448"
+    },
+    {
+      "file": "registration.png",
+      "size_bytes": 1126164,
+      "crc32": "ea7c5c26"
+    },
+    {
+      "file": "Витрина главная.png",
+      "size_bytes": 1983098,
+      "crc32": "58fb0846"
+    },
+    {
+      "file": "Главаная с футером.png",
+      "size_bytes": 1622992,
+      "crc32": "acf34d63"
+    },
+    {
+      "file": "Заказы.png",
+      "size_bytes": 1255618,
+      "crc32": "1aedfa5f"
+    },
+    {
+      "file": "каталог.png",
+      "size_bytes": 1834360,
+      "crc32": "7ca7ec4c"
+    },
+    {
+      "file": "католог с фильтрами.png",
+      "size_bytes": 1671569,
+      "crc32": "2c68636b"
+    },
+    {
+      "file": "конфигуратор.png",
+      "size_bytes": 1556649,
+      "crc32": "f2149fae"
+    },
+    {
+      "file": "корзина темная.png",
+      "size_bytes": 1419739,
+      "crc32": "c7ddfbe6"
+    },
+    {
+      "file": "полный хедер.png",
+      "size_bytes": 1586036,
+      "crc32": "c9835652"
+    },
+    {
+      "file": "профиль.png",
+      "size_bytes": 1212904,
+      "crc32": "714fb8ca"
+    },
+    {
+      "file": "Сборки.png",
+      "size_bytes": 1591360,
+      "crc32": "c38e8c63"
+    },
+    {
+      "file": "Футер.png",
+      "size_bytes": 1067620,
+      "crc32": "97b0d505"
+    },
+    {
+      "file": "Хедер темный.png",
+      "size_bytes": 1330911,
+      "crc32": "03fc9a35"
+    }
+  ],
+  "note": "Recorded from RAR v5 archive metadata; files not bundled in starter ZIP."
+}
