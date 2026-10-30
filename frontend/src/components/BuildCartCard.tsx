@@ -3,7 +3,6 @@ import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { HiMiniChevronDown, HiMiniChevronRight } from 'react-icons/hi2'
 
-
 interface BuildCartCardProps {
   item: {
     id: number
@@ -29,7 +28,9 @@ export function BuildCartCard({ item }: BuildCartCardProps) {
   const toggleExpand = useCartStore((s) => s.toggleBuildExpand)
 
   return (
-    <div className="bg-blue-50 dark:bg-blue-950/20 border-2 border-blue-200 dark:border-blue-800 rounded-xl overflow-hidden">
+    <div className="bg-surface border border-border rounded-xl overflow-hidden">
+      {/* Accent left border */}
+      <div className="border-l-2 border-primary" />
       <div className="flex items-start gap-4 p-4">
         <img
           src={item.image || placeholder}
@@ -42,7 +43,7 @@ export function BuildCartCard({ item }: BuildCartCardProps) {
               <p className="font-semibold text-text-primary text-sm leading-tight">
                 {item.name}
               </p>
-              <span className="inline-flex items-center gap-1 text-xs text-primary bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 rounded-full mt-1">
+              <span className="inline-flex items-center gap-1 text-xs text-primary border border-primary/30 px-2 py-0.5 rounded-full mt-1">
                 <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z" />
                 </svg>
@@ -108,32 +109,32 @@ export function BuildCartCard({ item }: BuildCartCardProps) {
 
       {item.isExpanded && (
         <div className="border-t border-border">
-          {item.components.map((comp, idx) => {
-            return (
-              <div
-                key={idx}
-                className="flex items-center gap-3 px-4 py-2.5 border-t border-border hover:bg-surface-2 transition-colors"
-              >
-                <div className="w-10 h-7 flex items-center justify-center shrink-0">
+          {item.components.map((comp, idx) => (
+            <div
+              key={idx}
+              className="flex items-center gap-3 px-4 py-2.5 border-t border-border hover:bg-surface-2 transition-colors"
+            >
+              <div className="w-10 h-7 flex items-center justify-center shrink-0">
+                {comp.image ? (
                   <img
-                    src={comp.image || placeholder}
+                    src={comp.image}
                     alt=""
                     className="w-8 h-6 rounded object-cover"
                   />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <span className="text-xs text-text-muted shrink-0">{comp.category}</span>
-                </div>
-                <span className="text-sm text-text-primary shrink-0 max-w-[200px] truncate">
-                  {comp.name}
-                </span>
-                <span className="text-xs text-text-muted shrink-0 hidden sm:block">
-                  {comp.specs}
-                </span>
-                <span className="text-sm text-text-muted shrink-0">× {comp.quantity}</span>
+                ) : (
+                  <div className="w-8 h-6 bg-surface-3 rounded" />
+                )}
               </div>
-            )
-          })}
+              <span className="text-xs text-text-muted shrink-0 w-24">{comp.category}</span>
+              <span className="text-sm text-text-primary shrink-0 flex-1 min-w-0 truncate">
+                {comp.name}
+              </span>
+              <span className="text-xs text-text-muted shrink-0 hidden sm:block max-w-[120px] truncate">
+                {comp.specs}
+              </span>
+              <span className="text-sm text-text-muted shrink-0">{comp.quantity} шт.</span>
+            </div>
+          ))}
         </div>
       )}
     </div>

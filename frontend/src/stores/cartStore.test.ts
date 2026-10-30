@@ -4,7 +4,7 @@ import { useCartStore } from './cartStore'
 describe('Cart store', () => {
   beforeEach(() => {
     useCartStore.getState().clear()
-    useCartStore.setState({ orders: [], nextItemId: 1000 })
+    useCartStore.setState({ orders: [], nextOrderId: 1000 })
   })
 
   it('starts empty', () => {
@@ -174,9 +174,9 @@ describe('Cart store', () => {
       specs: ['spec1'],
       category: 'test',
     })
-    const orders = useCartStore.getState().placeOrder()
-    expect(orders[0]).toHaveLength(1)
-    expect(orders[0][0].total).toBe(1000)
+    const order = useCartStore.getState().placeOrder()
+    expect(order.items).toHaveLength(1)
+    expect(order.items[0].total).toBe(1000)
     expect(useCartStore.getState().items).toEqual([])
     expect(useCartStore.getState().orders).toHaveLength(1)
   })
@@ -198,8 +198,8 @@ describe('Cart store', () => {
       specs: ['spec2'],
       category: 'test',
     })
-    const orders = useCartStore.getState().placeOrder()
-    expect(orders[0]).toHaveLength(2)
-    expect(orders[0].every(o => 'timestamp' in o && typeof o.timestamp === 'number')).toBe(true)
+    const order = useCartStore.getState().placeOrder()
+    expect(order.items).toHaveLength(2)
+    expect(order.items.every((o: typeof order.items[0]) => 'timestamp' in o && typeof o.timestamp === 'number')).toBe(true)
   })
 })

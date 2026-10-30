@@ -3,14 +3,13 @@ import { ProductCartItem } from '../components/ProductCartItem'
 import { BuildCartCard } from '../components/BuildCartCard'
 import { OrderSummary } from '../components/OrderSummary'
 import { useCartStore, seedDemoCart } from '../stores/cartStore'
-import type { RegularCartItem, BuildCartItem } from '../stores/cartStore'
+import type { RegularCartItem, BuildCartItem, Order } from '../stores/cartStore'
 import { useState } from 'react'
 import { Link } from 'react-router'
 
 interface DemoOrderMessage {
   type: 'success'
-  orderId: number
-  itemCount: number
+  order: Order
 }
 
 export function CartPage() {
@@ -22,14 +21,11 @@ export function CartPage() {
   const buildItems = items.filter((i): i is BuildCartItem => 'components' in i)
 
   const handleCheckout = () => {
-    const orders = placeOrder()
-    if (orders[0]?.length) {
-      setOrderMessage({
-        type: 'success',
-        orderId: orders[0][0].id,
-        itemCount: orders[0].reduce((sum, o) => sum + o.quantity, 0),
-      })
-    }
+    const order = placeOrder()
+    setOrderMessage({
+      type: 'success',
+      order,
+    })
   }
 
   return (
@@ -48,7 +44,7 @@ export function CartPage() {
               </svg>
               <h2 className="text-2xl font-bold text-green-700 dark:text-green-400 mb-2">Спасибо!</h2>
               <p className="text-text-muted mb-4">
-                Ваш демо-заказ #000{orderMessage.orderId} на {orderMessage.itemCount} товар(ов) оформлен.
+                Ваш демо-заказ #000{orderMessage.order.id} на {orderMessage.order.itemCount} товар(ов) на сумму {orderMessage.order.total.toLocaleString('ru-RU')} ₽ оформлен.
               </p>
               <p className="text-sm text-text-muted">
                 Запись сохранена в истории заказов (раздел в разработке).

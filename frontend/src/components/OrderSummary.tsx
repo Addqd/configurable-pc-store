@@ -6,11 +6,12 @@ interface OrderSummaryProps {
   showCheckoutButton?: boolean
 }
 
+const FREE_SHIPPING_THRESHOLD = 50000
+
 export function OrderSummary({ onCheckout, showCheckoutButton = true }: OrderSummaryProps) {
   const totalItems = useCartStore((s) => s.totalItems())
   const totalPrice = useCartStore((s) => s.totalPrice())
-  const freeShippingThreshold = 50000
-  const isFreeShipping = totalPrice >= freeShippingThreshold
+  const isFreeShipping = totalPrice >= FREE_SHIPPING_THRESHOLD
 
   return (
     <div className="bg-surface border border-border rounded-xl p-5 sticky top-20">
@@ -30,7 +31,11 @@ export function OrderSummary({ onCheckout, showCheckoutButton = true }: OrderSum
         </div>
         <div className="flex justify-between text-sm">
           <span className="text-text-secondary">Доставка</span>
-          <span className="text-text-primary">Бесплатно</span>
+          {isFreeShipping ? (
+            <span className="text-text-primary">Бесплатно</span>
+          ) : (
+            <span className="text-text-muted">Рассчитывается отдельно</span>
+          )}
         </div>
       </div>
 
@@ -60,7 +65,7 @@ export function OrderSummary({ onCheckout, showCheckoutButton = true }: OrderSum
           <p className="text-xs text-text-muted mt-0.5">
             {isFreeShipping
               ? 'При заказе от 50 000 ₽'
-              : `До бесплатной доставки ещё ${formatPrice(freeShippingThreshold - totalPrice)}`
+              : `Осталось ${formatPrice(FREE_SHIPPING_THRESHOLD - totalPrice)} до бесплатной доставки`
             }
           </p>
         </div>
