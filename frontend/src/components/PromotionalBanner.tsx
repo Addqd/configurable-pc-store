@@ -1,11 +1,14 @@
+import { Link } from 'react-router'
 import { HiMiniArrowRight } from 'react-icons/hi2'
+import type { ReactNode } from 'react'
 
 interface PromotionalBannerProps {
   backgroundImage: string
-  title: React.ReactNode
+  title: ReactNode
   description: string
   ctaText: string
   ctaHref: string
+  paddingY?: string
 }
 
 export function PromotionalBanner({
@@ -14,31 +17,77 @@ export function PromotionalBanner({
   description,
   ctaText,
   ctaHref,
+  paddingY = '',
 }: PromotionalBannerProps) {
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-primary/5 to-primary/10">
-      {/* Full-width image */}
+    <div
+      data-testid="promotional-banner"
+      className="relative w-full overflow-hidden rounded-2xl"
+    >
       <img
         src={backgroundImage}
         alt=""
-        className="w-full h-auto block"
+        className="block w-full h-auto"
       />
-      {/* Text overlay */}
-      <div className="absolute inset-0 flex flex-col justify-center">
-        <div className="w-full px-6 lg:px-10 max-w-lg">
-          <h2 className="text-xl lg:text-2xl font-bold text-text-primary mb-2 leading-tight lg:mb-3">
+
+      <div
+        className="
+          px-5 py-5
+          min-[1100px]:absolute
+          min-[1100px]:inset-0
+          min-[1100px]:flex
+          min-[1100px]:items-center
+          min-[1100px]:p-0
+        "
+      >
+        <div
+          data-testid="banner-content"
+          className={`
+            min-w-0
+            min-[1100px]:w-[43%]
+            min-[1100px]:pl-[clamp(20px,3vw,52px)]
+            min-[1100px]:pr-3
+            ${paddingY}
+          `}
+        >
+          <h2
+            className="
+              font-bold text-text-primary
+              text-[clamp(18px,1.6vw,28px)]
+              leading-[1.15]
+              mb-[clamp(6px,0.55vw,10px)]
+            "
+          >
             {title}
           </h2>
-          <p className="text-xs lg:text-sm text-text-secondary mb-4 lg:mb-6 leading-relaxed">
+
+          <p
+            className="
+              text-text-secondary
+              text-[clamp(12px,0.9vw,16px)]
+              leading-[1.4]
+              mb-[clamp(6px,0.8vw,16px)]
+            "
+          >
             {description}
           </p>
-          <a
-            href={ctaHref}
-            className="inline-flex items-center gap-2 bg-primary hover:bg-primary-hover text-white font-medium px-5 py-2.5 lg:px-6 lg:py-3 rounded-lg text-sm transition-colors self-start"
+
+          <Link
+            to={ctaHref}
+            className="
+              inline-flex items-center gap-2
+              rounded-lg bg-primary text-white
+              font-medium
+              text-[clamp(12px,0.85vw,15px)]
+              px-[clamp(14px,1.5vw,28px)]
+              py-[clamp(7px,0.8vw,12px)]
+              transition-colors
+              hover:bg-primary-hover
+            "
           >
             {ctaText}
             <HiMiniArrowRight className="w-4 h-4" />
-          </a>
+          </Link>
         </div>
       </div>
     </div>

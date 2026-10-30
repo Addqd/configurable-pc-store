@@ -30,7 +30,7 @@ interface NavigationMenuProps {
 
 export function NavigationMenu({ onClose }: NavigationMenuProps) {
   return (
-    <div className="absolute top-full left-0 right-0 sm:left-4 sm:right-auto sm:w-[280px] w-[calc(100%-2rem)] bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-150">
+    <div className="w-[280px] max-w-[calc(100vw-16px)] bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] py-2">
       {MENU_ITEMS.map((item, index) => (
         <div key={item.label}>
           {index === SEPARATOR_INDEX && <div className="mx-4 my-1 border-t border-border" />}

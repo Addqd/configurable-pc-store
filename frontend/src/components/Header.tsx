@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback } from 'react'
 import { useUIStore } from '../stores/uiStore'
 import { useCartStore } from '../stores/cartStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
@@ -8,8 +8,7 @@ import placeholder from '../assets/placeholder.jpg'
 import { NavigationMenu } from './NavigationMenu'
 import { SearchDropdown } from './SearchDropdown'
 import { ProfileDropdown } from './ProfileDropdown'
-
-const DROPDOWN_GAP = 8
+import { HeaderPopup } from './HeaderPopup'
 
 const DEMO_USER = {
   name: 'Анна Петрова',
@@ -23,87 +22,24 @@ export function Header() {
   const totalItems = useCartStore((s) => s.totalItems())
   const headerRef = useRef<HTMLElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
-  const navTriggerRef = useRef<HTMLButtonElement>(null)
-  const searchInputRef = useRef<HTMLDivElement>(null)
-  const profileTriggerRef = useRef<HTMLDivElement>(null)
-  const [navPos, setNavPos] = useState<{ top: number }>({ top: 0 })
-  const [searchPos, setSearchPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 })
-  const [profilePos, setProfilePos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
-
-  const computeDropdownPositions = useCallback(() => {
-    if (!headerRef.current) return
-    const headerRect = headerRef.current.getBoundingClientRect()
-    const top = headerRect.bottom + DROPDOWN_GAP
-
-    if (navTriggerRef.current) {
-      const rect = navTriggerRef.current.getBoundingClientRect()
-      setNavPos({ top: rect.bottom + DROPDOWN_GAP })
-    } else {
-      setNavPos({ top })
-    }
-
-    if (searchInputRef.current) {
-      const rect = searchInputRef.current.getBoundingClientRect()
-      setSearchPos({ top, left: rect.left, width: rect.width })
-    } else {
-      setSearchPos({ top, left: 0, width: 0 })
-    }
-
-    if (profileTriggerRef.current) {
-      const avatarEl = profileTriggerRef.current.querySelector('button')
-      if (avatarEl) {
-        const avatarRect = avatarEl.getBoundingClientRect()
-        // We need the menu width; calculate it on open
-        setProfilePos({ top, left: 0 })
-      }
-    }
-  }, [])
-
-  useEffect(() => {
-    if (navOpen) computeDropdownPositions()
-  }, [navOpen, computeDropdownPositions])
-
-  useEffect(() => {
-    if (searchOpen) computeDropdownPositions()
-  }, [searchOpen, computeDropdownPositions])
-
-  useEffect(() => {
-    if (profileOpen) computeDropdownPositions()
-  }, [profileOpen, computeDropdownPositions])
-
-  const computeProfilePosition = useCallback((menuWidth: number) => {
-    if (!profileTriggerRef.current) return { top: 0, left: 0 }
-    const avatarEl = profileTriggerRef.current.querySelector('button')
-    if (!avatarEl) return { top: 0, left: 0 }
-    const avatarRect = avatarEl.getBoundingClientRect()
-    const headerRect = headerRef.current?.getBoundingClientRect()
-    const top = headerRect?.bottom + DROPDOWN_GAP ?? avatarRect.bottom + DROPDOWN_GAP
-    const left = avatarRect.left + avatarRect.width / 2 - menuWidth / 2
-    return { top, left }
-  }, [])
-
-  const handleProfileOpen = useCallback(() => {
-    toggleProfile()
-    // Delay position computation until the dropdown is rendered
-    requestAnimationFrame(() => {
-      const menuEl = document.querySelector('[data-testid="profile-dropdown"]')
-      if (menuEl) {
-        const menuWidth = menuEl.getBoundingClientRect().width
-        const pos = computeProfilePosition(menuWidth)
-        setProfilePos(pos)
-      }
-    })
-  }, [toggleProfile, computeProfilePosition])
+  const navButtonRef = useRef<HTMLButtonElement>(null)
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  const avatarRef = useRef<HTMLImageElement>(null)
 
   // Close all panels when clicking outside
   useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement
-      if (headerRef.current && !headerRef.current.contains(target)) {
-        closeNav()
-        closeSearch()
-        closeProfile()
-      }
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target
+      if (!(target instanceof Element)) return
+
+      const insideHeader = headerRef.current?.contains(target)
+      const insidePopup = target.closest('[data-header-popup]')
+
+      if (insideHeader || insidePopup) return
+
+      closeNav()
+      closeSearch()
+      closeProfile()
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
@@ -118,7 +54,6 @@ export function Header() {
       const trimmed = searchQuery.trim()
       if (trimmed) {
         closeSearch()
-        // Navigate via Link component
         window.location.href = `/catalog?q=${encodeURIComponent(trimmed)}`
       }
     } else if (e.key === 'Tab') {
@@ -134,6 +69,7 @@ export function Header() {
       <div className="max-w-[1320px] mx-auto px-4 h-16 flex items-center gap-4">
         {/* Hamburger */}
         <button
+          ref={navButtonRef}
           onClick={toggleNav}
           className="w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-3 transition-colors text-text-primary"
           aria-label="Открыть меню"
@@ -151,7 +87,7 @@ export function Header() {
           <div className="relative">
             <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input
-              ref={searchRef}
+              ref={searchInputRef}
               type="text"
               placeholder="Поиск комплектующих, сборок и аксессуаров..."
               className="w-full h-10 pl-10 pr-10 bg-surface-3 border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
@@ -172,7 +108,6 @@ export function Header() {
               </button>
             )}
           </div>
-          {searchOpen && searchQuery.trim() && <SearchDropdown />}
         </div>
 
         {/* Cart */}
@@ -196,15 +131,49 @@ export function Header() {
             className="w-10 h-10 flex items-center justify-center rounded-full hover:opacity-80 transition-opacity"
             aria-label="Профиль"
           >
-            <img src={DEMO_USER.avatar} alt="" className="w-8 h-8 rounded-full" />
+            <img
+              ref={avatarRef}
+              src={DEMO_USER.avatar}
+              alt=""
+              className="w-8 h-8 rounded-full"
+            />
             <FiChevronDown className="w-3.5 h-3.5 ml-1 text-text-muted" />
           </button>
-
-          {profileOpen && <ProfileDropdown user={DEMO_USER} />}
         </div>
 
         {/* Nav Menu */}
-        {navOpen && <NavigationMenu onClose={toggleNav} />}
+        {navOpen && (
+          <HeaderPopup
+            headerRef={headerRef}
+            anchorRef={navButtonRef}
+            placement="start"
+            testId="navigation-popup"
+          >
+            <NavigationMenu onClose={toggleNav} />
+          </HeaderPopup>
+        )}
+
+        {searchOpen && (
+          <HeaderPopup
+            headerRef={headerRef}
+            anchorRef={searchInputRef}
+            placement="stretch"
+            testId="search-popup"
+          >
+            <SearchDropdown />
+          </HeaderPopup>
+        )}
+
+        {profileOpen && (
+          <HeaderPopup
+            headerRef={headerRef}
+            anchorRef={avatarRef}
+            placement="center"
+            testId="profile-popup"
+          >
+            <ProfileDropdown user={DEMO_USER} />
+          </HeaderPopup>
+        )}
       </div>
     </header>
   )

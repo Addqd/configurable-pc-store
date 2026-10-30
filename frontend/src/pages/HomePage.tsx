@@ -49,6 +49,7 @@ export function HomePage() {
               description="2D-конфигуратор поможет подобрать совместимые комплектующие и рассчитать стоимость сборки."
               ctaText="Перейти к конфигуратору"
               ctaHref="/builder"
+              paddingY="min-[1100px]:py-4"
             />
           </div>
 

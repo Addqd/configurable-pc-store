@@ -31,7 +31,7 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
 
   return (
     <div
-      className="absolute top-full right-0 mt-2 w-[280px] bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] z-50 py-2 animate-in fade-in slide-in-from-top-2 duration-150"
+      className="w-[280px] max-w-[calc(100vw-16px)] bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] py-2"
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
     >

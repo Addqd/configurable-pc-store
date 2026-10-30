@@ -12,7 +12,7 @@ export function SearchDropdown() {
 
   return (
     <div
-      className="absolute top-full left-0 right-0 mt-1 bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] z-50 py-4 animate-in fade-in slide-in-from-top-1 duration-150"
+      className="w-full bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] py-4"
       onMouseDown={(e) => e.stopPropagation()}
       onMouseUp={(e) => e.stopPropagation()}
     >
