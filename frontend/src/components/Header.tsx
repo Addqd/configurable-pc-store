@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react'
 import { useUIStore } from '../stores/uiStore'
 import { useCartStore } from '../stores/cartStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
+import { Link } from 'react-router'
 import logo from '../assets/home/logo-pc-builder.png'
 import placeholder from '../assets/placeholder.jpg'
 import { NavigationMenu } from './NavigationMenu'
@@ -80,8 +81,8 @@ export function Header() {
         </div>
 
         {/* Cart */}
-        <button
-          onClick={toggleProfile}
+        <Link
+          to="/cart"
           className="relative w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-3 transition-colors text-text-primary"
           aria-label="Корзина"
         >
@@ -91,7 +92,7 @@ export function Header() {
               {totalItems}
             </span>
           )}
-        </button>
+        </Link>
 
         {/* Profile */}
         <button

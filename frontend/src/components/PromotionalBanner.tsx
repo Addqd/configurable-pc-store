@@ -6,14 +6,6 @@ interface PromotionalBannerProps {
   description: string
   ctaText: string
   ctaHref: string
-}
-
-interface PromotionalBannerProps {
-  backgroundImage: string
-  title: React.ReactNode
-  description: string
-  ctaText: string
-  ctaHref: string
   imageObjectPosition?: string
 }
 

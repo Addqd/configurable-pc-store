@@ -1,9 +1,7 @@
 import { useState } from 'react'
 import { FiShoppingCart, FiPhone, FiFileText } from 'react-icons/fi'
-import { HiMiniCube, HiMiniTag } from 'react-icons/hi2'
-import { TbTool } from 'react-icons/tb'
-import { SiTelegram } from 'react-icons/si'
-import { IoLogoYoutube, IoMail } from 'react-icons/io5'
+import { HiMiniCube, HiMiniChevronRight } from 'react-icons/hi2'
+import { SiTelegram, SiVk, SiYoutube, SiGmail } from 'react-icons/si'
 import logo from '../assets/home/logo-pc-builder.png'
 
 interface FooterLink {
@@ -98,7 +96,7 @@ export function Footer() {
                         className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-primary transition-colors group"
                       >
                         {link.label}
-                        <HiMiniTag className="w-3.5 h-3.5 text-text-muted group-hover:text-primary transition-colors opacity-0 group-hover:opacity-100" />
+                        <HiMiniChevronRight className="w-3.5 h-3.5 text-text-muted group-hover:text-primary transition-colors opacity-0 group-hover:opacity-100" />
                       </a>
                     </li>
                   ))}
@@ -136,21 +134,21 @@ export function Footer() {
                 className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors"
                 aria-label="VK"
               >
-                <TbTool className="w-5 h-5" />
+                <SiVk className="w-5 h-5" />
               </a>
               <a
                 href="https://youtube.com/example"
                 className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors"
                 aria-label="YouTube"
               >
-                <IoLogoYoutube className="w-5 h-5" />
+                <SiYoutube className="w-5 h-5" />
               </a>
               <a
                 href="mailto:info@pcbuilder.example"
                 className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors"
                 aria-label="Email"
               >
-                <IoMail className="w-5 h-5" />
+                <SiGmail className="w-5 h-5" />
               </a>
             </div>
           </div>

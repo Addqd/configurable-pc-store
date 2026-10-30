@@ -57,10 +57,7 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
       <div className="px-4 py-2 border-t border-border">
         <button
           className="w-full flex items-center justify-between px-1 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors rounded-lg"
-          onClick={() => {
-            toggle()
-            closeProfile()
-          }}
+          onClick={toggle}
         >
           <div className="flex items-center gap-3">
             {isDark ? (
