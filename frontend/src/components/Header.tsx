@@ -2,7 +2,7 @@ import { useRef, useEffect, useCallback } from 'react'
 import { useUIStore } from '../stores/uiStore'
 import { useCartStore } from '../stores/cartStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import logo from '../assets/home/logo-pc-builder.png'
 import placeholder from '../assets/placeholder.jpg'
 import { NavigationMenu } from './NavigationMenu'
@@ -17,6 +17,7 @@ const DEMO_USER = {
 }
 
 export function Header() {
+  const navigate = useNavigate()
   const { navOpen, searchOpen, profileOpen, toggleNav, toggleSearch, toggleProfile, closeSearch, setSearchQuery, searchQuery, closeNav, closeProfile } =
     useUIStore()
   const totalItems = useCartStore((s) => s.totalItems())
@@ -54,7 +55,7 @@ export function Header() {
       const trimmed = searchQuery.trim()
       if (trimmed) {
         closeSearch()
-        window.location.href = `/catalog?q=${encodeURIComponent(trimmed)}`
+        navigate(`/catalog?q=${encodeURIComponent(trimmed)}`)
       }
     } else if (e.key === 'Tab') {
       // Allow tab to escape without closing
@@ -78,9 +79,10 @@ export function Header() {
         </button>
 
         {/* Logo */}
-        <a href="/" className="shrink-0">
+        <Link to="/" className="shrink-0 flex items-center gap-2">
           <img src={logo} alt="PC Builder" className="h-9 w-auto" />
-        </a>
+          <span className="text-lg font-bold text-text-primary hidden sm:inline">PC BUILDER</span>
+        </Link>
 
         {/* Search */}
         <div className="flex-1 relative">

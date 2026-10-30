@@ -19,6 +19,8 @@ export function ProductCard({ product }: ProductCardProps) {
       name: product.name,
       price: product.price,
       image: product.image,
+      specs: product.specs,
+      category: product.category,
     })
   }
 
