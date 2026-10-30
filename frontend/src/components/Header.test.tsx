@@ -79,7 +79,7 @@ describe('Header component', () => {
 
   it('shows cart badge when items exist', () => {
     useCartStore.getState().addItem({
-      id: 1, name: 'Test', price: 1000, image: 'test.jpg'
+      id: 1, name: 'Test', price: 1000, image: 'test.jpg', specs: ['spec'], category: 'test'
     })
     render(<MemoryRouter><Header /></MemoryRouter>)
     expect(screen.getByText('1')).toBeTruthy()
