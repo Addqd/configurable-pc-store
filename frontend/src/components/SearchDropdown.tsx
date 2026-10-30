@@ -5,9 +5,10 @@ import { formatPrice } from '../utils/formatPrice'
 
 export function SearchDropdown() {
   const { searchQuery, closeSearch } = useUIStore()
-  const results = filterProducts(searchQuery)
+  const trimmed = searchQuery.trim()
+  const results = trimmed ? filterProducts(trimmed) : []
 
-  if (results.length === 0 && !searchQuery) return null
+  if (results.length === 0 && !trimmed) return null
 
   return (
     <div

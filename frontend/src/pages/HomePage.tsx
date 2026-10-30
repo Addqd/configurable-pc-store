@@ -33,7 +33,6 @@ export function HomePage() {
               description="Тысячи комплектующих, готовые сборки, периферия и аксессуары от ведущих брендов. Найди всё для своего ПК в одном месте."
               ctaText="Перейти в каталог"
               ctaHref="/catalog"
-              imageObjectPosition="right center"
             />
           </div>
 
@@ -50,7 +49,6 @@ export function HomePage() {
               description="2D-конфигуратор поможет подобрать совместимые комплектующие и рассчитать стоимость сборки."
               ctaText="Перейти к конфигуратору"
               ctaHref="/builder"
-              imageObjectPosition="60% center"
             />
           </div>
 

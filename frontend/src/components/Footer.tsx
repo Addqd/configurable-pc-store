@@ -51,10 +51,10 @@ const COLUMNS: FooterColumn[] = [
     title: 'Документы',
     icon: FiFileText,
     links: [
-      { label: 'Политика конфиденциальности', href: '#privacy' },
-      { label: 'Пользовательское соглашение', href: '#terms' },
-      { label: 'Публичная оферта', href: '#offer' },
-      { label: 'Обработка персональных данных', href: '#personal-data' },
+      { label: 'Политика конфиденциальности (раздел в разработке)', href: '#privacy' },
+      { label: 'Пользовательское соглашение (раздел в разработке)', href: '#terms' },
+      { label: 'Публичная оферта (раздел в разработке)', href: '#offer' },
+      { label: 'Обработка персональных данных (раздел в разработке)', href: '#personal-data' },
     ],
   },
 ]
@@ -157,7 +157,7 @@ export function Footer() {
         {/* Demo toast */}
         {showToast && (
           <div className="fixed bottom-4 right-4 bg-surface border border-border rounded-lg shadow-lg px-4 py-3 text-sm text-text-secondary z-50 animate-in fade-in slide-in-from-bottom-2">
-            Авторизация ещё не реализована
+            Форма обратной связи будет доступна на следующем этапе.
           </div>
         )}
       </div>

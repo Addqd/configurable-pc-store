@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { NavigationMenu } from './NavigationMenu'
-import { useUIStore } from '../stores/uiStore'
 
 vi.mock('react-icons/fi', () => ({
   FiHome: () => <div data-testid="fi-home" />,
@@ -22,13 +22,14 @@ vi.mock('react-icons/hi2', () => ({
 }))
 
 describe('NavigationMenu component', () => {
-  beforeEach(() => {
-    useUIStore.getState().closeNav()
-    cleanup()
-  })
+  afterEach(() => cleanup())
 
   it('renders all 11 menu items', () => {
-    render(<NavigationMenu onClose={() => {}} />)
+    render(
+      <MemoryRouter>
+        <NavigationMenu onClose={() => {}} />
+      </MemoryRouter>
+    )
     const items = [
       'Главная',
       'Готовые сборки',
@@ -49,15 +50,32 @@ describe('NavigationMenu component', () => {
 
   it('calls onClose when a menu item is clicked', () => {
     const onClose = vi.fn()
-    render(<NavigationMenu onClose={onClose} />)
+    render(
+      <MemoryRouter>
+        <NavigationMenu onClose={onClose} />
+      </MemoryRouter>
+    )
     fireEvent.click(screen.getByText('Главная'))
     expect(onClose).toHaveBeenCalled()
   })
 
   it('renders icons for each menu item', () => {
-    render(<NavigationMenu onClose={() => {}} />)
-    // Check that icon elements exist
-    const iconElements = screen.container.querySelectorAll('[data-testid]')
+    render(
+      <MemoryRouter>
+        <NavigationMenu onClose={() => {}} />
+      </MemoryRouter>
+    )
+    const iconElements = document.querySelectorAll('[data-testid]')
     expect(iconElements.length).toBeGreaterThan(0)
+  })
+
+  it('renders a separator line', () => {
+    render(
+      <MemoryRouter>
+        <NavigationMenu onClose={() => {}} />
+      </MemoryRouter>
+    )
+    const separators = document.querySelectorAll('.border-t')
+    expect(separators.length).toBeGreaterThanOrEqual(1)
   })
 })

@@ -3,7 +3,5 @@ export function formatPrice(price: number): string {
     style: 'currency',
     currency: 'RUB',
     maximumFractionDigits: 0,
-  })
-    .format(price)
-    .replace('₽', '₽')
+  }).format(price)
 }

@@ -6,7 +6,6 @@ interface PromotionalBannerProps {
   description: string
   ctaText: string
   ctaHref: string
-  imageObjectPosition?: string
 }
 
 export function PromotionalBanner({
@@ -15,13 +14,18 @@ export function PromotionalBanner({
   description,
   ctaText,
   ctaHref,
-  imageObjectPosition = 'center right',
 }: PromotionalBannerProps) {
   return (
     <div className="relative w-full overflow-hidden rounded-2xl bg-gradient-to-r from-primary/5 to-primary/10">
-      <div className="flex flex-col lg:flex-row items-stretch">
-        {/* Text content */}
-        <div className="lg:w-[40%] p-6 lg:p-10 flex flex-col justify-center z-10">
+      {/* Full-width image */}
+      <img
+        src={backgroundImage}
+        alt=""
+        className="w-full h-auto block"
+      />
+      {/* Text overlay */}
+      <div className="absolute inset-0 flex flex-col justify-center">
+        <div className="w-full px-6 lg:px-10 max-w-lg">
           <h2 className="text-xl lg:text-2xl font-bold text-text-primary mb-2 leading-tight lg:mb-3">
             {title}
           </h2>
@@ -35,16 +39,6 @@ export function PromotionalBanner({
             {ctaText}
             <HiMiniArrowRight className="w-4 h-4" />
           </a>
-        </div>
-
-        {/* Background image */}
-        <div className="lg:w-[60%] relative h-[120px] lg:h-auto lg:min-h-[160px]">
-          <img
-            src={backgroundImage}
-            alt=""
-            className="absolute inset-0 w-full h-full object-cover"
-            style={{ objectPosition: imageObjectPosition }}
-          />
         </div>
       </div>
     </div>

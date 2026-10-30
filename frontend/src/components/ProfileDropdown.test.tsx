@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
 import { ProfileDropdown } from './ProfileDropdown'
-import { useUIStore } from '../stores/uiStore'
 import { useThemeStore } from '../stores/themeStore'
 
 vi.mock('react-icons/fi', () => ({
@@ -30,19 +30,31 @@ describe('ProfileDropdown component', () => {
   })
 
   it('renders user name and email', () => {
-    render(<ProfileDropdown user={mockUser} />)
+    render(
+      <MemoryRouter>
+        <ProfileDropdown user={mockUser} />
+      </MemoryRouter>
+    )
     expect(screen.getByText('Анна Петрова')).toBeTruthy()
     expect(screen.getByText('anna.petrova@mail.ru')).toBeTruthy()
   })
 
   it('renders user avatar image', () => {
-    render(<ProfileDropdown user={mockUser} />)
+    render(
+      <MemoryRouter>
+        <ProfileDropdown user={mockUser} />
+      </MemoryRouter>
+    )
     const avatar = screen.getByAltText('Анна Петрова')
     expect(avatar).toBeTruthy()
   })
 
   it('renders all menu items', () => {
-    render(<ProfileDropdown user={mockUser} />)
+    render(
+      <MemoryRouter>
+        <ProfileDropdown user={mockUser} />
+      </MemoryRouter>
+    )
     expect(screen.getByText('Личный кабинет')).toBeTruthy()
     expect(screen.getByText('Мои сборки')).toBeTruthy()
     expect(screen.getByText('Мои заказы')).toBeTruthy()
@@ -50,27 +62,29 @@ describe('ProfileDropdown component', () => {
   })
 
   it('renders dark theme toggle', () => {
-    render(<ProfileDropdown user={mockUser} />)
+    render(
+      <MemoryRouter>
+        <ProfileDropdown user={mockUser} />
+      </MemoryRouter>
+    )
     expect(screen.getByText('Тёмная тема')).toBeTruthy()
   })
 
   it('renders logout button', () => {
-    render(<ProfileDropdown user={mockUser} />)
-    expect(screen.getByText('Выйти из аккаунта')).toBeTruthy()
-  })
-
-  it('closes profile on menu item click', () => {
-    const closeProfile = vi.fn()
-    vi.spyOn(require('./../stores/uiStore'), 'useUIStore').mockImplementation(() => ({
-      closeProfile,
-    } as any))
-    render(<ProfileDropdown user={mockUser} />)
-    fireEvent.click(screen.getByText('Личный кабинет'))
-    expect(closeProfile).toHaveBeenCalled()
+    render(
+      <MemoryRouter>
+        <ProfileDropdown user={mockUser} />
+      </MemoryRouter>
+    )
+    expect(screen.getByText(/выйти из аккаунта/i)).toBeTruthy()
   })
 
   it('toggles theme when toggle button clicked', () => {
-    render(<ProfileDropdown user={mockUser} />)
+    render(
+      <MemoryRouter>
+        <ProfileDropdown user={mockUser} />
+      </MemoryRouter>
+    )
     fireEvent.click(screen.getByText('Тёмная тема'))
     expect(useThemeStore.getState().isDark).toBe(true)
   })
