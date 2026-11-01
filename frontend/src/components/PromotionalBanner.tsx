@@ -1,4 +1,3 @@
-
 import { Link } from 'react-router'
 import { HiMiniArrowRight } from 'react-icons/hi2'
 import type { ReactNode } from 'react'
@@ -55,7 +54,7 @@ export function PromotionalBanner({
         >
           <h2
             className="
-              font-bold text-text-primary
+              font-bold text-[#08090C]
               text-[clamp(18px,1.6vw,28px)]
               leading-[1.15]
               mb-[clamp(6px,0.55vw,10px)]
@@ -67,7 +66,7 @@ export function PromotionalBanner({
 
           <p
             className="
-              text-text-secondary
+              text-[#475569]
               text-[clamp(12px,0.9vw,16px)]
               leading-[1.4]
               mb-[clamp(6px,0.8vw,16px)]
@@ -81,7 +80,7 @@ export function PromotionalBanner({
             to={ctaHref}
             className="
               inline-flex items-center gap-2
-              rounded-lg bg-primary text-white
+              rounded-lg bg-primary text-[#08090C]
               font-medium
               text-[clamp(12px,0.85vw,15px)]
               px-[clamp(14px,1.5vw,28px)]
@@ -89,14 +88,10 @@ export function PromotionalBanner({
               transition-colors
               hover:bg-primary-hover
             "
-            style={
-              isBuilder
-                ? { paddingTop: 6, paddingBottom: 6 }
-                : undefined
-            }
+            style={isBuilder ? { paddingTop: 6, paddingBottom: 6 } : undefined}
           >
             {ctaText}
-            <HiMiniArrowRight className="w-4 h-4" />
+            <HiMiniArrowRight className="w-4 h-4 shrink-0" />
           </Link>
         </div>
       </div>

@@ -1,8 +1,9 @@
+
 @import "tailwindcss";
 
 @theme {
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
+  --color-primary: #0059fd;
+  --color-primary-hover: #004ce0;
   --color-primary-light: #dbeafe;
   --color-surface: #ffffff;
   --color-surface-2: #f8fafc;
@@ -24,7 +25,7 @@
   --radius-2xl: 1.25rem;
 }
 
-/* Dark mode CSS variables — Obsidian Black + Ice Blue */
+/* Dark mode — Obsidian Black + Ice Blue */
 .dark {
   --color-primary: #67c9ff;
   --color-primary-hover: #4db8f0;
@@ -60,4 +61,22 @@
     line-height: 1.5;
     transition: background-color 0.2s ease, color 0.2s ease;
   }
+}
+
+/* Мягкие полупрозрачные кнопки — светлая тема */
+html:not(.dark) .bg-primary {
+  background-color: rgba(0, 89, 253, 0.65);
+}
+
+html:not(.dark) .hover\:bg-primary-hover:hover {
+  background-color: rgba(0, 89, 253, 0.8);
+}
+
+/* Немного уменьшаем текст только второго баннера */
+[data-testid="promotional-banner"]:has(a[href="/builder"]) h2 {
+  font-size: clamp(17px, 1.5vw, 26px);
+}
+
+[data-testid="promotional-banner"]:has(a[href="/builder"]) p {
+  font-size: clamp(12px, 0.85vw, 15px);
 }

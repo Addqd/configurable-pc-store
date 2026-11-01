@@ -11,49 +11,52 @@ interface ProductCardProps {
 export function ProductCard({ product }: ProductCardProps) {
   const addItem = useCartStore((s) => s.addItem)
 
-  const handleCartClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
+  const handleCartClick = () => {
     addItem({
       id: product.id,
       name: product.name,
       price: product.price,
       image: product.image,
+      specs: product.specs,
+      category: product.category,
     })
   }
 
   return (
-    <div className="bg-surface border border-border rounded-lg hover:shadow-md hover:border-border-hover transition-all">
-      <Link
-        to={`/products/${product.slug}`}
-        className="flex items-center gap-3 p-3 group"
-      >
-        <img
-          src={product.image}
-          alt={product.name}
-          className="w-16 h-16 shrink-0 rounded-md object-cover bg-surface-3"
-        />
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium text-text-primary line-clamp-2 group-hover:text-primary transition-colors">
-            {product.name}
-          </h3>
-          {product.specs.map((spec) => (
-            <p key={spec} className="text-xs text-text-muted line-clamp-1 mt-0.5">
-              {spec}
+    <div className="rounded-lg border border-border bg-surface transition-all hover:border-border-hover hover:shadow-md">
+      <div className="flex items-center gap-3 p-3">
+        <Link
+          to={`/products/${product.slug}`}
+          className="group flex min-w-0 flex-1 items-center gap-3"
+        >
+          <img
+            src={product.image}
+            alt={product.name}
+            className="h-16 w-16 shrink-0 rounded-md bg-surface-3 object-contain"
+          />
+          <div className="min-w-0 flex-1">
+            <h3 className="line-clamp-2 text-sm font-medium text-text-primary transition-colors group-hover:text-primary">
+              {product.name}
+            </h3>
+            {product.specs.map((spec) => (
+              <p key={spec} className="mt-0.5 line-clamp-1 text-xs text-text-muted">
+                {spec}
+              </p>
+            ))}
+            <p className="mt-1 text-sm font-semibold text-text-primary">
+              {formatPrice(product.price)}
             </p>
-          ))}
-          <p className="text-sm font-semibold text-text-primary mt-1">
-            {formatPrice(product.price)}
-          </p>
-        </div>
-      </Link>
-      <button
-        onClick={handleCartClick}
-        className="w-8 h-8 mx-3 mb-3 shrink-0 flex items-center justify-center bg-primary/5 hover:bg-primary hover:text-white rounded-md transition-colors text-primary"
-        aria-label="Добавить в корзину"
-      >
-        <FiShoppingCart className="w-4 h-4" />
-      </button>
+          </div>
+        </Link>
+        <button
+          type="button"
+          onClick={handleCartClick}
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary hover:text-white dark:hover:text-[#08090C]"
+          aria-label="Добавить в корзину"
+        >
+          <FiShoppingCart className="h-4 w-4" />
+        </button>
+      </div>
     </div>
   )
 }

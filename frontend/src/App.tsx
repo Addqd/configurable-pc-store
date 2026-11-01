@@ -29,6 +29,21 @@ function ThemeProvider({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Apply initial theme immediately before first render
+if (typeof window !== 'undefined') {
+  const saved = localStorage.getItem('pc-builder-theme')
+  if (saved) {
+    try {
+      const parsed = JSON.parse(saved)
+      if (parsed?.state?.isDark) {
+        document.documentElement.classList.add('dark')
+      }
+    } catch {
+      // ignore
+    }
+  }
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
