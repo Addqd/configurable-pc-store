@@ -17,10 +17,11 @@ export function CartPage() {
   const placeOrder = useCartStore((s) => s.placeOrder)
   const [orderMessage, setOrderMessage] = useState<DemoOrderMessage | null>(null)
 
-  const regularItems = items.filter((i): i is RegularCartItem => 'category' in i && Array.isArray((i as RegularCartItem).specs))
+  const regularItems = items.filter((i): i is RegularCartItem => !('components' in i))
   const buildItems = items.filter((i): i is BuildCartItem => 'components' in i)
 
   const handleCheckout = () => {
+    if (items.length === 0) return
     const order = placeOrder()
     setOrderMessage({
       type: 'success',
@@ -34,8 +35,6 @@ export function CartPage() {
 
       <main className="pt-20 px-4">
         <div className="max-w-[1320px] mx-auto py-8">
-          <h1 className="text-2xl font-bold text-text-primary mb-6">Корзина</h1>
-
           {orderMessage ? (
             <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-xl p-8 text-center">
               <svg className="w-16 h-16 text-green-500 mx-auto mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -78,19 +77,25 @@ export function CartPage() {
               </div>
             </div>
           ) : (
-            <div className="flex flex-col lg:flex-row gap-6">
+            <div className="grid grid-cols-1 items-start gap-5 lg:grid-cols-[minmax(0,7fr)_minmax(320px,3fr)]">
               {/* Left: Product list */}
-              <div className="flex-1 space-y-4">
-                {regularItems.map((item) => (
-                  <ProductCartItem key={item.id} item={item} />
-                ))}
-                {buildItems.map((item) => (
-                  <BuildCartCard key={item.id} item={item} />
-                ))}
+              <div className="min-w-0 rounded-2xl border border-border bg-surface p-3 shadow-[0_5px_24px_var(--color-shadow)] sm:p-4">
+                <div className="divide-y divide-border">
+                  {regularItems.map((item) => (
+                    <ProductCartItem key={item.id} item={item} />
+                  ))}
+                </div>
+                {buildItems.length > 0 && (
+                  <div className="space-y-3 pt-2">
+                    {buildItems.map((item) => (
+                      <BuildCartCard key={item.id} item={item} />
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Right: Order summary */}
-              <div className="w-full lg:w-[340px] shrink-0">
+              <div className="min-w-0">
                 <OrderSummary onCheckout={handleCheckout} />
               </div>
             </div>

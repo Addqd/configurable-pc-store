@@ -19,6 +19,8 @@ export function PromotionalBanner({
   ctaHref,
   paddingY = '',
 }: PromotionalBannerProps) {
+  const isBuilder = ctaHref === '/builder'
+
   return (
     <div
       data-testid="promotional-banner"
@@ -57,6 +59,7 @@ export function PromotionalBanner({
               leading-[1.15]
               mb-[clamp(6px,0.55vw,10px)]
             "
+            style={isBuilder ? { marginBottom: 4 } : undefined}
           >
             {title}
           </h2>
@@ -68,6 +71,7 @@ export function PromotionalBanner({
               leading-[1.4]
               mb-[clamp(6px,0.8vw,16px)]
             "
+            style={isBuilder ? { marginBottom: 6 } : undefined}
           >
             {description}
           </p>
@@ -84,6 +88,7 @@ export function PromotionalBanner({
               transition-colors
               hover:bg-primary-hover
             "
+            style={isBuilder ? { paddingTop: 6, paddingBottom: 6 } : undefined}
           >
             {ctaText}
             <HiMiniArrowRight className="w-4 h-4 shrink-0" />

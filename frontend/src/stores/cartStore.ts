@@ -10,7 +10,10 @@ export interface BuildComponent {
   image?: string
 }
 
-export interface BuildCartItem extends BuildComponent {
+export interface BuildCartItem {
+  // Legacy fields are optional for compatibility with previously persisted demo carts.
+  category?: string
+  specs?: string
   id: number
   name: string
   price: number
@@ -54,9 +57,11 @@ export interface Order {
 interface CartState {
   items: CartItem[]
   orders: Order[]
+  favorites: number[]
   nextOrderId: number
   addItem: (item: Omit<RegularCartItem, 'quantity'>) => void
-  addBuild: (build: Omit<BuildCartItem, 'quantity' | 'isExpanded' | 'nextItemId'>) => void
+  toggleFavorite: (id: number) => void
+  addBuild: (build: Omit<BuildCartItem, 'quantity' | 'isExpanded'>) => void
   removeItem: (id: number) => void
   updateQuantity: (id: number, quantity: number) => void
   toggleBuildExpand: (id: number) => void
@@ -70,14 +75,16 @@ export const useCartStore = create<CartState>()(persist(
   (set, get) => ({
     items: [],
     orders: [],
+    favorites: [],
     nextOrderId: 1,
 
     addItem: (item) => {
-      const existing = get().items.find((i) => i.id === item.id)
+      if (!Number.isFinite(item.price) || item.price < 0) return
+      const existing = get().items.find((i) => i.id === item.id && !('components' in i))
       if (existing) {
         set({
           items: get().items.map((i) =>
-            i.id === item.id && 'category' in i
+            i.id === item.id && !('components' in i)
               ? { ...i, quantity: i.quantity + 1 }
               : i
           ),
@@ -88,12 +95,20 @@ export const useCartStore = create<CartState>()(persist(
       }
     },
 
+    toggleFavorite: (id) =>
+      set((s) => ({
+        favorites: s.favorites.includes(id)
+          ? s.favorites.filter((fid) => fid !== id)
+          : [...s.favorites, id],
+      })),
+
     addBuild: (build) => {
-      const existing = get().items.find((i) => i.id === build.id)
+      if (!Number.isFinite(build.price) || build.price < 0) return
+      const existing = get().items.find((i) => i.id === build.id && 'components' in i)
       if (existing) {
         set({
           items: get().items.map((i) =>
-            i.id === build.id
+            i.id === build.id && 'components' in i
               ? { ...i, quantity: i.quantity + 1 }
               : i
           ),
@@ -107,7 +122,8 @@ export const useCartStore = create<CartState>()(persist(
               quantity: 1,
               isExpanded: true,
               category: 'Готовые сборки',
-            } as BuildCartItem,
+              components: build.components.map((component) => ({ ...component })),
+            },
           ],
         })
       }
@@ -116,14 +132,14 @@ export const useCartStore = create<CartState>()(persist(
     removeItem: (id) =>
       set({ items: get().items.filter((i) => i.id !== id) }),
 
-    updateQuantity: (id, quantity) =>
+    updateQuantity: (id, quantity) => {
+      if (!Number.isSafeInteger(quantity)) return
       set({
-        items: get().items
-          .map((i) =>
-            i.id === id ? { ...i, quantity: Math.max(1, quantity) } : i
-          )
-          .filter((i) => i.quantity > 0),
-      }),
+        items: get().items.map((i) =>
+          i.id === id ? { ...i, quantity: Math.max(1, quantity) } : i
+        ),
+      })
+    },
 
     toggleBuildExpand: (id) =>
       set({
@@ -143,6 +159,8 @@ export const useCartStore = create<CartState>()(persist(
 
     placeOrder: () => {
       const items = get().items
+      if (items.length === 0) throw new Error('Нельзя оформить пустой заказ')
+      const timestamp = Date.now()
       const total = get().totalPrice()
       const itemCount = get().totalItems()
       const orderItems: OrderItem[] = items.map((i) => {
@@ -153,23 +171,21 @@ export const useCartStore = create<CartState>()(persist(
           price: i.price,
           quantity: i.quantity,
           total: lineTotal,
-          timestamp: Date.now(),
+          timestamp,
         }
         if ('components' in i && i.components) {
-          orderItem.components = i.components
+          orderItem.components = i.components.map((component) => ({ ...component }))
         }
         return orderItem
       })
       const orderId = get().nextOrderId
+      const order: Order = { id: orderId, items: orderItems, total, itemCount, timestamp }
       set({
-        orders: [
-          ...get().orders,
-          { id: orderId, items: orderItems, total, itemCount, timestamp: Date.now() },
-        ],
+        orders: [...get().orders, order],
         nextOrderId: orderId + 1,
         items: [],
       })
-      return { id: orderId, items: orderItems, total, itemCount, timestamp: Date.now() }
+      return order
     },
   }),
   {

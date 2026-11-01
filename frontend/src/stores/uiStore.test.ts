@@ -32,6 +32,12 @@ describe('UI store', () => {
     expect(useUIStore.getState().searchOpen).toBe(false)
   })
 
+  it('opens search idempotently without toggling it off', () => {
+    useUIStore.getState().openSearch()
+    useUIStore.getState().openSearch()
+    expect(useUIStore.getState().searchOpen).toBe(true)
+  })
+
   it('toggles profile', () => {
     useUIStore.getState().toggleProfile()
     expect(useUIStore.getState().profileOpen).toBe(true)

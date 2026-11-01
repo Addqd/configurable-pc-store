@@ -202,4 +202,37 @@ describe('Cart store', () => {
     expect(order.items).toHaveLength(2)
     expect(order.items.every((o: typeof order.items[0]) => 'timestamp' in o && typeof o.timestamp === 'number')).toBe(true)
   })
+
+  it('ignores invalid prices and non-finite quantities', () => {
+    const product = { id: 44, name: 'Товар', price: -100, image: 'x', specs: [], category: 'test' }
+    useCartStore.getState().addItem(product)
+    expect(useCartStore.getState().items).toHaveLength(0)
+    useCartStore.getState().addItem({ ...product, price: 100 })
+    useCartStore.getState().updateQuantity(44, Number.NaN)
+    expect(useCartStore.getState().totalItems()).toBe(1)
+    expect(useCartStore.getState().totalPrice()).toBe(100)
+  })
+
+  it('preserves an independent snapshot of build components in orders', () => {
+    const components = [{ category: 'Видеокарта', name: 'GPU', specs: '16 ГБ', quantity: 1 }]
+    useCartStore.getState().addBuild({
+      id: 100,
+      name: 'Сборка',
+      price: 25000,
+      image: 'x',
+      description: 'Демо',
+      components,
+    })
+    components[0].name = 'Изменено снаружи'
+    const order = useCartStore.getState().placeOrder()
+    expect(order.items[0].components?.[0].name).toBe('GPU')
+    expect(order.total).toBe(25000)
+    expect(useCartStore.getState().totalItems()).toBe(0)
+  })
+
+  it('does not create an empty demo order', () => {
+    expect(() => useCartStore.getState().placeOrder()).toThrow()
+    expect(useCartStore.getState().orders).toHaveLength(0)
+  })
+
 })
