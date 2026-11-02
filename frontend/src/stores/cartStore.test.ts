@@ -236,3 +236,61 @@ describe('Cart store', () => {
   })
 
 })
+
+describe('Product page cart and one-click purchase regressions', () => {
+  const gpu = {
+    id: 7,
+    name: 'RTX 4070 SUPER',
+    price: 64990,
+    image: 'demo.jpg',
+    specs: ['12 ГБ'],
+    category: 'Видеокарты',
+  }
+
+  beforeEach(() => {
+    useCartStore.setState({ items: [], orders: [], favorites: [], nextOrderId: 1 })
+  })
+
+  it('adds the requested quantity to an existing cart line (5 + 3 = 8)', () => {
+    useCartStore.getState().addItem(gpu, 5)
+    useCartStore.getState().addItem(gpu, 3)
+    expect(useCartStore.getState().items[0].quantity).toBe(8)
+    expect(useCartStore.getState().totalPrice()).toBe(64990 * 8)
+  })
+
+  it('creates new lines with the requested quantity', () => {
+    useCartStore.getState().addItem(gpu, 3)
+    expect(useCartStore.getState().items[0].quantity).toBe(3)
+  })
+
+  it('rejects invalid requested quantities', () => {
+    useCartStore.getState().addItem(gpu, -1)
+    useCartStore.getState().addItem(gpu, Number.NaN)
+    useCartStore.getState().addItem(gpu, 1.5)
+    expect(useCartStore.getState().items).toEqual([])
+  })
+
+  it('purchases only the requested product and preserves the cart and order snapshot', () => {
+    const other = { ...gpu, id: 14, name: 'Ryzen', price: 34990 }
+    useCartStore.getState().addItem(other, 2)
+    const beforeItems = structuredClone(useCartStore.getState().items)
+    const order = useCartStore.getState().purchaseProduct(gpu, 3)!
+    expect(order.items).toHaveLength(1)
+    expect(order.items[0]).toMatchObject({ id: 7, quantity: 3, price: 64990, total: 3 * 64990 })
+    expect(order.total).toBe(3 * 64990)
+    expect(useCartStore.getState().orders).toHaveLength(1)
+    expect(useCartStore.getState().items).toEqual(beforeItems)
+    useCartStore.getState().addItem(gpu, 1)
+    expect(useCartStore.getState().orders[0].items[0].quantity).toBe(3)
+  })
+
+  it('allocates distinct IDs for repeated purchases and preserves favorites', () => {
+    const a = useCartStore.getState().purchaseProduct(gpu, 1)!
+    const b = useCartStore.getState().purchaseProduct(gpu, 2)!
+    expect(b.id).toBe(a.id + 1)
+    useCartStore.getState().toggleFavorite(gpu.id)
+    expect(useCartStore.getState().favorites).toContain(gpu.id)
+    useCartStore.getState().toggleFavorite(gpu.id)
+    expect(useCartStore.getState().favorites).not.toContain(gpu.id)
+  })
+})

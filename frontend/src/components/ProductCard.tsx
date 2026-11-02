@@ -3,6 +3,7 @@ import { useCartStore } from '../stores/cartStore'
 import { formatPrice } from '../utils/formatPrice'
 import { FiShoppingCart } from 'react-icons/fi'
 import { Link } from 'react-router'
+import type { ReactNode } from 'react'
 
 interface ProductCardProps {
   product: Product
@@ -10,6 +11,11 @@ interface ProductCardProps {
 
 export function ProductCard({ product }: ProductCardProps) {
   const addItem = useCartStore((s) => s.addItem)
+  // Home cards should stay compact even though Product Details uses individual specs.
+  const specs = product.shortSpecs ?? product.specs
+  const summaryLines = specs.length > 2
+    ? [specs.slice(0, 2).join(' • '), specs.slice(2, 4).join(' • ')]
+    : specs
 
   const handleCartClick = () => {
     addItem({
@@ -35,13 +41,15 @@ export function ProductCard({ product }: ProductCardProps) {
             className="h-16 w-16 shrink-0 rounded-md bg-surface-3 object-contain"
           />
           <div className="min-w-0 flex-1">
-            <h3 className="line-clamp-2 text-sm font-medium text-text-primary transition-colors group-hover:text-primary">
-              {product.name}
-            </h3>
-            {product.specs.map((spec) => (
-              <p key={spec} className="mt-0.5 line-clamp-1 text-xs text-text-muted">
-                {spec}
-              </p>
+            <FadeOverflowLine>
+              <h3 className="text-sm font-medium text-text-primary transition-colors group-hover:text-primary">
+                {product.name}
+              </h3>
+            </FadeOverflowLine>
+            {summaryLines.map((spec) => (
+              <FadeOverflowLine key={spec} className="mt-0.5">
+                <p className="text-xs text-text-muted">{spec}</p>
+              </FadeOverflowLine>
             ))}
             <p className="mt-1 text-sm font-semibold text-text-primary">
               {formatPrice(product.price)}
@@ -51,12 +59,29 @@ export function ProductCard({ product }: ProductCardProps) {
         <button
           type="button"
           onClick={handleCartClick}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary hover:text-white dark:hover:text-[#08090C]"
+          className="pc-hover-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary hover:text-white dark:hover:text-[#08090C]"
           aria-label="Добавить в корзину"
         >
           <FiShoppingCart className="h-4 w-4" />
         </button>
       </div>
+    </div>
+  )
+}
+
+interface FadeOverflowLineProps {
+  children: ReactNode
+  className?: string
+}
+
+function FadeOverflowLine({ children, className = '' }: FadeOverflowLineProps) {
+  return (
+    <div className={`relative max-w-full overflow-hidden whitespace-nowrap pr-8 ${className}`.trim()}>
+      {children}
+      <span
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-y-0 right-0 w-8 bg-gradient-to-l from-surface via-surface/90 to-transparent"
+      />
     </div>
   )
 }

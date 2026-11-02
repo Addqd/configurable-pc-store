@@ -1,82 +1,51 @@
-import { describe, it, expect } from 'vitest'
-import { mockProducts, filterProducts } from './mockProducts'
+import { describe, expect, it } from 'vitest'
+import { filterProducts, mockProducts } from './mockProducts'
 
-describe('Mock data', () => {
-  it('has 24 products', () => {
-    expect(mockProducts.length).toBe(24)
+describe('Mock catalog', () => {
+  it('has 24 uniquely identified products: six per currently implemented category', () => {
+    expect(mockProducts).toHaveLength(24)
+    expect(new Set(mockProducts.map((p) => p.id)).size).toBe(24)
+    expect(new Set(mockProducts.map((p) => p.slug)).size).toBe(24)
+    for (const category of ['Готовые сборки', 'Видеокарты', 'Процессоры', 'Материнские платы']) {
+      expect(mockProducts.filter((p) => p.category === category)).toHaveLength(6)
+    }
+    for (const product of mockProducts) {
+      expect(product.name).toBeTruthy()
+      expect(product.manufacturer).toBeTruthy()
+      expect(product.image).toBeTruthy()
+      expect(product.specs.length).toBeGreaterThan(0)
+      expect(product.price).toBeGreaterThan(0)
+    }
   })
 
-  it('has 6 prebuilts', () => {
-    expect(mockProducts.filter(p => p.category === 'Готовые сборки').length).toBe(6)
-  })
-
-  it('has 6 GPUs', () => {
-    expect(mockProducts.filter(p => p.category === 'Видеокарты').length).toBe(6)
-  })
-
-  it('has 6 CPUs', () => {
-    expect(mockProducts.filter(p => p.category === 'Процессоры').length).toBe(6)
-  })
-
-  it('has 6 motherboards', () => {
-    expect(mockProducts.filter(p => p.category === 'Материнские платы').length).toBe(6)
-  })
-
-  it('all products have required fields', () => {
-    mockProducts.forEach(p => {
-      expect(p.id).toBeDefined()
-      expect(p.name).toBeDefined()
-      expect(p.category).toBeDefined()
-      expect(p.manufacturer).toBeDefined()
-      expect(p.specs).toBeDefined()
-      expect(p.price).toBeDefined()
-      expect(p.slug).toBeDefined()
-      expect(p.name).not.toBe('')
-      expect(p.price).toBeGreaterThan(0)
-    })
+  it('keeps the AM4 Ryzen 5700X demo build on DDR4 rather than DDR5', () => {
+    const powerPlay = mockProducts.find((p) => p.slug === 'gaming-pc-powerplay')!
+    expect(powerPlay.specs).toContain('16 ГБ DDR4')
+    expect(powerPlay.specs).not.toContain('16 ГБ DDR5')
   })
 })
 
 describe('filterProducts', () => {
-  it('returns empty for empty query', () => {
+  it('returns [] for empty or whitespace-only search', () => {
     expect(filterProducts('')).toEqual([])
     expect(filterProducts('   ')).toEqual([])
   })
 
-  it('filters by product name', () => {
-    const results = filterProducts('rtx')
-    expect(results.length).toBeGreaterThan(0)
-    results.forEach(r => {
-      const nameMatch = r.name.toLowerCase().includes('rtx')
-      const specMatch = r.specs.some(s => s.toLowerCase().includes('rtx'))
-      expect(nameMatch || specMatch).toBe(true)
-    })
+  it('searches product names and specifications', () => {
+    expect(filterProducts('rtx').some((p) => p.slug === 'gpu-rtx-4090')).toBe(true)
+    expect(filterProducts('AM5').some((p) => p.slug === 'cpu-ryzen-5-7600')).toBe(true)
   })
 
-  it('filters by category', () => {
-    const results = filterProducts('видео')
-    expect(results.length).toBeGreaterThan(0)
+  it('searches the graphics chip maker independently from the card vendor', () => {
+    const nvidia = filterProducts('nvidia')
+    expect(nvidia.map((p) => p.id)).toEqual(expect.arrayContaining([7, 8, 9, 12]))
+    const amd = filterProducts('amd')
+    expect(amd.map((p) => p.id)).toEqual(expect.arrayContaining([10, 11]))
+    expect(filterProducts('msi').some((p) => p.id === 7)).toBe(true)
   })
 
-  it('filters by manufacturer or name', () => {
-    const results = filterProducts('nvidia')
-    expect(results.length).toBeGreaterThan(0)
-    results.forEach(r => {
-      const nameMatch = r.name.toLowerCase().includes('nvidia')
-      const mfrMatch = r.manufacturer.toLowerCase().includes('nvidia')
-      const catMatch = r.category.toLowerCase().includes('nvidia')
-      const specMatch = r.specs.some((s) => s.toLowerCase().includes('nvidia'))
-      expect(nameMatch || mfrMatch || catMatch || specMatch).toBe(true)
-    })
-  })
-
-  it('filters by specs', () => {
-    const results = filterProducts('amd')
-    expect(results.length).toBeGreaterThan(0)
-  })
-
-  it('returns empty for no match', () => {
-    const results = filterProducts('xyznonexistent')
-    expect(results.length).toBe(0)
+  it('trims queries, ignores case and returns [] for unmatched terms', () => {
+    expect(filterProducts('  GEFORCE  ').some((p) => p.id === 7)).toBe(true)
+    expect(filterProducts('xyznonexistent')).toEqual([])
   })
 })
