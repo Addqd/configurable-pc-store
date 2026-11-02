@@ -6,7 +6,7 @@ import { ProductInfo } from '../components/ProductInfo'
 import { ProductDescription } from '../components/ProductDescription'
 import { ProductSpecs } from '../components/ProductSpecs'
 import { ProductReviews, type ReviewSort } from '../components/ProductReviews'
-import { useCartStore } from '../stores/cartStore'
+import { useCartStore, type OrderItem } from '../stores/cartStore'
 import { getProductDetail } from '../data/productDetails'
 import { copyToClipboard } from '../utils/copyToClipboard'
 import { FiArrowLeft } from 'react-icons/fi'
@@ -26,14 +26,14 @@ export function ProductPage() {
   const [buySuccess, setBuySuccess] = useState<number | null>(null)
   const [shareCopied, setShareCopied] = useState(false)
 
-  // Reset quantity and demo state whenever the product changes.
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps
+  /* eslint-disable react-hooks/exhaustive-deps */
   useEffect(() => {
     setQuantity(1)
     setLocalReviews(product ? product.reviews.slice() : null)
     setBuySuccess(null)
     setShareCopied(false)
   }, [slug])
+  /* eslint-enable react-hooks/exhaustive-deps */
 
   if (!product) {
     return (
@@ -43,7 +43,7 @@ export function ProductPage() {
           <div className="rounded-2xl border border-border bg-surface p-12">
             <p className="mb-2 text-sm font-medium text-primary">Товар не найден</p>
             <h1 className="mb-4 text-2xl font-bold text-text-primary">
-              Товар со_slug {slug ? `«${slug}»` : ''} не найден
+              {slug ? `Товар «${slug}» не найден` : 'Товар не найден'}
             </h1>
             <p className="mb-6 text-text-secondary">
               Похоже, такого товара нет в каталоге или он был снят с продажи.
@@ -69,22 +69,47 @@ export function ProductPage() {
   }
 
   const handleAddToCart = () => {
-    addItem({
-      id: product.id,
-      name: product.name,
-      price: product.price,
-      image: product.image,
-      specs: product.specs,
-      category: product.category,
-    })
-    if (quantity > 1) {
-      updateQuantity(product.id, quantity)
+    const existing = useCartStore.getState().items.find(
+      (i) => i.id === product.id && !('components' in i),
+    )
+    if (existing) {
+      // Item already in cart: add requested quantity on top
+      updateQuantity(product.id, existing.quantity + quantity)
+    } else {
+      // New item: add with requested quantity
+      addItem({
+        id: product.id,
+        name: product.name,
+        price: product.price,
+        image: product.image,
+        specs: product.specs,
+        category: product.category,
+      })
+      if (quantity > 1) {
+        updateQuantity(product.id, quantity)
+      }
     }
   }
 
   const handleBuyNow = () => {
-    handleAddToCart()
+    // Create a snapshot order for this product only, preserving other cart items
+    const orderItems: OrderItem[] = [{
+      id: product.id,
+      name: product.name,
+      price: product.price,
+      quantity,
+      total: product.price * quantity,
+      timestamp: Date.now(),
+    }]
+    const total = product.price * quantity
     setBuySuccess(product.id)
+    // Record in orders via the store
+    const orders = useCartStore.getState().orders
+    const nextId = useCartStore.getState().nextOrderId
+    useCartStore.setState({
+      orders: [...orders, { id: nextId, items: orderItems, total, itemCount: quantity, timestamp: Date.now() }],
+      nextOrderId: nextId + 1,
+    })
   }
 
   const handleShare = async () => {
@@ -183,7 +208,7 @@ export function ProductPage() {
             sort={sort}
             onSortChange={setSort}
             onAddReview={(review) => {
-              const withId = { ...review, id: Date.now(), date: new Date().toISOString().slice(0, 10) }
+              const withId = { ...review, id: Date.now(), date: new Date().toISOString().slice(0, 10), verified: false }
               setLocalReviews((prev) => (prev ? [withId, ...prev] : [withId]))
             }}
           />

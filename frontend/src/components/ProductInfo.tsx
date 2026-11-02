@@ -43,8 +43,15 @@ export function ProductInfo({
         {product.name}
       </h1>
 
-      <p className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-sm text-primary">
-        {product.specs.join(' • ')}
+      <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+        {(product.shortSpecs ?? product.specs).map((spec, i) => (
+          <span key={i}>
+            <span className="text-[#3b82f6]">{spec}</span>
+            {i < (product.shortSpecs ?? product.specs).length - 1 && (
+              <span className="mx-1.5 text-[#9298A5]">•</span>
+            )}
+          </span>
+        ))}
       </p>
 
       <div className="mt-4 flex items-center gap-3">

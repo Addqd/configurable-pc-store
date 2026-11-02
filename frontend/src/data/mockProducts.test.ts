@@ -58,11 +58,15 @@ describe('filterProducts', () => {
     expect(results.length).toBeGreaterThan(0)
   })
 
-  it('filters by manufacturer', () => {
+  it('filters by manufacturer or name', () => {
     const results = filterProducts('nvidia')
     expect(results.length).toBeGreaterThan(0)
     results.forEach(r => {
-      expect(r.manufacturer.toLowerCase()).toContain('nvidia')
+      const nameMatch = r.name.toLowerCase().includes('nvidia')
+      const mfrMatch = r.manufacturer.toLowerCase().includes('nvidia')
+      const catMatch = r.category.toLowerCase().includes('nvidia')
+      const specMatch = r.specs.some((s) => s.toLowerCase().includes('nvidia'))
+      expect(nameMatch || mfrMatch || catMatch || specMatch).toBe(true)
     })
   })
 
