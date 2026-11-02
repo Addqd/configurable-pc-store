@@ -59,8 +59,9 @@ interface CartState {
   orders: Order[]
   favorites: number[]
   nextOrderId: number
-  addItem: (item: Omit<RegularCartItem, 'quantity'>) => void
+  addItem: (item: Omit<RegularCartItem, 'quantity'>, quantity?: number) => void
   toggleFavorite: (id: number) => void
+  purchaseProduct: (item: Omit<RegularCartItem, 'quantity'>, quantity: number) => Order | null
   addBuild: (build: Omit<BuildCartItem, 'quantity' | 'isExpanded'>) => void
   removeItem: (id: number) => void
   updateQuantity: (id: number, quantity: number) => void
@@ -78,29 +79,56 @@ export const useCartStore = create<CartState>()(persist(
     favorites: [],
     nextOrderId: 1,
 
-    addItem: (item) => {
-      if (!Number.isFinite(item.price) || item.price < 0) return
-      const existing = get().items.find((i) => i.id === item.id && !('components' in i))
-      if (existing) {
-        set({
-          items: get().items.map((i) =>
-            i.id === item.id && !('components' in i)
-              ? { ...i, quantity: i.quantity + 1 }
-              : i
-          ),
-        })
-      } else {
-        const newItem = { ...item, quantity: 1 }
-        set({ items: [...get().items, newItem] })
-      }
+    addItem: (item, quantity = 1) => {
+      if (!Number.isFinite(item.price) || item.price < 0 || !Number.isSafeInteger(quantity) || quantity < 1) return
+      set((state) => {
+        const existing = state.items.some((i) => i.id === item.id && !('components' in i))
+        return {
+          items: existing
+            ? state.items.map((i) =>
+                i.id === item.id && !('components' in i)
+                  ? { ...i, quantity: i.quantity + quantity }
+                  : i,
+              )
+            : [...state.items, { ...item, quantity }],
+        }
+      })
     },
 
-    toggleFavorite: (id) =>
-      set((s) => ({
-        favorites: s.favorites.includes(id)
-          ? s.favorites.filter((fid) => fid !== id)
-          : [...s.favorites, id],
-      })),
+    toggleFavorite: (id) => set((state) => ({
+      favorites: state.favorites.includes(id)
+        ? state.favorites.filter((favoriteId) => favoriteId !== id)
+        : [...state.favorites, id],
+    })),
+
+    // Creates a single-product order without mutating the shopping cart.
+    purchaseProduct: (item, quantity) => {
+      if (!Number.isFinite(item.price) || item.price < 0 || !Number.isSafeInteger(quantity) || quantity < 1) return null
+      let createdOrder: Order | null = null
+      set((state) => {
+        const timestamp = Date.now()
+        const order: Order = {
+          id: state.nextOrderId,
+          items: [{
+            id: item.id,
+            name: item.name,
+            price: item.price,
+            quantity,
+            total: item.price * quantity,
+            timestamp,
+          }],
+          itemCount: quantity,
+          total: item.price * quantity,
+          timestamp,
+        }
+        createdOrder = order
+        return {
+          orders: [...state.orders, order],
+          nextOrderId: state.nextOrderId + 1,
+        }
+      })
+      return createdOrder
+    },
 
     addBuild: (build) => {
       if (!Number.isFinite(build.price) || build.price < 0) return
@@ -198,7 +226,7 @@ export function seedDemoCart() {
   const state = useCartStore.getState()
   state.addItem({
     id: 7,
-    name: 'Видеокарта MSI GeForce RTX 4070 SUPER Gaming X Slim 12G',
+    name: 'MSI GeForce RTX 4070 SUPER Gaming X Slim 12G',
     price: 64990,
     image: placeholder,
     specs: ['12 ГБ GDDR6X', '192 бит', '2475 МГц', 'DLSS 3'],
@@ -206,8 +234,8 @@ export function seedDemoCart() {
   })
   state.addItem({
     id: 14,
-    name: 'Процессор AMD Ryzen 7 7800X3D',
-    price: 36990,
+    name: 'AMD Ryzen 7 7800X3D',
+    price: 34990,
     image: placeholder,
     specs: ['8 ядер', '16 потоков', '4.2 – 5.0 ГГц', 'AM5'],
     category: 'Процессоры',

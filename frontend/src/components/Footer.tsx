@@ -16,7 +16,6 @@ interface FooterColumn {
 }
 
 // Use HiMiniCube for Shop, FiShoppingCart for Customers, FiPhone for Contacts, FiFileText for Documents
-
 const COLUMNS: FooterColumn[] = [
   {
     title: 'Магазин',
@@ -63,9 +62,7 @@ export function Footer() {
   const [showToast, setShowToast] = useState(false)
 
   const handleContactClick = (href: string) => {
-    // If it's a real href (mailto, tel, https), let it work
     if (href.startsWith('mailto:') || href.startsWith('tel:') || href.startsWith('http')) return
-    // Otherwise show demo toast
     setShowToast(true)
     setTimeout(() => setShowToast(false), 3000)
   }
@@ -74,10 +71,10 @@ export function Footer() {
     <footer className="mt-12 pb-8">
       <div className="max-w-[1320px] mx-auto px-4">
         <div className="bg-surface rounded-2xl border border-border shadow-sm p-8">
-          {/* Columns */}
+          {/* The only design change to the footer: vertical separators between columns on desktop. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
-            {COLUMNS.map((col) => (
-              <div key={col.title}>
+            {COLUMNS.map((col, index) => (
+              <div key={col.title} className={index < COLUMNS.length - 1 ? 'pc-footer-divider' : ''}>
                 <div className="flex items-center gap-2 mb-4">
                   <col.icon className="w-5 h-5 text-primary" />
                   <h3 className="text-base font-bold text-text-primary">{col.title}</h3>
@@ -105,10 +102,7 @@ export function Footer() {
             ))}
           </div>
 
-          {/* Separator */}
           <div className="border-t border-border" />
-
-          {/* Bottom bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-6">
             <div className="flex items-center gap-4">
               <img src={logo} alt="PC Builder" className="h-8 w-auto" />
@@ -116,45 +110,25 @@ export function Footer() {
                 Комплектующие. Сборки. Конфигуратор.
               </span>
             </div>
-
             <span className="text-sm text-text-muted">
               © 2026 PC Builder. Все права защищены.
             </span>
-
             <div className="flex items-center gap-3">
-              <a
-                href="https://t.example/pcbuilder"
-                className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors"
-                aria-label="Telegram"
-              >
+              <a href="https://t.example/pcbuilder" className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors" aria-label="Telegram">
                 <SiTelegram className="w-5 h-5" />
               </a>
-              <a
-                href="#"
-                className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors"
-                aria-label="VK"
-              >
+              <a href="#" className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors" aria-label="VK">
                 <SiVk className="w-5 h-5" />
               </a>
-              <a
-                href="https://youtube.com/example"
-                className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors"
-                aria-label="YouTube"
-              >
+              <a href="https://youtube.com/example" className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors" aria-label="YouTube">
                 <SiYoutube className="w-5 h-5" />
               </a>
-              <a
-                href="mailto:info@pcbuilder.example"
-                className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors"
-                aria-label="Email"
-              >
+              <a href="mailto:info@pcbuilder.example" className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors" aria-label="Email">
                 <SiGmail className="w-5 h-5" />
               </a>
             </div>
           </div>
         </div>
-
-        {/* Demo toast */}
         {showToast && (
           <div className="fixed bottom-4 right-4 bg-surface border border-border rounded-lg shadow-lg px-4 py-3 text-sm text-text-secondary z-50 animate-in fade-in slide-in-from-bottom-2">
             Форма обратной связи будет доступна на следующем этапе.

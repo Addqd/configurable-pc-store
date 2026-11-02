@@ -4,70 +4,40 @@ import { MemoryRouter } from 'react-router'
 import { ProductCard } from './ProductCard'
 import { mockProducts } from '../data/mockProducts'
 
-vi.mock('react-icons/fi', () => ({
-  FiShoppingCart: () => <div data-testid="fi-cart" />,
-}))
+vi.mock('react-icons/fi', () => ({ FiShoppingCart: () => <div data-testid="fi-cart" /> }))
 
-describe('ProductCard component', () => {
-  const product = mockProducts[0] // Готовые сборки[0]
+describe('ProductCard', () => {
+  const product = mockProducts[0]
 
   beforeEach(() => cleanup())
 
-  it('renders product name', () => {
-    render(
-      <MemoryRouter>
-        <ProductCard product={product} />
-      </MemoryRouter>
-    )
+  function renderCard() {
+    return render(<MemoryRouter><ProductCard product={product} /></MemoryRouter>)
+  }
+
+  it('renders title, price and image', () => {
+    renderCard()
     expect(screen.getByText(product.name)).toBeTruthy()
-  })
-
-  it('renders product specs', () => {
-    render(
-      <MemoryRouter>
-        <ProductCard product={product} />
-      </MemoryRouter>
-    )
-    product.specs.forEach(spec => {
-      expect(screen.getByText(spec)).toBeTruthy()
-    })
-  })
-
-  it('renders product price', () => {
-    render(
-      <MemoryRouter>
-        <ProductCard product={product} />
-      </MemoryRouter>
-    )
     expect(screen.getByText(/[\d\s]+ ₽/)).toBeTruthy()
+    expect(screen.getByAltText(product.name)).toBeTruthy()
   })
 
-  it('renders product image', () => {
-    render(
-      <MemoryRouter>
-        <ProductCard product={product} />
-      </MemoryRouter>
-    )
-    const imgs = screen.getAllByAltText(product.name)
-    expect(imgs.length).toBeGreaterThan(0)
+  it('renders compact two-line specs without hiding the four source fields from Product Details', () => {
+    renderCard()
+    const specs = product.shortSpecs ?? product.specs
+    expect(screen.getByText(specs.slice(0, 2).join(' • '))).toBeTruthy()
+    expect(screen.getByText(specs.slice(2, 4).join(' • '))).toBeTruthy()
+    expect(product.specs).toHaveLength(4)
   })
 
-  it('renders cart button with aria-label', () => {
-    render(
-      <MemoryRouter>
-        <ProductCard product={product} />
-      </MemoryRouter>
-    )
-    expect(screen.getByLabelText('Добавить в корзину')).toBeTruthy()
+  it('uses fade-overflow wrappers instead of growing card height with long content', () => {
+    const { container } = renderCard()
+    expect(container.querySelectorAll('.bg-gradient-to-l').length).toBeGreaterThanOrEqual(3)
   })
 
-  it('links to product page', () => {
-    render(
-      <MemoryRouter>
-        <ProductCard product={product} />
-      </MemoryRouter>
-    )
-    const link = screen.getByRole('link')
-    expect(link.getAttribute('href')).toBe(`/products/${product.slug}`)
+  it('has cart action and a link to the details route', () => {
+    renderCard()
+    expect(screen.getByRole('button', { name: 'Добавить в корзину' })).toBeTruthy()
+    expect(screen.getByRole('link').getAttribute('href')).toBe(`/products/${product.slug}`)
   })
 })

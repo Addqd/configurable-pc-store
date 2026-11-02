@@ -4,13 +4,17 @@ export interface Product {
   id: number
   name: string
   category: string
-  manufacturer: string
+  manufacturer: string // Board/graphics-card manufacturer, not necessarily GPU chip designer
   specs: string[]
+  shortSpecs?: string[]
+  graphicsChipBrand?: 'AMD' | 'NVIDIA'
   price: number
   image: string
   slug: string
 }
 
+// All products and prices below are deliberately illustrative demo fixtures.
+// Only explicitly supplied technical specs are presented as product facts.
 export const mockProducts: Product[] = [
   // Готовые сборки
   {
@@ -18,7 +22,8 @@ export const mockProducts: Product[] = [
     name: 'Игровой ПК PowerPlay',
     category: 'Готовые сборки',
     manufacturer: 'PC Builder',
-    specs: ['Ryzen 7 5700X • RTX 4060 Ti', '16 ГБ DDR5 • 1 ТБ SSD'],
+    specs: ['AMD Ryzen 7 5700X', 'NVIDIA GeForce RTX 4060 Ti', '16 ГБ DDR4', '1 ТБ NVMe SSD'],
+    shortSpecs: ['Ryzen 7 5700X', 'RTX 4060 Ti', '16 ГБ DDR4', '1 ТБ SSD'],
     price: 89990,
     image: placeholder,
     slug: 'gaming-pc-powerplay',
@@ -28,7 +33,8 @@ export const mockProducts: Product[] = [
     name: 'Игровой ПК Ultra',
     category: 'Готовые сборки',
     manufacturer: 'PC Builder',
-    specs: ['i5-14600KF • RTX 4070', '32 ГБ DDR5 • 1 ТБ SSD'],
+    specs: ['Intel Core i5-14600KF', 'NVIDIA GeForce RTX 4070', '32 ГБ DDR5', '1 ТБ NVMe SSD'],
+    shortSpecs: ['i5-14600KF', 'RTX 4070', '32 ГБ DDR5', '1 ТБ SSD'],
     price: 124990,
     image: placeholder,
     slug: 'gaming-pc-ultra',
@@ -38,7 +44,8 @@ export const mockProducts: Product[] = [
     name: 'Игровой ПК ProMax',
     category: 'Готовые сборки',
     manufacturer: 'PC Builder',
-    specs: ['Ryzen 9 7900X • RTX 4080', '64 ГБ DDR5 • 2 ТБ SSD'],
+    specs: ['AMD Ryzen 9 7900X', 'NVIDIA GeForce RTX 4080', '64 ГБ DDR5', '2 ТБ NVMe SSD'],
+    shortSpecs: ['Ryzen 9 7900X', 'RTX 4080', '64 ГБ DDR5', '2 ТБ SSD'],
     price: 189990,
     image: placeholder,
     slug: 'gaming-pc-promax',
@@ -48,7 +55,8 @@ export const mockProducts: Product[] = [
     name: 'Стриминговый ПК StreamX',
     category: 'Готовые сборки',
     manufacturer: 'PC Builder',
-    specs: ['Ryzen 7 7800X3D • RTX 4070 Ti', '32 ГБ DDR5 • 2 ТБ SSD'],
+    specs: ['AMD Ryzen 7 7800X3D', 'NVIDIA GeForce RTX 4070 Ti', '32 ГБ DDR5', '2 ТБ NVMe SSD'],
+    shortSpecs: ['Ryzen 7 7800X3D', 'RTX 4070 Ti', '32 ГБ DDR5', '2 ТБ SSD'],
     price: 159990,
     image: placeholder,
     slug: 'streaming-pc-streamx',
@@ -58,7 +66,8 @@ export const mockProducts: Product[] = [
     name: 'Рабочая станция WorkPro',
     category: 'Готовые сборки',
     manufacturer: 'PC Builder',
-    specs: ['Threadripper PRO 7945WX • RTX 6000', '128 ГБ ECC DDR5 • 4 ТБ NVMe'],
+    specs: ['AMD Threadripper PRO 7945WX', 'NVIDIA RTX 6000', '128 ГБ ECC DDR5', '4 ТБ NVMe SSD'],
+    shortSpecs: ['Threadripper PRO 7945WX', 'RTX 6000', '128 ГБ ECC', '4 ТБ NVMe'],
     price: 459990,
     image: placeholder,
     slug: 'workstation-workpro',
@@ -68,81 +77,86 @@ export const mockProducts: Product[] = [
     name: 'Компактный ПК MiniCube',
     category: 'Готовые сборки',
     manufacturer: 'PC Builder',
-    specs: ['Ryzen 5 7600 • RX 7600 XT', '16 ГБ DDR5 • 512 ГБ SSD'],
+    specs: ['AMD Ryzen 5 7600', 'AMD Radeon RX 7600 XT', '16 ГБ DDR5', '512 ГБ NVMe SSD'],
+    shortSpecs: ['Ryzen 5 7600', 'RX 7600 XT', '16 ГБ DDR5', '512 ГБ SSD'],
     price: 64990,
     image: placeholder,
     slug: 'compact-pc-minicube',
   },
-
   // Видеокарты
   {
     id: 7,
-    name: 'GeForce RTX 4070 SUPER',
+    name: 'MSI GeForce RTX 4070 SUPER Gaming X Slim 12G',
     category: 'Видеокарты',
-    manufacturer: 'NVIDIA',
-    specs: ['12 ГБ GDDR6X • 2472 МГц'],
+    manufacturer: 'MSI',
+    specs: ['12 ГБ GDDR6X', '192 бит', 'DLSS 3'],
+    graphicsChipBrand: 'NVIDIA',
     price: 64990,
     image: placeholder,
     slug: 'gpu-rtx-4070-super',
   },
   {
     id: 8,
-    name: 'GeForce RTX 4070 Ti SUPER',
+    name: 'ASUS GeForce RTX 4070 Ti SUPER TUF Gaming 16G',
     category: 'Видеокарты',
-    manufacturer: 'NVIDIA',
-    specs: ['16 ГБ GDDR6X • 2610 МГц'],
+    manufacturer: 'ASUS',
+    specs: ['16 ГБ GDDR6X', '256 бит', 'DLSS 3'],
+    graphicsChipBrand: 'NVIDIA',
     price: 89990,
     image: placeholder,
     slug: 'gpu-rtx-4070-ti-super',
   },
   {
     id: 9,
-    name: 'GeForce RTX 4080 SUPER',
+    name: 'Gigabyte GeForce RTX 4080 SUPER Gaming OC 16G',
     category: 'Видеокарты',
-    manufacturer: 'NVIDIA',
-    specs: ['16 ГБ GDDR6X • 2550 МГц'],
+    manufacturer: 'Gigabyte',
+    specs: ['16 ГБ GDDR6X', '256 бит', 'DLSS 3'],
+    graphicsChipBrand: 'NVIDIA',
     price: 109990,
     image: placeholder,
     slug: 'gpu-rtx-4080-super',
   },
   {
     id: 10,
-    name: 'Radeon RX 7800 XT',
+    name: 'Sapphire Radeon RX 7800 XT Nitro+ 16G',
     category: 'Видеокарты',
-    manufacturer: 'AMD',
-    specs: ['16 ГБ GDDR6 • 2430 МГц'],
+    manufacturer: 'Sapphire',
+    specs: ['16 ГБ GDDR6', '256 бит', 'FSR'],
+    graphicsChipBrand: 'AMD',
     price: 54990,
     image: placeholder,
     slug: 'gpu-rx-7800-xt',
   },
   {
     id: 11,
-    name: 'Radeon RX 7900 GRE',
+    name: 'XFX Radeon RX 7900 GRE Merc 319 16G',
     category: 'Видеокарты',
-    manufacturer: 'AMD',
-    specs: ['16 ГБ GDDR6 • 2361 МГц'],
+    manufacturer: 'XFX',
+    specs: ['16 ГБ GDDR6', '256 бит', 'FSR'],
+    graphicsChipBrand: 'AMD',
     price: 64990,
     image: placeholder,
     slug: 'gpu-rx-7900-gre',
   },
   {
     id: 12,
-    name: 'GeForce RTX 4090',
+    name: 'ASUS GeForce RTX 4090 ROG Strix 24G',
     category: 'Видеокарты',
-    manufacturer: 'NVIDIA',
-    specs: ['24 ГБ GDDR6X • 2520 МГц'],
+    manufacturer: 'ASUS',
+    specs: ['24 ГБ GDDR6X', '384 бит', 'DLSS 3'],
+    graphicsChipBrand: 'NVIDIA',
     price: 189990,
     image: placeholder,
     slug: 'gpu-rtx-4090',
   },
-
   // Процессоры
   {
     id: 13,
     name: 'AMD Ryzen 5 7600',
     category: 'Процессоры',
     manufacturer: 'AMD',
-    specs: ['6 ядер • 12 потоков • 5.1 ГГц • AM5'],
+    specs: ['6 ядер', '12 потоков', '5.1 ГГц', 'AM5'],
     price: 18990,
     image: placeholder,
     slug: 'cpu-ryzen-5-7600',
@@ -152,7 +166,7 @@ export const mockProducts: Product[] = [
     name: 'AMD Ryzen 7 7800X3D',
     category: 'Процессоры',
     manufacturer: 'AMD',
-    specs: ['8 ядер • 16 потоков • 5.0 ГГц • AM5'],
+    specs: ['8 ядер', '16 потоков', '5.0 ГГц', 'AM5'],
     price: 34990,
     image: placeholder,
     slug: 'cpu-ryzen-7-7800x3d',
@@ -162,7 +176,7 @@ export const mockProducts: Product[] = [
     name: 'Intel Core i5-14600KF',
     category: 'Процессоры',
     manufacturer: 'Intel',
-    specs: ['14 ядер • 20 потоков • 5.3 ГГц • LGA 1700'],
+    specs: ['14 ядер', '20 потоков', '5.3 ГГц', 'LGA 1700'],
     price: 24990,
     image: placeholder,
     slug: 'cpu-core-i5-14600kf',
@@ -172,7 +186,7 @@ export const mockProducts: Product[] = [
     name: 'Intel Core i7-14700KF',
     category: 'Процессоры',
     manufacturer: 'Intel',
-    specs: ['20 ядер • 28 потоков • 5.6 ГГц • LGA 1700'],
+    specs: ['20 ядер', '28 потоков', '5.6 ГГц', 'LGA 1700'],
     price: 38990,
     image: placeholder,
     slug: 'cpu-core-i7-14700kf',
@@ -182,7 +196,7 @@ export const mockProducts: Product[] = [
     name: 'AMD Ryzen 9 7950X',
     category: 'Процессоры',
     manufacturer: 'AMD',
-    specs: ['16 ядер • 32 потока • 5.7 ГГц • AM5'],
+    specs: ['16 ядер', '32 потока', '5.7 ГГц', 'AM5'],
     price: 54990,
     image: placeholder,
     slug: 'cpu-ryzen-9-7950x',
@@ -192,59 +206,58 @@ export const mockProducts: Product[] = [
     name: 'Intel Core i9-14900KF',
     category: 'Процессоры',
     manufacturer: 'Intel',
-    specs: ['24 ядра • 32 потока • 6.0 ГГц • LGA 1700'],
+    specs: ['24 ядра', '32 потока', '6.0 ГГц', 'LGA 1700'],
     price: 69990,
     image: placeholder,
     slug: 'cpu-core-i9-14900kf',
   },
-
   // Материнские платы
   {
     id: 19,
     name: 'MSI MAG B650 Tomahawk WiFi',
     category: 'Материнские платы',
     manufacturer: 'MSI',
-    specs: ['AM5 • DDR5 • ATX • WiFi 6E'],
+    specs: ['AM5', 'DDR5', 'ATX', 'WiFi 6E'],
     price: 22990,
     image: placeholder,
     slug: 'mobo-msi-b650-tomahawk',
   },
   {
     id: 20,
-    name: 'ASUS ROG Strix B650E-F',
+    name: 'ASUS ROG Strix B650E-F Gaming WiFi',
     category: 'Материнские платы',
     manufacturer: 'ASUS',
-    specs: ['AM5 • DDR5 • ATX • PCIe 5.0'],
+    specs: ['AM5', 'DDR5', 'ATX', 'PCIe 5.0'],
     price: 34990,
     image: placeholder,
     slug: 'mobus-rog-strix-b650e-f',
   },
   {
     id: 21,
-    name: 'Gigabyte Z790 AORUS Elite',
+    name: 'Gigabyte Z790 AORUS Elite AX',
     category: 'Материнские платы',
     manufacturer: 'Gigabyte',
-    specs: ['LGA 1700 • DDR5 • ATX • WiFi 6E'],
+    specs: ['LGA 1700', 'DDR5', 'ATX', 'WiFi 6E'],
     price: 29990,
     image: placeholder,
     slug: 'mobo-gigabyte-z790-aorus',
   },
   {
     id: 22,
-    name: 'MSI MAG B760 Tomahawk',
+    name: 'MSI MAG B760 Tomahawk WiFi',
     category: 'Материнские платы',
     manufacturer: 'MSI',
-    specs: ['LGA 1700 • DDR5 • ATX'],
+    specs: ['LGA 1700', 'DDR5', 'ATX', 'WiFi 6E'],
     price: 18990,
     image: placeholder,
     slug: 'mobo-msi-b760-tomahawk',
   },
   {
     id: 23,
-    name: 'ASUS TUF Gaming Z790-Plus',
+    name: 'ASUS TUF Gaming Z790-Plus WiFi',
     category: 'Материнские платы',
     manufacturer: 'ASUS',
-    specs: ['LGA 1700 • DDR5 • ATX • WiFi 6'],
+    specs: ['LGA 1700', 'DDR5', 'ATX', 'WiFi 6'],
     price: 32990,
     image: placeholder,
     slug: 'mobo-asus-tuf-z790',
@@ -254,7 +267,7 @@ export const mockProducts: Product[] = [
     name: 'ASRock B650M Pro RS',
     category: 'Материнские платы',
     manufacturer: 'ASRock',
-    specs: ['AM5 • DDR5 • mATX'],
+    specs: ['AM5', 'DDR5', 'mATX'],
     price: 16990,
     image: placeholder,
     slug: 'mobo-asrock-b650m-pro',
@@ -262,13 +275,16 @@ export const mockProducts: Product[] = [
 ]
 
 export function filterProducts(query: string): Product[] {
-  if (!query.trim()) return []
-  const q = query.toLowerCase()
-  return mockProducts.filter(
-    (p) =>
-      p.name.toLowerCase().includes(q) ||
-      p.category.toLowerCase().includes(q) ||
-      p.manufacturer.toLowerCase().includes(q) ||
-      p.specs.some((s) => s.toLowerCase().includes(q))
+  const normalized = query.trim().toLocaleLowerCase('ru-RU')
+  if (!normalized) return []
+
+  return mockProducts.filter((product) =>
+    [
+      product.name,
+      product.category,
+      product.manufacturer,
+      product.graphicsChipBrand ?? '',
+      ...product.specs,
+    ].some((field) => field.toLocaleLowerCase('ru-RU').includes(normalized)),
   )
 }

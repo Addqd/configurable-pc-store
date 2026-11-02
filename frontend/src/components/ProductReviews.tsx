@@ -20,14 +20,7 @@ const SORT_LABELS: Record<ReviewSort, string> = {
   rating: 'По рейтингу',
 }
 
-export function ProductReviews({
-  reviews,
-  rating,
-  reviewCount,
-  sort,
-  onSortChange,
-  onAddReview,
-}: ProductReviewsProps) {
+export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview }: ProductReviewsProps) {
   const [openForm, setOpenForm] = useState(false)
   const sorted = [...reviews].sort((a, b) => {
     if (sort === 'newest') return b.date.localeCompare(a.date)
@@ -39,28 +32,23 @@ export function ProductReviews({
     <section className="rounded-2xl border border-border bg-surface p-5 sm:p-6">
       <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-4">
-          <span className="text-4xl font-bold text-text-primary">{rating}</span>
+          <span className="text-4xl font-bold text-text-primary">{reviewCount > 0 ? rating.toFixed(1) : '—'}</span>
           <div className="flex flex-col">
-            <StarRating rating={rating} aria-label={`Оценка ${rating}`} />
-            <span className="mt-1 text-xs text-text-muted">
-              {reviewCount} отзыв{plural(reviewCount)}
-            </span>
+            <StarRating rating={rating} />
+            <span className="mt-1 text-xs text-text-muted">{reviewCount} отзыв{plural(reviewCount)}</span>
           </div>
         </div>
-
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => setOpenForm(true)}
-            className="inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary-light"
-          >
-            Оставить отзыв
-          </button>
-          <label className="relative inline-flex min-w-[140px] items-center justify-between overflow-hidden rounded-xl border border-border bg-surface px-3 py-2 text-sm font-medium text-text-primary">
+            className="pc-hover-outline inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary-light"
+          >Оставить отзыв</button>
+          <label className="pc-hover-outline relative inline-flex min-w-[140px] items-center justify-between overflow-hidden rounded-xl border border-border bg-surface px-3 py-2 text-sm font-medium text-text-primary">
             <span>{SORT_LABELS[sort]}</span>
             <select
               value={sort}
-              onChange={(e) => onSortChange(e.target.value as ReviewSort)}
+              onChange={(event) => onSortChange(event.target.value as ReviewSort)}
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
               aria-label="Сортировка отзывов"
             >
@@ -72,40 +60,37 @@ export function ProductReviews({
         </div>
       </div>
 
-      <div className="space-y-4">
-        {sorted.map((review) => (
-          <article key={review.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-light text-sm font-semibold text-primary">
-                {initials(review.author)}
+      <p className="mb-4 text-xs text-text-muted">Отзывы в каталоге являются демонстрационными примерами.</p>
+      {sorted.length === 0 ? (
+        <p className="py-5 text-sm text-text-muted">Отзывов пока нет. Вы можете оставить первый.</p>
+      ) : (
+        <div className="space-y-4">
+          {sorted.map((review) => (
+            <article key={review.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-sm font-semibold text-primary">
+                  {initials(review.author)}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-text-primary">{review.author}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <StarRating rating={review.rating} />
+                  <span className="hidden text-xs text-text-muted sm:block">{review.date}</span>
+                </div>
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-text-primary">{review.author}</p>
-              </div>
-              <div className="flex shrink-0 items-center gap-2">
-                <StarRating rating={review.rating} size="sm" aria-label={`Оценка ${review.rating}`} />
-                <span className="hidden text-xs text-text-muted sm:block">{review.date}</span>
-              </div>
-            </div>
-            <p className="mt-3 text-sm leading-relaxed text-text-secondary">{review.text}</p>
-          </article>
-        ))}
-      </div>
-
-      {openForm && (
-        <ReviewForm onSubmit={onAddReview} onClose={() => setOpenForm(false)} />
+              <p className="mt-3 text-sm leading-relaxed text-text-secondary">{review.text}</p>
+            </article>
+          ))}
+        </div>
       )}
+      {openForm && <ReviewForm onSubmit={onAddReview} onClose={() => setOpenForm(false)} />}
     </section>
   )
 }
 
 function initials(name: string): string {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .map((word) => word[0]?.toUpperCase() ?? '')
-    .join('')
-    .slice(0, 2)
+  return name.split(' ').filter(Boolean).map((word) => word[0]?.toUpperCase() ?? '').join('').slice(0, 2)
 }
 
 function plural(n: number): string {
