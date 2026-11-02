@@ -1,6 +1,7 @@
 import type { Product } from '../data/mockProducts'
 import { ProductCard } from './ProductCard'
 import { HiMiniArrowRight } from 'react-icons/hi2'
+import { Link } from 'react-router'
 import type { IconType } from 'react-icons'
 
 interface ProductSectionProps {
@@ -18,13 +19,13 @@ export function ProductSection({ title, icon: Icon, products, catalogUrl }: Prod
           <Icon className="w-5 h-5 text-primary" />
           <h2 className="text-lg font-bold text-text-primary">{title}</h2>
         </div>
-        <a
-          href={catalogUrl}
+        <Link
+          to={catalogUrl}
           className="inline-flex items-center gap-1 text-sm text-primary hover:text-primary-hover font-medium transition-colors shrink-0"
         >
           Смотреть все
           <HiMiniArrowRight className="w-4 h-4" />
-        </a>
+        </Link>
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         {products.map((product) => (

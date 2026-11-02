@@ -1,6 +1,6 @@
 import { FiHome, FiBox, FiCpu, FiMonitor, FiHeadphones, FiWind, FiServer, FiSettings, FiTag, FiHelpCircle, FiInfo } from 'react-icons/fi'
 import { HiMiniChevronRight } from 'react-icons/hi2'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 
 interface NavItem {
   label: string
@@ -29,6 +29,8 @@ interface NavigationMenuProps {
 }
 
 export function NavigationMenu({ onClose }: NavigationMenuProps) {
+  const navigate = useNavigate()
+
   return (
     <div className="w-[280px] max-w-[calc(100vw-16px)] bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] py-2">
       {MENU_ITEMS.map((item, index) => (
@@ -37,7 +39,10 @@ export function NavigationMenu({ onClose }: NavigationMenuProps) {
           <Link
             to={item.href}
             className="flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-primary-light hover:text-primary rounded-lg transition-colors"
-            onClick={onClose}
+            onClick={() => {
+              onClose()
+              navigate(item.href)
+            }}
           >
             <item.icon className="w-5 h-5 shrink-0 text-text-muted" />
             <span className="flex-1">{item.label}</span>
