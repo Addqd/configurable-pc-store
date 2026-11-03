@@ -4,6 +4,8 @@ import { mockProducts, type Product } from './mockProducts'
 export interface Review {
   id: number
   author: string
+  /** Stable ID for a signed-in demo review. Historical and guest reviews omit it. */
+  authorId?: string
   date: string
   rating: number
   text: string

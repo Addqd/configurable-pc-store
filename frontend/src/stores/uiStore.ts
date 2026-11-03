@@ -1,10 +1,14 @@
 import { create } from 'zustand'
 
+type AuthMode = 'login' | 'register'
+
 interface UIState {
   navOpen: boolean
   searchOpen: boolean
   profileOpen: boolean
   searchQuery: string
+  authModalOpen: boolean
+  authModalMode: AuthMode
   toggleNav: () => void
   closeNav: () => void
   toggleSearch: () => void
@@ -13,6 +17,8 @@ interface UIState {
   toggleProfile: () => void
   closeProfile: () => void
   setSearchQuery: (q: string) => void
+  openAuthModal: (mode?: AuthMode) => void
+  closeAuthModal: () => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
@@ -20,12 +26,18 @@ export const useUIStore = create<UIState>((set) => ({
   searchOpen: false,
   profileOpen: false,
   searchQuery: '',
-  toggleNav: () => set((s) => ({ navOpen: !s.navOpen })),
+  authModalOpen: false,
+  authModalMode: 'login',
+  toggleNav: () => set((s) => ({ navOpen: !s.navOpen, searchOpen: false, profileOpen: false })),
   closeNav: () => set({ navOpen: false }),
-  toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen })),
-  openSearch: () => set({ searchOpen: true }),
+  toggleSearch: () => set((s) => ({ searchOpen: !s.searchOpen, navOpen: false, profileOpen: false })),
+  openSearch: () => set({ searchOpen: true, navOpen: false, profileOpen: false }),
   closeSearch: () => set({ searchOpen: false, searchQuery: '' }),
-  toggleProfile: () => set((s) => ({ profileOpen: !s.profileOpen })),
+  toggleProfile: () => set((s) => ({ profileOpen: !s.profileOpen, navOpen: false, searchOpen: false })),
   closeProfile: () => set({ profileOpen: false }),
-  setSearchQuery: (q) => set({ searchQuery: q }),
+  setSearchQuery: (searchQuery) => set({ searchQuery }),
+  openAuthModal: (authModalMode = 'login') => set({
+    authModalMode, authModalOpen: true, navOpen: false, searchOpen: false, profileOpen: false,
+  }),
+  closeAuthModal: () => set({ authModalOpen: false }),
 }))

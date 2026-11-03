@@ -9,6 +9,7 @@ import { ProductDescription } from '../components/ProductDescription'
 import { ProductSpecs } from '../components/ProductSpecs'
 import { ProductReviews, type ReviewSort } from '../components/ProductReviews'
 import { useCartStore, type Order, type RegularCartItem } from '../stores/cartStore'
+import { useAccountStore } from '../stores/accountStore'
 import { calculateRating, getProductDetail, type EnrichedProduct, type Review } from '../data/productDetails'
 import { readProductReviews, writeProductReviews } from '../data/reviewStorage'
 import { copyToClipboard } from '../utils/copyToClipboard'
@@ -17,7 +18,6 @@ import { formatPrice } from '../utils/formatPrice'
 export function ProductPage() {
   const { slug } = useParams()
   const product = slug ? getProductDetail(slug) : null
-  // Route param changes must reset quantity, gallery selection, review modal and toasts.
   return <ProductDetailContent key={slug ?? 'missing'} product={product} />
 }
 
@@ -67,9 +67,7 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
     reviewCount: reviews.length,
   }
 
-  const handleAddToCart = (count: number) => {
-    addItem(cartItem, count)
-  }
+  const handleAddToCart = (count: number) => addItem(cartItem, count)
 
   const handleBuyNow = (count: number) => {
     const order = purchaseProduct(cartItem, count)
@@ -86,10 +84,13 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
   }
 
   const addReview = (review: { author: string; rating: number; text: string }) => {
+    const accountId = useAccountStore.getState().activeAccountId
+    // Preserve anonymous reviews as anonymous. Only authenticated reviews belong to an account.
     const nextReview: Review = {
       ...review,
       id: Math.max(Date.now(), ...userReviews.map((item) => item.id)) + 1,
       date: new Date().toISOString().slice(0, 10),
+      ...(accountId ? { authorId: accountId } : {}),
     }
     const next = [nextReview, ...userReviews]
     setUserReviews(next)
@@ -101,7 +102,6 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
       <Header />
       <main className="mx-auto max-w-[1320px] px-4 pb-8 pt-24">
         <BackButton className="mb-5" />
-
         <div className="grid grid-cols-1 gap-6 rounded-2xl border border-border bg-surface p-4 sm:p-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
           <div className="min-w-0 lg:pr-4"><ProductGallery product={productWithCurrentRating} /></div>
           <ProductInfo
@@ -115,31 +115,31 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
             onShare={handleShare}
           />
         </div>
-
         {buySuccess && (
           <div className="mt-6 overflow-hidden rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-5" role="status">
             <h2 className="text-lg font-bold text-text-primary">Заказ оформлен — спасибо!</h2>
             <p className="mt-1 text-sm text-text-secondary">
               Демо-заказ №{buySuccess.id}: «{buySuccess.items[0].name}» × {buySuccess.items[0].quantity} — {formatPrice(buySuccess.total)}
             </p>
-            <p className="mt-2 text-sm text-text-muted">Заказ сохранён в демонстрационной истории. Корзина не изменена; оплаты не было.</p>
+            <p className="mt-2 text-sm text-text-muted">
+              {buySuccess.ownerId ? (
+                <>Заказ сохранён в <Link to="/account/orders" className="text-primary hover:underline">истории ваших заказов</Link>. Корзина не изменена; оплаты не было.</>
+              ) : (
+                <>Гостевой демо-заказ сохранён локально без привязки к аккаунту. Корзина не изменена; оплаты не было.</>
+              )}
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Link to="/cart" className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">Перейти в корзину</Link>
               <button type="button" onClick={() => setBuySuccess(null)} className="text-sm font-medium text-text-muted hover:text-text-primary">Продолжить покупки</button>
             </div>
           </div>
         )}
-
         <div className="mt-6"><ProductDescription product={productWithCurrentRating} /></div>
         <div className="mt-6"><ProductSpecs product={productWithCurrentRating} /></div>
         <div className="mb-8 mt-6">
           <ProductReviews
-            reviews={reviews}
-            rating={productWithCurrentRating.rating}
-            reviewCount={productWithCurrentRating.reviewCount}
-            sort={sort}
-            onSortChange={setSort}
-            onAddReview={addReview}
+            reviews={reviews} rating={productWithCurrentRating.rating} reviewCount={productWithCurrentRating.reviewCount}
+            sort={sort} onSortChange={setSort} onAddReview={addReview}
           />
         </div>
       </main>
