@@ -48,6 +48,26 @@ const failure = (error: string): AccountResult => ({ success: false, error })
 const normalizeEmail = (value: string) => value.trim().toLowerCase()
 const normalizeUsername = (value: string) => value.trim()
 const emailValid = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+
+// Sign-in accepts either email or username: reserve BOTH identifiers across
+// accounts so a username cannot impersonate another user's email (and vice versa).
+function identifierTaken(accounts: Accounts, email: string, username: string, ignoreId?: string): boolean {
+  const candidateEmail = normalizeEmail(email)
+  const candidateUser = normalizeUsername(username).toLowerCase()
+  return Object.entries(accounts).some(([id, record]) => {
+    if (id === ignoreId) return false
+    const existingEmail = normalizeEmail(record.account.email)
+    const existingUser = normalizeUsername(record.account.username).toLowerCase()
+    return existingEmail === candidateEmail || existingEmail === candidateUser ||
+      existingUser === candidateEmail || existingUser === candidateUser
+  })
+}
+
+// An async password calculation must never sign a user back in after a newer
+// logout/login/registration. Every session-changing action invalidates older work.
+let sessionEpoch = 0
+const cancelled = (): AccountResult => failure('Действие отменено: состояние входа изменилось')
+
 const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
 
 function validatedSnapshot(value: unknown): { accounts: Accounts; activeAccountId: string | null } {
@@ -154,6 +174,7 @@ export const useAccountStore = create<AccountState>()(
       activeAccountId: null,
 
       register: async (email, username, displayName, password) => {
+        const epoch = ++sessionEpoch
         const mail = normalizeEmail(email)
         const user = normalizeUsername(username)
         const name = displayName.trim() || user
@@ -161,11 +182,11 @@ export const useAccountStore = create<AccountState>()(
         if (user.length < 2) return failure('Имя пользователя должно содержать минимум 2 символа')
         if (name.length < 2) return failure('Имя должно содержать минимум 2 символа')
         if (password.length < 8) return failure('Пароль должен содержать минимум 8 символов')
-        const duplicate = () => Object.values(get().accounts).some(({ account }) =>
-          normalizeEmail(account.email) === mail || account.username.toLowerCase() === user.toLowerCase())
+        const duplicate = () => identifierTaken(get().accounts, mail, user)
         if (duplicate()) return failure('Email или имя пользователя уже заняты')
         try {
           const passwordRecord = await newPasswordRecord(password)
+          if (epoch !== sessionEpoch) return cancelled()
           if (duplicate()) return failure('Email или имя пользователя уже заняты')
           const id = crypto.randomUUID()
           const account: Account = { id, email: mail, username: user, displayName: name, avatar: '', createdAt: Date.now() }
@@ -178,27 +199,34 @@ export const useAccountStore = create<AccountState>()(
       },
 
       login: async (identifier, password) => {
+        const epoch = ++sessionEpoch
         const input = identifier.trim().toLowerCase()
         if (!input || !password) return failure('Введите логин и пароль')
         const found = Object.entries(get().accounts).find(([, r]) =>
           normalizeEmail(r.account.email) === input || r.account.username.toLowerCase() === input)
-        if (!found || !await isValidPassword(found[1].password, password)) {
-          return failure('Неверный email/имя пользователя или пароль')
-        }
+        if (!found) return failure('Неверный email/имя пользователя или пароль')
+        const valid = await isValidPassword(found[1].password, password)
+        if (epoch !== sessionEpoch) return cancelled()
+        if (!valid) return failure('Неверный email/имя пользователя или пароль')
         const [id, record] = found
         // Upgrade old hashes on successful login, without losing existing demo accounts.
         if (record.password.algorithm !== 'pbkdf2-sha256') {
           try {
             const newPassword = await newPasswordRecord(password)
-            set((s) => ({ accounts: { ...s.accounts, [id]: { ...s.accounts[id], password: newPassword } } }))
+            if (epoch !== sessionEpoch) return cancelled()
+            if (get().accounts[id]) {
+              set((s) => ({ accounts: { ...s.accounts, [id]: { ...s.accounts[id], password: newPassword } } }))
+            }
           } catch { /* Old demo verifier remains usable. */ }
         }
+        if (epoch !== sessionEpoch || !get().accounts[id]) return cancelled()
         set({ activeAccountId: id })
         useCartStore.getState().setActiveAccountId(id)
         return { success: true }
       },
 
       logout: () => {
+        sessionEpoch += 1
         set({ activeAccountId: null })
         useCartStore.getState().setActiveAccountId(null)
       },
@@ -212,8 +240,7 @@ export const useAccountStore = create<AccountState>()(
         const name = updates.displayName === undefined ? record.account.displayName : updates.displayName.trim()
         if (!emailValid(mail)) return failure('Введите корректный email')
         if (user.length < 2 || name.length < 2) return failure('Имя должно содержать минимум 2 символа')
-        if (Object.entries(get().accounts).some(([otherId, r]) => otherId !== id && (
-          normalizeEmail(r.account.email) === mail || r.account.username.toLowerCase() === user.toLowerCase()))) {
+        if (identifierTaken(get().accounts, mail, user, id)) {
           return failure('Email или имя пользователя уже заняты')
         }
         set((s) => ({
@@ -238,11 +265,12 @@ export const useAccountStore = create<AccountState>()(
         const id = get().activeAccountId
         const record = id && get().accounts[id]
         if (!id || !record) return failure('Нет активной сессии')
+        const epoch = sessionEpoch
         if (newPassword.length < 8) return failure('Новый пароль должен содержать минимум 8 символов')
         if (!await isValidPassword(record.password, currentPassword)) return failure('Неверный текущий пароль')
         try {
           const passwordRecord = await newPasswordRecord(newPassword)
-          if (get().activeAccountId !== id || !get().accounts[id]) return failure('Сессия изменилась')
+          if (epoch !== sessionEpoch || get().activeAccountId !== id || !get().accounts[id]) return failure('Сессия изменилась')
           set((s) => ({ accounts: { ...s.accounts, [id]: { ...s.accounts[id], password: passwordRecord } } }))
           return { success: true }
         } catch {
@@ -253,6 +281,7 @@ export const useAccountStore = create<AccountState>()(
       deleteAccount: () => {
         const id = get().activeAccountId
         if (!id || !get().accounts[id]) return false
+        sessionEpoch += 1
         const next = { ...get().accounts }
         delete next[id]
         set({ accounts: next, activeAccountId: null })

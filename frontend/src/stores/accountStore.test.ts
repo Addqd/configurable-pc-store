@@ -79,4 +79,30 @@ describe('demo account store', () => {
     expect(useCartStore.getState().orders[0].ownerId).toBeUndefined()
     expect((await useAccountStore.getState().login(name, password)).success).toBe(false)
   })
+
+  it('prevents cross-field email/username collisions which would make login ambiguous', async () => {
+    expect((await useAccountStore.getState().register('first@example.com', 'first', 'First', password)).success).toBe(true)
+    expect((await useAccountStore.getState().register('second@example.com', 'first@example.com', 'Second', password)).success).toBe(false)
+    expect((await useAccountStore.getState().register('third@example.com', 'other@example.com', 'Third', password)).success).toBe(true)
+    useAccountStore.getState().logout()
+    expect((await useAccountStore.getState().login('first@example.com', password)).success).toBe(true)
+    expect(useAccountStore.getState().updateProfile({ displayName: 'Updated', username: 'other@example.com' }).success).toBe(false)
+  })
+
+  it('does not restore a logged-out session from an outstanding async login', async () => {
+    await useAccountStore.getState().register(email, name, 'Demo', password)
+    useAccountStore.getState().logout()
+    const pending = useAccountStore.getState().login(email, password)
+    useAccountStore.getState().logout()
+    expect((await pending).success).toBe(false)
+    expect(selectIsAuthenticated(useAccountStore.getState())).toBe(false)
+  })
+
+  it('does not create an account after logout cancelled a pending registration', async () => {
+    const pending = useAccountStore.getState().register(email, name, 'Demo', password)
+    useAccountStore.getState().logout()
+    expect((await pending).success).toBe(false)
+    expect(Object.keys(useAccountStore.getState().accounts)).toHaveLength(0)
+    expect(selectIsAuthenticated(useAccountStore.getState())).toBe(false)
+  })
 })

@@ -8,6 +8,8 @@ describe('UI store', () => {
       searchOpen: false,
       profileOpen: false,
       searchQuery: '',
+      authModalOpen: false,
+      authModalMode: 'login',
     })
   })
 
@@ -60,12 +62,31 @@ describe('UI store', () => {
     expect(useUIStore.getState().searchQuery).toBe('')
   })
 
-  it('allows independent panel states', () => {
+  it('keeps Header panels mutually exclusive', () => {
     useUIStore.getState().toggleNav()
-    useUIStore.getState().toggleSearch()
-    useUIStore.getState().toggleProfile()
     expect(useUIStore.getState().navOpen).toBe(true)
+    expect(useUIStore.getState().searchOpen).toBe(false)
+    expect(useUIStore.getState().profileOpen).toBe(false)
+
+    useUIStore.getState().toggleSearch()
+    expect(useUIStore.getState().navOpen).toBe(false)
     expect(useUIStore.getState().searchOpen).toBe(true)
+    expect(useUIStore.getState().profileOpen).toBe(false)
+
+    useUIStore.getState().toggleProfile()
+    expect(useUIStore.getState().navOpen).toBe(false)
+    expect(useUIStore.getState().searchOpen).toBe(false)
     expect(useUIStore.getState().profileOpen).toBe(true)
+  })
+
+  it('opening the authentication modal closes all Header panels', () => {
+    useUIStore.getState().toggleNav()
+    useUIStore.getState().openAuthModal('register')
+    const state = useUIStore.getState()
+    expect(state.navOpen).toBe(false)
+    expect(state.searchOpen).toBe(false)
+    expect(state.profileOpen).toBe(false)
+    expect(state.authModalOpen).toBe(true)
+    expect(state.authModalMode).toBe('register')
   })
 })

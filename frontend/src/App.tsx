@@ -31,7 +31,9 @@ function AuthModalHost() {
   const isOpen = useUIStore((s) => s.authModalOpen)
   const mode = useUIStore((s) => s.authModalMode)
   const close = useUIStore((s) => s.closeAuthModal)
-  return <AuthModal isOpen={isOpen} onClose={close} defaultMode={mode} />
+  // Unmount the form on close: never retain typed passwords between modal sessions.
+  if (!isOpen) return null
+  return <AuthModal isOpen={true} onClose={close} defaultMode={mode} />
 }
 
 // Preserve the existing first-paint theme behavior.

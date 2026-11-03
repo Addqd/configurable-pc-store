@@ -148,8 +148,12 @@ function AccountContent() {
     event.target.value = ''
     if (!file) return
     setAvatarError('')
+    // File decoding is asynchronous. Never apply an old account's avatar to
+    // a different account if the user logs out or switches sessions meanwhile.
+    const uploadingFor = account?.id
     try {
       const image = await imageToAvatar(file)
+      if (!uploadingFor || useAccountStore.getState().activeAccountId !== uploadingFor) return
       if (!setAvatar(image)) setAvatarError('Не удалось сохранить аватар')
     } catch (error) {
       setAvatarError(error instanceof Error ? error.message : 'Не удалось загрузить аватар')
@@ -256,5 +260,8 @@ function AccountContent() {
 }
 
 export function AccountPage() {
-  return <div className="min-h-screen bg-surface-2"><Header /><AccountContent /><Footer /></div>
+  // Switching/logging out of accounts must discard the previous account's
+  // unsaved form fields, password inputs and pending deletion confirmation.
+  const accountId = useAccountStore((state) => state.activeAccountId)
+  return <div className="min-h-screen bg-surface-2"><Header /><AccountContent key={accountId ?? 'guest'} /><Footer /></div>
 }

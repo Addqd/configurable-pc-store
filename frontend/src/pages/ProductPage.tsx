@@ -121,7 +121,13 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
             <p className="mt-1 text-sm text-text-secondary">
               Демо-заказ №{buySuccess.id}: «{buySuccess.items[0].name}» × {buySuccess.items[0].quantity} — {formatPrice(buySuccess.total)}
             </p>
-            <p className="mt-2 text-sm text-text-muted">Заказ сохранён в демонстрационной истории. Корзина не изменена; оплаты не было.</p>
+            <p className="mt-2 text-sm text-text-muted">
+              {buySuccess.ownerId ? (
+                <>Заказ сохранён в <Link to="/account/orders" className="text-primary hover:underline">истории ваших заказов</Link>. Корзина не изменена; оплаты не было.</>
+              ) : (
+                <>Гостевой демо-заказ сохранён локально без привязки к аккаунту. Корзина не изменена; оплаты не было.</>
+              )}
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Link to="/cart" className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">Перейти в корзину</Link>
               <button type="button" onClick={() => setBuySuccess(null)} className="text-sm font-medium text-text-muted hover:text-text-primary">Продолжить покупки</button>

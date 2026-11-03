@@ -43,7 +43,16 @@ export function CartPage() {
               <p className="text-text-muted mb-4">
                 Ваш демо-заказ #000{orderMessage.order.id} на {orderMessage.order.itemCount} товар(ов) на сумму {orderMessage.order.total.toLocaleString('ru-RU')} ₽ оформлен.
               </p>
-              <p className="text-sm text-text-muted">Запись сохранена в истории заказов (раздел в разработке).</p>
+              {orderMessage.order.ownerId ? (
+                <p className="text-sm text-text-muted">
+                  Заказ сохранён в <Link to="/account/orders" className="text-primary hover:underline">истории ваших заказов</Link>.
+                </p>
+              ) : (
+                <p className="text-sm text-text-muted">
+                  Гостевой демо-заказ сохранён в этом браузере без привязки к аккаунту.
+                  Будущие покупки можно привязать к профилю, войдя перед оформлением.
+                </p>
+              )}
             </div>
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">

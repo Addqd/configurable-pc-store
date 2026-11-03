@@ -168,5 +168,7 @@ function OrdersContent() {
 }
 
 export function OrdersPage() {
-  return <div className="min-h-screen bg-surface-2"><Header /><OrdersContent /><Footer /></div>
+  // Do not carry another account's expansion state into this account's history.
+  const accountId = useAccountStore((state) => state.activeAccountId)
+  return <div className="min-h-screen bg-surface-2"><Header /><OrdersContent key={accountId ?? 'guest'} /><Footer /></div>
 }

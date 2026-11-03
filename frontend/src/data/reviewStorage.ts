@@ -3,16 +3,15 @@ import type { Review } from './productDetails'
 const KEY_PREFIX = 'pc-builder-product-reviews:'
 export const REVIEWS_UPDATED_EVENT = 'pc-builder-reviews-updated'
 
-type OwnedReview = Review & { authorId?: string }
-
-function isReview(value: unknown): value is OwnedReview {
+function isReview(value: unknown): value is Review {
   if (typeof value !== 'object' || value === null) return false
   const review = value as Partial<Review>
   return typeof review.id === 'number' && Number.isSafeInteger(review.id) &&
     typeof review.author === 'string' && review.author.trim().length > 0 &&
     typeof review.text === 'string' && review.text.trim().length > 0 &&
     typeof review.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(review.date) &&
-    typeof review.rating === 'number' && Number.isInteger(review.rating) && review.rating >= 1 && review.rating <= 5
+    typeof review.rating === 'number' && Number.isInteger(review.rating) && review.rating >= 1 && review.rating <= 5 &&
+    (review.authorId === undefined || typeof review.authorId === 'string')
 }
 
 export function readProductReviews(slug: string): Review[] {
@@ -41,7 +40,7 @@ export function countAccountReviews(accountId: string): number {
       if (!key?.startsWith(KEY_PREFIX)) continue
       const slug = key.slice(KEY_PREFIX.length)
       total += readProductReviews(slug).filter((review) =>
-        (review as OwnedReview).authorId === accountId).length
+        review.authorId === accountId).length
     }
   } catch { /* Storage may be disabled. */ }
   return total
@@ -55,7 +54,7 @@ export function removeAccountReviews(accountId: string): void {
     for (const key of keys) {
       const slug = key.slice(KEY_PREFIX.length)
       const reviews = readProductReviews(slug)
-      const retained = reviews.filter((review) => (review as OwnedReview).authorId !== accountId)
+      const retained = reviews.filter((review) => review.authorId !== accountId)
       if (retained.length !== reviews.length) writeProductReviews(slug, retained)
     }
   } catch { /* Demo storage might be unavailable. */ }
