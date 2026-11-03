@@ -1,370 +1,100 @@
-import { FiX, FiFilter } from 'react-icons/fi'
-import { mockProducts } from '../data/mockProducts'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { FiX, FiFilter, FiChevronDown } from 'react-icons/fi'
+import { allCatalogProducts, DEFAULT_FILTERS, SORT_OPTIONS, deriveFilterOptions, type FilterState } from '../data/catalogModel'
+export type { FilterState } from '../data/catalogModel'
+export { DEFAULT_FILTERS, SORT_OPTIONS } from '../data/catalogModel'
 
-export interface FilterState {
-  sort: string
-  categories: string[]
-  types: string[]
-  colors: string[]
-  manufacturers: string[]
-}
-
-export const DEFAULT_FILTERS: FilterState = {
-  sort: 'newest',
-  categories: [],
-  types: [],
-  colors: [],
-  manufacturers: [],
-}
-
-export const SORT_OPTIONS = [
-  { value: 'newest', label: 'Сначала новые' },
-  { value: 'oldest', label: 'Сначала старые' },
-  { value: 'rating_high', label: 'По рейтингу: высокий' },
-  { value: 'rating_low', label: 'По рейтингу: низкий' },
-  { value: 'price_asc', label: 'По цене: дешёвые' },
-  { value: 'price_desc', label: 'По цене: дорогие' },
-]
-
-// Derive available filter options from actual product data
-function getAvailableCategories(products: readonly any[]): string[] {
-  return Array.from(new Set(products.map((p) => p.category))).sort()
-}
-
-function getAvailableTypes(products: readonly any[], category?: string): string[] {
-  const filtered = category
-    ? products.filter((p) => p.category === category)
-    : products
-  return Array.from(new Set(filtered.map((p) => p.type))).sort()
-}
-
-function getAvailableColors(products: readonly any[], category?: string, type?: string): string[] {
-  let filtered = products
-  if (category) filtered = filtered.filter((p) => p.category === category)
-  if (type) filtered = filtered.filter((p) => p.type === type)
-  return Array.from(new Set(filtered.map((p) => p.color).filter(Boolean))).sort() as string[]
-}
-
-function getAvailableManufacturers(products: readonly any[], category?: string, type?: string): string[] {
-  let filtered = products
-  if (category) filtered = filtered.filter((p) => p.category === category)
-  if (type) filtered = filtered.filter((p) => p.type === type)
-  return Array.from(new Set(filtered.map((p) => p.manufacturer))).sort()
-}
-
-export function getFilterOptions() {
-  return {
-    categories: getAvailableCategories(mockProducts),
-    types: getAvailableTypes(mockProducts),
-    colors: getAvailableColors(mockProducts),
-    manufacturers: getAvailableManufacturers(mockProducts),
-  }
-}
-
-interface FilterDrawerProps {
+interface Props {
   open: boolean
   filters: FilterState
   onFiltersChange: (filters: FilterState) => void
   onApply: () => void
   onClose: () => void
 }
-
-export function FilterDrawer({
-  open,
-  filters,
-  onFiltersChange,
-  onApply,
-  onClose,
-}: FilterDrawerProps) {
-  const allOptions = getFilterOptions()
-  const isCategorySelected = filters.categories.length > 0
-  const isTypeSelected = filters.types.length > 0
-
-  const types = isCategorySelected
-    ? getAvailableTypes(mockProducts, filters.categories[0])
-    : allOptions.types
-
-  const colors = (() => {
-    let cats = isCategorySelected ? filters.categories : []
-    let typesList = isTypeSelected ? filters.types : []
-    if (cats.length === 0 && typesList.length === 0) return allOptions.colors
-    if (cats.length === 1 && typesList.length === 0) return getAvailableColors(mockProducts, cats[0])
-    if (cats.length === 1 && typesList.length === 1)
-      return getAvailableColors(mockProducts, cats[0], typesList[0])
-    if (cats.length === 0 && typesList.length === 1)
-      return getAvailableColors(mockProducts, undefined, typesList[0])
-    return allOptions.colors
-  })()
-
-  const manufacturers = (() => {
-    let cats = isCategorySelected ? filters.categories : []
-    let typesList = isTypeSelected ? filters.types : []
-    if (cats.length === 0 && typesList.length === 0) return allOptions.manufacturers
-    if (cats.length === 1 && typesList.length === 0)
-      return getAvailableManufacturers(mockProducts, cats[0])
-    if (cats.length === 1 && typesList.length === 1)
-      return getAvailableManufacturers(mockProducts, cats[0], typesList[0])
-    if (cats.length === 0 && typesList.length === 1)
-      return getAvailableManufacturers(mockProducts, undefined, typesList[0])
-    return allOptions.manufacturers
-  })()
-
-  const handleCategoryChange = (category: string) => {
-    const cats = filters.categories.includes(category)
-      ? filters.categories.filter((c) => c !== category)
-      : [...filters.categories, category]
-    onFiltersChange({
-      ...filters,
-      categories: cats,
-      types: cats.length > 0 ? [] : filters.types,
-      colors: [],
-      manufacturers: [],
-    })
+type Section = 'sort' | 'categories' | 'types' | 'colors' | 'manufacturers'
+const sectionNames: Record<Section,string> = {
+  sort:'Сортировка', categories:'Категория', types:'Тип', colors:'Цвет', manufacturers:'Производитель',
+}
+const dotColors: Record<string,string> = { 'Чёрный':'#1a1a2e', 'Белый':'#fff', 'Серебристый':'#a0a8b4', 'Серый':'#6b7280' }
+export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose }: Props) {
+  const [collapsed, setCollapsed] = useState<Section[]>([])
+  const panelRef = useRef<HTMLDivElement>(null)
+  const options = deriveFilterOptions(allCatalogProducts, filters)
+  const hasCategory = filters.categories.length > 0
+  const hasType = filters.types.length > 0
+  const allowDetail = hasCategory || hasType
+  const toggle = (section: Section) => setCollapsed(current => current.includes(section) ? current.filter(item => item!==section) : [...current,section])
+  const setGroup = (field: 'categories'|'types'|'colors'|'manufacturers', value: string) => {
+    const updated = filters[field].includes(value) ? filters[field].filter(v=>v!==value) : [...filters[field], value]
+    const next: FilterState = { ...filters, [field]: updated }
+    // Any change in a parent invalidates all dependent selections.
+    if (field === 'categories') { next.types=[]; next.colors=[]; next.manufacturers=[] }
+    if (field === 'types') { next.colors=[]; next.manufacturers=[] }
+    onFiltersChange(next)
   }
+  useEffect(() => {
+    if (!open) return
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const panel = panelRef.current
+    panel?.querySelector<HTMLButtonElement>('button[aria-label="Закрыть фильтры"]')?.focus()
+    const handleKeyDown=(event: KeyboardEvent) => {
+      if (event.key==='Escape') { event.preventDefault(); onClose(); return }
+      if (event.key!=='Tab' || !panel) return
+      const focusable=[...panel.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled),[href], [tabindex]:not([tabindex="-1"])')].filter(el => el.getClientRects().length>0)
+      if (!focusable.length) return
+      const first=focusable[0],last=focusable[focusable.length-1]
+      if (event.shiftKey && document.activeElement===first){event.preventDefault();last.focus()}
+      else if (!event.shiftKey && document.activeElement===last){event.preventDefault();first.focus()}
+    }
+    document.addEventListener('keydown',handleKeyDown)
+    const previousOverflow=document.body.style.overflow
+    document.body.style.overflow='hidden'
+    return ()=>{document.removeEventListener('keydown',handleKeyDown);document.body.style.overflow=previousOverflow;previous?.focus()}
+  },[open,onClose])
+  if(!open) return null
 
-  const handleTypeChange = (type: string) => {
-    const types = filters.types.includes(type)
-      ? filters.types.filter((t) => t !== type)
-      : [...filters.types, type]
-    onFiltersChange({
-      ...filters,
-      types,
-      colors: types.length > 0 ? [] : filters.colors,
-      manufacturers: types.length > 0 ? [] : filters.manufacturers,
-    })
-  }
-
-  const handleColorChange = (color: string) => {
-    const colors = filters.colors.includes(color)
-      ? filters.colors.filter((c) => c !== color)
-      : [...filters.colors, color]
-    onFiltersChange({ ...filters, colors })
-  }
-
-  const handleManufacturerChange = (mfr: string) => {
-    const mfrs = filters.manufacturers.includes(mfr)
-      ? filters.manufacturers.filter((m) => m !== mfr)
-      : [...filters.manufacturers, mfr]
-    onFiltersChange({ ...filters, manufacturers: mfrs })
-  }
-
-  const resetFilters = () => {
-    onFiltersChange({ ...DEFAULT_FILTERS })
-  }
-
-  if (!open) return null
-
-  return (
-    <>
-      {/* Backdrop — dims content behind drawer, header is NOT affected */}
-      <div
-        className="fixed inset-0 z-[60] bg-black/40"
-        onClick={onClose}
-        style={{ top: '64px' }}
-      />
-
-      {/* Drawer panel */}
-      <div
-        className="fixed top-[64px] left-0 z-[70] flex h-[calc(100vh-64px)] w-[35vw] min-w-[300px] max-w-[420px] flex-col bg-surface border-r border-border overflow-y-auto"
-        role="dialog"
-        aria-label="Фильтры"
-      >
-        {/* Drawer header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-          <div className="flex items-center gap-2">
-            <FiFilter className="w-5 h-5 text-text-primary" />
-            <h2 className="text-lg font-semibold text-text-primary">Фильтры</h2>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 flex items-center justify-center rounded-md text-text-muted hover:bg-surface-3 hover:text-text-primary transition-colors"
-            aria-label="Закрыть фильтры"
-          >
-            <FiX className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Scrollable filter sections */}
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
-          {/* Sorting */}
-          <section>
-            <h3 className="text-sm font-semibold text-text-primary mb-3">Сортировка</h3>
-            <div className="space-y-2">
-              {SORT_OPTIONS.map((opt) => (
-                <label
-                  key={opt.value}
-                  className="flex items-center gap-2.5 cursor-pointer text-sm text-text-primary hover:text-primary transition-colors"
-                >
-                  <input
-                    type="radio"
-                    name="sort"
-                    checked={filters.sort === opt.value}
-                    onChange={() => onFiltersChange({ ...filters, sort: opt.value })}
-                    className="w-4 h-4 accent-primary"
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              ))}
-            </div>
-          </section>
-
-          {/* Category */}
-          <section>
-            <h3 className="text-sm font-semibold text-text-primary mb-3">Категория</h3>
-            <div className="space-y-2">
-              {allOptions.categories.map((cat) => (
-                <label
-                  key={cat}
-                  className="flex items-center gap-2.5 cursor-pointer text-sm text-text-primary hover:text-primary transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={filters.categories.includes(cat)}
-                    onChange={() => handleCategoryChange(cat)}
-                    className="w-4 h-4 accent-primary rounded"
-                  />
-                  <span>{cat}</span>
-                </label>
-              ))}
-            </div>
-          </section>
-
-          {/* Type */}
-          {allOptions.types.length > 0 && (
-            <section>
-              <h3 className="text-sm font-semibold text-text-primary mb-3">Тип</h3>
-              <div className="space-y-2">
-                {types.map((type) => (
-                  <label
-                    key={type}
-                    className={`flex items-center gap-2.5 cursor-pointer text-sm transition-colors ${
-                      isCategorySelected
-                        ? 'text-text-primary hover:text-primary'
-                        : 'text-text-muted cursor-not-allowed'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={filters.types.includes(type)}
-                      onChange={() => isCategorySelected && handleTypeChange(type)}
-                      disabled={!isCategorySelected}
-                      className="w-4 h-4 accent-primary rounded"
-                    />
-                    <span>{type}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Color */}
-          {allOptions.colors.length > 0 && (
-            <section>
-              <h3 className="text-sm font-semibold text-text-primary mb-3">Цвет</h3>
-              <div className="space-y-2">
-                {colors.map((color) => (
-                  <label
-                    key={color}
-                    className={`flex items-center gap-2.5 cursor-pointer text-sm transition-colors ${
-                      (isCategorySelected || isTypeSelected)
-                        ? 'text-text-primary hover:text-primary'
-                        : 'text-text-muted cursor-not-allowed'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={filters.colors.includes(color)}
-                      onChange={() => (isCategorySelected || isTypeSelected) && handleColorChange(color)}
-                      disabled={!isCategorySelected && !isTypeSelected}
-                      className="w-4 h-4 accent-primary rounded"
-                    />
-                    {/* Color dot */}
-                    <span
-                      className="w-4 h-4 rounded-full border border-border shrink-0"
-                      style={{
-                        backgroundColor:
-                          color === 'Чёрный'
-                            ? '#1a1a2e'
-                            : color === 'Белый'
-                              ? '#ffffff'
-                              : color === 'Серебристый'
-                                ? '#a0a8b4'
-                                : '#6b7280',
-                      }}
-                    />
-                    <span>{color}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-          )}
-
-          {/* Manufacturer */}
-          {allOptions.manufacturers.length > 0 && (
-            <section>
-              <h3 className="text-sm font-semibold text-text-primary mb-3">Производитель</h3>
-              <div className="space-y-2">
-                <label
-                  className="flex items-center gap-2.5 cursor-pointer text-sm text-text-primary hover:text-primary transition-colors"
-                >
-                  <input
-                    type="checkbox"
-                    checked={filters.manufacturers.length === 0}
-                    onChange={() => {
-                      if (filters.manufacturers.length === 0) {
-                        onFiltersChange({ ...filters, manufacturers: allOptions.manufacturers })
-                      } else {
-                        onFiltersChange({ ...filters, manufacturers: [] })
-                      }
-                    }}
-                    className="w-4 h-4 accent-primary rounded"
-                  />
-                  <span>Все производители</span>
-                </label>
-                {manufacturers.map((mfr) => (
-                  <label
-                    key={mfr}
-                    className={`flex items-center gap-2.5 cursor-pointer text-sm transition-colors ${
-                      (isCategorySelected || isTypeSelected)
-                        ? 'text-text-primary hover:text-primary'
-                        : 'text-text-muted cursor-not-allowed'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={filters.manufacturers.includes(mfr)}
-                      onChange={() =>
-                        (isCategorySelected || isTypeSelected) && handleManufacturerChange(mfr)
-                      }
-                      disabled={!isCategorySelected && !isTypeSelected}
-                      className="w-4 h-4 accent-primary rounded"
-                    />
-                    <span>{mfr}</span>
-                  </label>
-                ))}
-              </div>
-            </section>
-          )}
-        </div>
-
-        {/* Bottom actions */}
-        <div className="flex items-center gap-3 px-5 py-4 border-t border-border shrink-0">
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="flex-1 h-10 rounded-lg border border-border bg-surface-3 text-sm font-medium text-text-primary hover:bg-surface hover:border-border-hover transition-colors"
-          >
-            Сбросить
-          </button>
-          <button
-            type="button"
-            onClick={onApply}
-            className="flex-1 h-10 rounded-lg bg-primary text-sm font-semibold text-white hover:bg-primary-hover transition-colors"
-          >
-            Применить
-          </button>
-        </div>
+  const section = (key:Section, contents:ReactNode) => <section key={key} className="border-b border-border pb-4 last:border-b-0">
+    <button type="button" aria-expanded={!collapsed.includes(key)} onClick={()=>toggle(key)} className="mb-2 flex w-full items-center justify-between py-1 text-left text-sm font-semibold text-text-primary">
+      {sectionNames[key]}<FiChevronDown aria-hidden="true" className={`h-4 w-4 transition-transform ${collapsed.includes(key)?'-rotate-90':''}`}/>
+    </button>
+    {!collapsed.includes(key) && <div className="space-y-2">{contents}</div>}
+  </section>
+  const checkbox = (field:'categories'|'types'|'colors'|'manufacturers', name:string,disabled=false) => <label key={name} className={`flex items-center gap-2.5 text-sm ${disabled?'cursor-not-allowed text-text-muted':'cursor-pointer text-text-primary hover:text-primary'}`}>
+    <input type="checkbox" className="h-4 w-4 shrink-0 rounded accent-primary" checked={filters[field].includes(name)} disabled={disabled} onChange={()=>setGroup(field,name)}/>
+    {field==='colors' && <span aria-hidden="true" className="h-4 w-4 shrink-0 rounded-full border border-border" style={{backgroundColor:dotColors[name]??'#9ca3af'}}/>}
+    <span>{name}</span>
+  </label>
+  return <>
+    <div className="fixed inset-x-0 bottom-0 top-[64px] z-[60] bg-black/50" onClick={onClose} aria-hidden="true" data-testid="catalog-filter-backdrop"/>
+    <div ref={panelRef} role="dialog" aria-modal="true" aria-label="Фильтры" className="fixed left-0 top-[64px] z-[70] flex h-[calc(100dvh-64px)] w-full max-w-[420px] flex-col border-r border-border bg-surface shadow-xl md:w-[35vw] md:min-w-[300px]">
+      <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
+        <div className="flex items-center gap-2 text-text-primary"><FiFilter className="h-5 w-5"/><h2 className="text-lg font-semibold">Фильтры</h2></div>
+        <button type="button" onClick={onClose} aria-label="Закрыть фильтры" className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-primary hover:bg-surface-3"><FiX className="h-5 w-5"/></button>
       </div>
-    </>
-  )
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
+        {section('sort',SORT_OPTIONS.map(option=><label key={option.value} className="flex cursor-pointer items-center gap-2.5 text-sm text-text-primary hover:text-primary"><input type="radio" name="catalog-sort" checked={filters.sort===option.value} onChange={()=>onFiltersChange({...filters,sort:option.value})} className="h-4 w-4 accent-primary"/>{option.label}</label>))}
+        {filters.saleOnly && <div className="rounded-lg border border-border bg-surface-3 p-3 text-sm text-text-primary">
+          <label className="flex cursor-pointer items-center gap-2.5">
+            <input type="checkbox" checked={filters.saleOnly} onChange={()=>onFiltersChange({...filters,saleOnly:false})} className="h-4 w-4 accent-primary"/>
+            Только товары по акции
+          </label>
+          <p className="mt-1 text-xs text-text-muted">В текущем демо-каталоге нет товаров со скидкой.</p>
+        </div>}
+        {section('categories',options.categories.map(cat=><div key={cat}>
+          {checkbox('categories',cat)}
+          {options.unavailableCategories.includes(cat) && <span className="ml-7 text-xs text-text-muted">Пока нет товаров</span>}
+        </div>))}
+        {section('types',options.types.map(type=>checkbox('types',type,!hasCategory)))}
+        {section('colors',options.colors.map(color=>checkbox('colors',color,!allowDetail)))}
+        {section('manufacturers',<>
+          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-text-primary hover:text-primary"><input type="checkbox" className="h-4 w-4 accent-primary" checked={filters.manufacturers.length===0} onChange={()=>onFiltersChange({...filters,manufacturers:[]})}/>Все производители</label>
+          {options.manufacturers.map(mfr=>checkbox('manufacturers',mfr,!allowDetail))}
+        </>)}
+      </div>
+      <div className="flex shrink-0 gap-3 border-t border-border bg-surface px-5 py-4">
+        <button type="button" onClick={()=>onFiltersChange({...DEFAULT_FILTERS, categories:[],types:[],colors:[],manufacturers:[]})} className="h-10 flex-1 rounded-lg border border-border bg-surface-3 text-sm font-medium text-text-primary hover:border-border-hover">Сбросить</button>
+        <button type="button" onClick={onApply} className="h-10 flex-1 rounded-lg bg-primary text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">Применить</button>
+      </div>
+    </div>
+  </>
 }
