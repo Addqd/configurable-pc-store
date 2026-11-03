@@ -1,339 +1,280 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useCartStore } from './cartStore'
+import { removeAccountReviews } from '../data/reviewStorage'
 
-// ─── Account model ───────────────────────────────────────────────
+/** Frontend-only demo accounts. This is NOT server-side authentication. */
 export interface Account {
-  id: string              // stable identifier (uuid-like)
-  email: string           // unique per account
-  username: string        // unique per account
+  id: string
+  email: string
+  username: string
   displayName: string
-  avatar: string          // base64 data URL, or empty for placeholder
+  avatar: string
   createdAt: number
 }
 
-// ─── Password verifier stored per account ────────────────────────
-interface PasswordRecord {
-  // Simple demo verifier: base64-encoded hex of the lower 64 bits of SHA-256
-  // Salt is the first 16 chars of the account id.
+type PasswordRecord = {
   salt: string
   hash: string
+  algorithm?: 'pbkdf2-sha256'
+  iterations?: number
 }
 
-interface AccountWithPassword {
-  account: Account
-  password: PasswordRecord
-}
+type AccountRecord = { account: Account; password: PasswordRecord }
+type Accounts = Record<string, AccountRecord>
+export type AccountResult = { success: true } | { success: false; error: string }
 
-// ─── Store state ─────────────────────────────────────────────────
-interface AccountState {
-  // All registered accounts (keyed by id)
-  accounts: Record<string, AccountWithPassword>
-  // Currently active session
+type AccountState = {
+  accounts: Accounts
   activeAccountId: string | null
-  // Derived: is the user authenticated?
-  isAuthenticated: boolean
-  // Derived: current account or null
-  activeAccount: Account | null
-
-  // ── Actions ───────────────────────────────────────────────────
-  register: (email: string, username: string, displayName: string, password: string) => { success: boolean; error?: string }
-  login: (identifier: string, password: string) => { success: boolean; error?: string }
+  register: (email: string, username: string, displayName: string, password: string) => Promise<AccountResult>
+  login: (identifier: string, password: string) => Promise<AccountResult>
   logout: () => void
-  updateProfile: (updates: Partial<Pick<Account, 'displayName' | 'email' | 'username'>>) => { success: boolean; error?: string }
-  setAvatar: (avatar: string) => void
-  changePassword: (currentPassword: string, newPassword: string) => { success: boolean; error?: string }
+  updateProfile: (updates: Partial<Pick<Account, 'displayName' | 'email' | 'username'>>) => AccountResult
+  setAvatar: (avatar: string) => boolean
+  changePassword: (currentPassword: string, newPassword: string) => Promise<AccountResult>
   deleteAccount: () => boolean
-  activateAccount: (id: string) => void
-
-  // Password helper
-  verifyPassword: (accountId: string, password: string) => boolean
+  verifyPassword: (accountId: string, password: string) => Promise<boolean>
 }
 
-// ─── Simple SHA-256 verifier ─────────────────────────────────────
-async function sha256Hex(input: string): Promise<string> {
-  const encoder = new TextEncoder()
-  const data = encoder.encode(input)
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('')
+export const selectActiveAccount = (state: AccountState): Account | null =>
+  state.activeAccountId ? state.accounts[state.activeAccountId]?.account ?? null : null
+export const selectIsAuthenticated = (state: AccountState): boolean => selectActiveAccount(state) !== null
+
+const STORAGE_KEY = 'pc-builder-account'
+const LEGACY_V2_KEY = 'pc-builder-account-v2'
+const ITERATIONS = 120_000
+const failure = (error: string): AccountResult => ({ success: false, error })
+const normalizeEmail = (value: string) => value.trim().toLowerCase()
+const normalizeUsername = (value: string) => value.trim()
+const emailValid = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v)
+
+function validatedSnapshot(value: unknown): { accounts: Accounts; activeAccountId: string | null } {
+  const valueState = isObject(value) ? value : {}
+  const accounts: Accounts = {}
+  const rawAccounts = isObject(valueState.accounts) ? valueState.accounts : {}
+  for (const [id, raw] of Object.entries(rawAccounts)) {
+    if (!isObject(raw) || !isObject(raw.account) || !isObject(raw.password)) continue
+    const a = raw.account
+    const p = raw.password
+    if (typeof a.id !== 'string' || a.id !== id || typeof a.email !== 'string' ||
+        typeof a.username !== 'string' || typeof a.displayName !== 'string' ||
+        typeof p.salt !== 'string' || typeof p.hash !== 'string') continue
+    accounts[id] = {
+      account: {
+        id, email: a.email, username: a.username, displayName: a.displayName,
+        avatar: typeof a.avatar === 'string' ? a.avatar : '',
+        createdAt: typeof a.createdAt === 'number' ? a.createdAt : 0,
+      },
+      password: {
+        salt: p.salt, hash: p.hash,
+        ...(p.algorithm === 'pbkdf2-sha256' ? { algorithm: 'pbkdf2-sha256' as const } : {}),
+        ...(typeof p.iterations === 'number' ? { iterations: p.iterations } : {}),
+      },
+    }
+  }
+  const activeId = valueState.activeAccountId
+  return { accounts, activeAccountId: typeof activeId === 'string' && accounts[activeId] ? activeId : null }
 }
 
-function makeSalt(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(8))
-  return Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).join('')
-}
-
-async function hashPassword(password: string, salt: string): Promise<string> {
-  // Use salt + password for a simple demo verifier
-  return sha256Hex(`${salt}${password}`)
-}
-
-// ─── Normalize / validate ────────────────────────────────────────
-function normalizeEmail(email: string): string {
-  return email.trim().toLowerCase()
-}
-
-function normalizeUsername(username: string): string {
-  return username.trim()
-}
-
-function generateId(): string {
-  // Simple id: timestamp + random
-  const bytes = crypto.getRandomValues(new Uint8Array(12))
-  const ts = Date.now().toString(36)
-  return ts + Array.from(bytes).map((b) => b.toString(16).padStart(2, '0')).slice(0, 24)
-}
-
-// ─── Store ───────────────────────────────────────────────────────
-const ACCOUNT_STORAGE_KEY = 'pc-builder-account-v2'
-
-function loadFromStorage(): Pick<AccountState, 'accounts' | 'activeAccountId'> {
+function readStoredSnapshot(key: string): { accounts: Accounts; activeAccountId: string | null } | null {
   try {
-    const raw = localStorage.getItem(ACCOUNT_STORAGE_KEY)
-    if (!raw) return { accounts: {}, activeAccountId: null }
-    const parsed = JSON.parse(raw)
-    if (parsed?.version !== 1) return { accounts: {}, activeAccountId: null }
-    return { accounts: parsed.state?.accounts || {}, activeAccountId: parsed.state?.activeAccountId || null }
+    const raw = localStorage.getItem(key)
+    if (!raw) return null
+    const data: unknown = JSON.parse(raw)
+    if (!isObject(data)) return null
+    return validatedSnapshot(data.state)
   } catch {
-    return { accounts: {}, activeAccountId: null }
+    return null
   }
 }
 
-function saveToStorage(accounts: AccountState['accounts'], activeAccountId: string | null): void {
+/** One-time migration only. All subsequent persistence uses Zustand's persist middleware. */
+function migratePreviousDemoStorage(): void {
   try {
-    localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify({ version: 1, state: { accounts, activeAccountId } }))
+    const legacy = readStoredSnapshot(LEGACY_V2_KEY)
+    const previous = readStoredSnapshot(STORAGE_KEY)
+    if (!legacy) return
+    const accounts = { ...previous?.accounts, ...legacy.accounts }
+    const activeAccountId = legacy.activeAccountId && accounts[legacy.activeAccountId]
+      ? legacy.activeAccountId
+      : null
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      version: 1,
+      state: { accounts, activeAccountId },
+    }))
+    localStorage.removeItem(LEGACY_V2_KEY)
   } catch {
-    // ignore
+    // If storage is unavailable, the demo remains usable for this tab.
+  }
+}
+
+migratePreviousDemoStorage()
+
+function toBase64(bytes: Uint8Array): string {
+  return btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join(''))
+}
+
+function fromBase64(value: string): Uint8Array {
+  return Uint8Array.from(atob(value), (c) => c.charCodeAt(0))
+}
+
+async function derivePassword(password: string, salt: string, iterations: number): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits'])
+  const derived = await crypto.subtle.deriveBits({
+    name: 'PBKDF2', hash: 'SHA-256', salt: fromBase64(salt) as BufferSource, iterations,
+  }, key, 256)
+  return toBase64(new Uint8Array(derived))
+}
+
+async function newPasswordRecord(password: string): Promise<PasswordRecord> {
+  const salt = toBase64(crypto.getRandomValues(new Uint8Array(16)))
+  return { salt, hash: await derivePassword(password, salt, ITERATIONS), algorithm: 'pbkdf2-sha256', iterations: ITERATIONS }
+}
+
+async function isValidPassword(record: PasswordRecord, password: string): Promise<boolean> {
+  try {
+    if (record.algorithm === 'pbkdf2-sha256') {
+      return (await derivePassword(password, record.salt, record.iterations || ITERATIONS)) === record.hash
+    }
+    // Compatibility with the SHA-256 verifier previously written by PR #5.
+    const raw = new TextEncoder().encode(record.salt + password)
+    const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', raw))
+    return Array.from(digest, (x) => x.toString(16).padStart(2, '0')).join('') === record.hash
+  } catch {
+    return false
   }
 }
 
 export const useAccountStore = create<AccountState>()(
   persist(
     (set, get) => ({
-      ...loadFromStorage(),
-
-      get isAuthenticated() {
-        const { activeAccountId, accounts } = get()
-        return activeAccountId !== null && activeAccountId in accounts
-      },
-
-      get activeAccount() {
-        const { activeAccountId, accounts } = get()
-        if (!activeAccountId || !(activeAccountId in accounts)) return null
-        return accounts[activeAccountId].account
-      },
+      accounts: {},
+      activeAccountId: null,
 
       register: async (email, username, displayName, password) => {
-        const normalizedEmail = normalizeEmail(email)
-        const normalizedUsername = normalizeUsername(username)
-
-        // Validate inputs
-        if (!normalizedEmail) return { success: false, error: 'Введите email' }
-        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) return { success: false, error: 'Неверный формат email' }
-        if (!normalizedUsername) return { success: false, error: 'Введите имя пользователя' }
-        if (normalizedUsername.length < 2) return { success: false, error: 'Имя пользователя должно содержать минимум 2 символа' }
-        if (password.length < 4) return { success: false, error: 'Пароль должен содержать минимум 4 символа' }
-
-        const { accounts } = get()
-        // Check duplicate email
-        for (const record of Object.values(accounts)) {
-          if (normalizeEmail(record.account.email) === normalizedEmail) {
-            return { success: false, error: 'Пользователь с таким email уже существует' }
-          }
+        const mail = normalizeEmail(email)
+        const user = normalizeUsername(username)
+        const name = displayName.trim() || user
+        if (!emailValid(mail)) return failure('Введите корректный email')
+        if (user.length < 2) return failure('Имя пользователя должно содержать минимум 2 символа')
+        if (name.length < 2) return failure('Имя должно содержать минимум 2 символа')
+        if (password.length < 8) return failure('Пароль должен содержать минимум 8 символов')
+        const duplicate = () => Object.values(get().accounts).some(({ account }) =>
+          normalizeEmail(account.email) === mail || account.username.toLowerCase() === user.toLowerCase())
+        if (duplicate()) return failure('Email или имя пользователя уже заняты')
+        try {
+          const passwordRecord = await newPasswordRecord(password)
+          if (duplicate()) return failure('Email или имя пользователя уже заняты')
+          const id = crypto.randomUUID()
+          const account: Account = { id, email: mail, username: user, displayName: name, avatar: '', createdAt: Date.now() }
+          set((s) => ({ accounts: { ...s.accounts, [id]: { account, password: passwordRecord } }, activeAccountId: id }))
+          useCartStore.getState().setActiveAccountId(id)
+          return { success: true }
+        } catch {
+          return failure('Не удалось создать аккаунт. Проверьте доступность защищённого контекста браузера.')
         }
-        // Check duplicate username
-        for (const record of Object.values(accounts)) {
-          if (record.account.username.toLowerCase() === normalizedUsername.toLowerCase()) {
-            return { success: false, error: 'Такое имя пользователя уже занято' }
-          }
-        }
-
-        const id = generateId()
-        const salt = makeSalt()
-        const hash = await hashPassword(password, salt)
-
-        const newAccount: AccountWithPassword = {
-          account: {
-            id,
-            email: normalizedEmail,
-            username: normalizedUsername,
-            displayName: displayName || normalizedUsername,
-            avatar: '',
-            createdAt: Date.now(),
-          },
-          password: { salt, hash },
-        }
-
-        set((state) => ({
-          accounts: { ...state.accounts, [id]: newAccount },
-          activeAccountId: id,
-        }))
-        saveToStorage(get().accounts, id)
-        useCartStore.getState().setActiveAccountId(id)
-
-        return { success: true }
       },
 
       login: async (identifier, password) => {
-        const { accounts } = get()
-        const normalizedIdentifier = identifier.trim().toLowerCase()
-
-        if (!normalizedIdentifier) return { success: false, error: 'Введите email или имя пользователя' }
-        if (!password) return { success: false, error: 'Введите пароль' }
-
-        // Find account by email or username
-        let found: { id: string; record: AccountWithPassword } | null = null
-        for (const [id, record] of Object.entries(accounts)) {
-          if (
-            normalizeEmail(record.account.email) === normalizedIdentifier ||
-            record.account.username.toLowerCase() === normalizedIdentifier
-          ) {
-            found = { id, record }
-            break
-          }
+        const input = identifier.trim().toLowerCase()
+        if (!input || !password) return failure('Введите логин и пароль')
+        const found = Object.entries(get().accounts).find(([, r]) =>
+          normalizeEmail(r.account.email) === input || r.account.username.toLowerCase() === input)
+        if (!found || !await isValidPassword(found[1].password, password)) {
+          return failure('Неверный email/имя пользователя или пароль')
         }
-
-        if (!found) return { success: false, error: 'Неверный email/имя пользователя или пароль' }
-
-        const verified = await get().verifyPassword(found.id, password)
-        if (!verified) return { success: false, error: 'Неверный email/имя пользователя или пароль' }
-
-        set({ activeAccountId: found.id })
-        saveToStorage(get().accounts, found.id)
-        useCartStore.getState().setActiveAccountId(found.id)
+        const [id, record] = found
+        // Upgrade old hashes on successful login, without losing existing demo accounts.
+        if (record.password.algorithm !== 'pbkdf2-sha256') {
+          try {
+            const newPassword = await newPasswordRecord(password)
+            set((s) => ({ accounts: { ...s.accounts, [id]: { ...s.accounts[id], password: newPassword } } }))
+          } catch { /* Old demo verifier remains usable. */ }
+        }
+        set({ activeAccountId: id })
+        useCartStore.getState().setActiveAccountId(id)
         return { success: true }
       },
 
       logout: () => {
         set({ activeAccountId: null })
         useCartStore.getState().setActiveAccountId(null)
-        saveToStorage(get().accounts, null)
       },
 
       updateProfile: (updates) => {
-        const { activeAccountId, accounts } = get()
-        if (!activeAccountId || !(activeAccountId in accounts)) {
-          return { success: false, error: 'Нет активной сессии' }
+        const id = get().activeAccountId
+        const record = id && get().accounts[id]
+        if (!id || !record) return failure('Нет активной сессии')
+        const mail = updates.email === undefined ? record.account.email : normalizeEmail(updates.email)
+        const user = updates.username === undefined ? record.account.username : normalizeUsername(updates.username)
+        const name = updates.displayName === undefined ? record.account.displayName : updates.displayName.trim()
+        if (!emailValid(mail)) return failure('Введите корректный email')
+        if (user.length < 2 || name.length < 2) return failure('Имя должно содержать минимум 2 символа')
+        if (Object.entries(get().accounts).some(([otherId, r]) => otherId !== id && (
+          normalizeEmail(r.account.email) === mail || r.account.username.toLowerCase() === user.toLowerCase()))) {
+          return failure('Email или имя пользователя уже заняты')
         }
-
-        const account = accounts[activeAccountId].account
-        const normalizedEmail = updates.email !== undefined ? normalizeEmail(updates.email) : account.email
-        const normalizedUsername = updates.username !== undefined ? normalizeUsername(updates.username) : account.username
-        const newDisplayName = updates.displayName !== undefined ? updates.displayName.trim() : account.displayName
-
-        // Validate
-        if (updates.email !== undefined && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-          return { success: false, error: 'Неверный формат email' }
-        }
-        if (updates.username !== undefined && (!normalizedUsername || normalizedUsername.length < 2)) {
-          return { success: false, error: 'Имя пользователя должно содержать минимум 2 символа' }
-        }
-        if (updates.displayName !== undefined && (!newDisplayName || newDisplayName.length < 2)) {
-          return { success: false, error: 'Имя должно содержать минимум 2 символа' }
-        }
-
-        // Check uniqueness against other accounts
-        for (const [otherId, record] of Object.entries(accounts)) {
-          if (otherId === activeAccountId) continue
-          if (normalizeEmail(record.account.email) === normalizedEmail) {
-            return { success: false, error: 'Пользователь с таким email уже существует' }
-          }
-          if (record.account.username.toLowerCase() === normalizedUsername.toLowerCase()) {
-            return { success: false, error: 'Такое имя пользователя уже занято' }
-          }
-        }
-
-        set((state) => {
-          const updated = { ...state.accounts, [activeAccountId]: { ...state.accounts[activeAccountId], account: { ...account, email: updates.email !== undefined ? normalizedEmail : account.email, username: updates.username !== undefined ? normalizedUsername : account.username, displayName: updates.displayName !== undefined ? newDisplayName : account.displayName } } }
-          saveToStorage(updated, state.activeAccountId)
-          return { accounts: updated }
-        })
-
+        set((s) => ({
+          accounts: {
+            ...s.accounts,
+            [id]: { ...s.accounts[id], account: { ...s.accounts[id].account, email: mail, username: user, displayName: name } },
+          },
+        }))
         return { success: true }
       },
 
       setAvatar: (avatar) => {
-        const { activeAccountId, accounts } = get()
-        if (!activeAccountId || !(activeAccountId in accounts)) return
-        set((state) => {
-          const updated = {
-            ...state.accounts,
-            [activeAccountId]: {
-              ...state.accounts[activeAccountId],
-              account: { ...state.accounts[activeAccountId].account, avatar },
-            },
-          }
-          saveToStorage(updated, state.activeAccountId)
-          return { accounts: updated }
-        })
-      },
-
-      changePassword: async (currentPassword, newPassword) => {
-        const { activeAccountId, accounts } = get()
-        if (!activeAccountId || !(activeAccountId in accounts)) {
-          return { success: false, error: 'Нет активной сессии' }
-        }
-
-        if (!currentPassword) return { success: false, error: 'Введите текущий пароль' }
-        if (newPassword.length < 4) return { success: false, error: 'Новый пароль должен содержать минимум 4 символа' }
-
-        const record = accounts[activeAccountId]
-        const currentVerified = await get().verifyPassword(activeAccountId, currentPassword)
-        if (!currentVerified) return { success: false, error: 'Неверный текущий пароль' }
-
-        const newHash = await hashPassword(newPassword, record.password.salt)
-
-        set((state) => {
-          const updated = {
-            ...state.accounts,
-            [activeAccountId]: {
-              ...state.accounts[activeAccountId],
-              password: { ...record.password, hash: newHash },
-            },
-          }
-          saveToStorage(updated, state.activeAccountId)
-          return { accounts: updated }
-        })
-
-        return { success: true }
-      },
-
-      deleteAccount: () => {
-        const { activeAccountId, accounts } = get()
-        if (!activeAccountId) return false
-
-        const next = { ...accounts }
-        delete next[activeAccountId]
-        set({ activeAccountId: null, accounts: next })
-        saveToStorage(next, null)
+        const id = get().activeAccountId
+        if (!id || !get().accounts[id]) return false
+        set((s) => ({
+          accounts: { ...s.accounts, [id]: { ...s.accounts[id], account: { ...s.accounts[id].account, avatar } } },
+        }))
         return true
       },
 
-      activateAccount: (id) => {
-        const { accounts } = get()
-        if (id in accounts) {
-          set({ activeAccountId: id })
-          useCartStore.getState().setActiveAccountId(id)
+      changePassword: async (currentPassword, newPassword) => {
+        const id = get().activeAccountId
+        const record = id && get().accounts[id]
+        if (!id || !record) return failure('Нет активной сессии')
+        if (newPassword.length < 8) return failure('Новый пароль должен содержать минимум 8 символов')
+        if (!await isValidPassword(record.password, currentPassword)) return failure('Неверный текущий пароль')
+        try {
+          const passwordRecord = await newPasswordRecord(newPassword)
+          if (get().activeAccountId !== id || !get().accounts[id]) return failure('Сессия изменилась')
+          set((s) => ({ accounts: { ...s.accounts, [id]: { ...s.accounts[id], password: passwordRecord } } }))
+          return { success: true }
+        } catch {
+          return failure('Не удалось изменить пароль')
         }
       },
 
-      verifyPassword: async (accountId, password) => {
-        const { accounts } = get()
-        const record = accounts[accountId]
-        if (!record) return false
-        const computed = await hashPassword(password, record.password.salt)
-        return computed === record.password.hash
+      deleteAccount: () => {
+        const id = get().activeAccountId
+        if (!id || !get().accounts[id]) return false
+        const next = { ...get().accounts }
+        delete next[id]
+        set({ accounts: next, activeAccountId: null })
+        useCartStore.getState().removeOrdersForAccount(id)
+        removeAccountReviews(id)
+        useCartStore.getState().setActiveAccountId(null)
+        return true
+      },
+
+      verifyPassword: async (id, password) => {
+        const record = get().accounts[id]
+        return record ? isValidPassword(record.password, password) : false
       },
     }),
     {
-      name: 'pc-builder-account',
+      name: STORAGE_KEY,
       version: 1,
-      // Only persist actual state, not computed getters
-      partialize: (state) => ({
-        accounts: state.accounts,
-        activeAccountId: state.activeAccountId,
-      }),
-    }
-  )
+      partialize: (s) => ({ accounts: s.accounts, activeAccountId: s.activeAccountId }),
+      merge: (saved, current) => {
+        const snapshot = validatedSnapshot(saved)
+        return { ...current, ...snapshot }
+      },
+    },
+  ),
 )

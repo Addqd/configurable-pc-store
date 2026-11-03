@@ -1,247 +1,172 @@
 import { useState } from 'react'
+import { Link } from 'react-router'
 import { Header } from '../components/Header'
-import { useAccountStore } from '../stores/accountStore'
+import { Footer } from '../components/Footer'
+import { BackButton } from '../components/BackButton'
+import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
 import { useCartStore, type Order, type OrderItem, type BuildComponent } from '../stores/cartStore'
+import { useUIStore } from '../stores/uiStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
-import { FiChevronDown, FiChevronRight, FiBox } from 'react-icons/fi'
+import { FiChevronDown, FiChevronUp, FiBox, FiCheckCircle, FiShoppingCart } from 'react-icons/fi'
 
-function formatDate(ts: number): string {
-  return new Date(ts).toLocaleDateString('ru-RU', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
-  })
+function formatDate(timestamp: number) {
+  return new Intl.DateTimeFormat('ru-RU').format(new Date(timestamp))
 }
 
-function itemLabel(count: number): string {
-  const lastTwo = count % 100
-  if (lastTwo >= 11 && lastTwo <= 14) return 'товаров'
-  const last = count % 10
-  if (last === 1) return 'товар'
-  return last >= 2 && last <= 4 ? 'товара' : 'товаров'
+function countLabel(count: number) {
+  const tens = count % 100
+  const units = count % 10
+  return tens >= 11 && tens <= 14 ? 'товаров' : units === 1 ? 'товар' : units >= 2 && units <= 4 ? 'товара' : 'товаров'
 }
 
-interface OrderItemCardProps {
-  item: OrderItem
-  level?: number
+function SnapshotImage({ src, alt, className }: { src?: string; alt: string; className: string }) {
+  return <img src={src || placeholder} alt={alt} loading="lazy"
+    onError={(event) => { event.currentTarget.src = placeholder }}
+    className={className} />
 }
 
-function getEffectiveImage(item: OrderItem): string {
-  return item.image || placeholder
-}
-
-function OrderItemCard({ item, level = 0 }: OrderItemCardProps) {
-  const [buildExpanded, setBuildExpanded] = useState(false)
-  const hasComponents = 'components' in item && item.components && item.components.length > 0
-  const isBuild = hasComponents
-
+function PurchasedBuild({ components }: { components: BuildComponent[] }) {
   return (
-    <div className={level === 0 ? '' : 'ml-4'}>
-      {/* Product row */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 py-4 border-b border-border">
-        {/* Image */}
-        <div className="shrink-0 w-20 h-20 rounded-lg bg-surface-3 overflow-hidden">
-          <img src={getEffectiveImage(item)} alt={item.name} className="w-full h-full object-contain" />
-        </div>
+    <div className="mt-2 mb-3 rounded-xl border border-primary/20 bg-surface-2 p-3 sm:p-4">
+      <div className="mb-3 text-sm font-bold text-text-primary">Состав сборки</div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1">
+        {components.map((component, index) => (
+          <div key={`${component.category}-${component.name}-${index}`}
+            className="grid grid-cols-[36px_minmax(0,1fr)] sm:grid-cols-[40px_minmax(0,1fr)] items-center gap-3 py-2 border-b border-border last:border-b-0 min-w-0">
+            <SnapshotImage src={component.image} alt="" className="w-9 h-9 sm:w-10 sm:h-10 object-contain rounded-md bg-surface" />
+            <div className="min-w-0">
+              <p className="text-xs text-text-muted">{component.category}</p>
+              <p className="text-xs sm:text-sm text-text-primary break-words">{component.name}</p>
+              {component.quantity > 1 && <p className="text-xs text-text-muted">{component.quantity} шт.</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
-        {/* Info */}
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-semibold text-text-primary sm:text-base truncate">{item.name}</h3>
-          {isBuild && (
-            <span className="inline-flex items-center gap-1 mt-1 rounded-md bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-              <FiBox className="w-3 h-3" />
-              Пользовательская сборка
-            </span>
-          )}
+function PurchasedItem({ item }: { item: OrderItem }) {
+  const [expanded, setExpanded] = useState(true)
+  const isBuild = Array.isArray(item.components) && item.components.length > 0
+  return (
+    <div className="border-b border-border last:border-0">
+      <div className="grid grid-cols-[72px_minmax(0,1fr)] sm:grid-cols-[100px_minmax(0,1fr)_auto] items-center gap-3 sm:gap-5 px-3 sm:px-5 py-3 min-w-0">
+        <div className="w-[72px] h-[68px] sm:w-[100px] sm:h-[72px] overflow-hidden rounded-lg bg-surface-2">
+          <SnapshotImage src={item.image} alt={item.name} className="w-full h-full object-contain" />
         </div>
-
-        {/* Quantity + Price */}
-        <div className="flex items-center gap-4 sm:gap-6 shrink-0">
-          <span className="text-sm text-text-muted">× {item.quantity}</span>
-          <span className="text-base font-bold text-text-primary whitespace-nowrap">
-            {formatPrice(item.total)}
-          </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-text-primary break-words">{item.name}</p>
+          {isBuild && <span className="inline-flex rounded-md bg-primary/10 text-primary text-xs px-2 py-1 mt-2">Пользовательская сборка</span>}
+        </div>
+        <div className="col-start-2 sm:col-start-auto flex items-center gap-3 sm:gap-6 justify-between sm:justify-end">
+          <span className="text-sm text-text-muted whitespace-nowrap">{item.quantity} шт.</span>
+          <strong className="text-base text-text-primary whitespace-nowrap">{formatPrice(item.total)}</strong>
           {isBuild && (
-            <button
-              onClick={() => setBuildExpanded((e) => !e)}
-              className="w-8 h-8 flex items-center justify-center rounded-lg bg-surface-3 text-text-muted hover:text-text-primary hover:bg-surface transition-colors shrink-0"
-              aria-label={buildExpanded ? 'Скрыть состав' : 'Показать состав'}
-            >
-              {buildExpanded ? <FiChevronDown className="w-4 h-4" /> : <FiChevronRight className="w-4 h-4" />}
+            <button type="button" onClick={() => setExpanded((value) => !value)}
+              aria-expanded={expanded} aria-label={expanded ? 'Скрыть состав сборки' : 'Показать состав сборки'}
+              className="w-8 h-8 shrink-0 rounded-lg flex items-center justify-center border border-border bg-surface-2 text-primary hover:bg-surface-3">
+              {expanded ? <FiChevronUp /> : <FiChevronDown />}
             </button>
           )}
         </div>
       </div>
-
-      {/* Build components */}
-      {isBuild && buildExpanded && 'components' in item && item.components && (
-        <div className="mt-3 rounded-xl border border-border bg-surface/50 p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-bold text-text-primary">Состав сборки</h4>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-2">
-            {item.components.map((comp: BuildComponent, idx: number) => (
-              <div key={idx} className="flex items-center gap-3 py-1.5 border-b border-border/50 last:border-0">
-                <div className="shrink-0 w-10 h-10 rounded bg-surface-3 overflow-hidden">
-                  <img src={comp.image || placeholder} alt="" className="w-full h-full object-contain" />
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-xs text-text-muted truncate">{comp.category}</p>
-                  <p className="text-sm text-text-primary truncate">{comp.name}</p>
-                  {comp.specs && <p className="text-xs text-text-muted truncate">{comp.specs}</p>}
-                </div>
-                <span className="shrink-0 text-xs text-text-muted">× {comp.quantity}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {isBuild && expanded && <div className="px-3 sm:px-5"><PurchasedBuild components={item.components!} /></div>}
     </div>
   )
 }
 
-// For legacy orders without image field, try to find a matching image by name
-function getItemImage(item: OrderItem): string {
-  return item.image || placeholder
-}
-
-export function OrdersPage() {
-  const account = useAccountStore((s) => s.activeAccount)
-  const orders = useCartStore((s) => s.orders)
-  const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null)
-
-  // Filter orders for current account, sort newest first
-  const accountOrders = account
-    ? orders
-        .filter((o) => o.ownerId === account.id)
-        .sort((a, b) => b.timestamp - a.timestamp)
-    : []
-
-  const orderCount = accountOrders.length
-
-  if (!account) {
-    return (
-      <div className="min-h-screen bg-surface-2">
-        <Header />
-        <main className="pt-24 px-4 flex flex-col items-center justify-center text-center">
-          <div className="max-w-md w-full rounded-2xl border border-border bg-surface p-8 sm:p-12 shadow-[0_5px_24px_var(--color-shadow)]">
-            <h2 className="text-xl font-bold text-text-primary mb-2">Мои заказы</h2>
-            <p className="text-text-muted mb-6">Войдите в аккаунт, чтобы увидеть историю заказов.</p>
-            <a
-              href="/"
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition-colors"
-            >
-              На главную
-            </a>
-          </div>
-        </main>
-      </div>
-    )
-  }
-
+function OrderCard({ order, isExpanded, onToggle }: { order: Order; isExpanded: boolean; onToggle: () => void }) {
   return (
-    <div className="min-h-screen bg-surface-2">
-      <Header />
-      <main className="pt-24 px-4">
-        <div className="max-w-[900px] mx-auto py-8">
-          {/* Header */}
-          <div className="flex items-center gap-4 mb-6">
-            <h1 className="text-3xl font-bold text-text-primary">Мои заказы</h1>
-            <span className="inline-flex items-center rounded-lg bg-surface-3 border border-border px-4 py-1.5 text-sm text-text-muted">
-              Всего заказов: {orderCount}
-            </span>
+    <article className="rounded-xl border border-border bg-surface p-3 sm:p-4 shadow-[0_5px_24px_var(--color-shadow)]">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-5 mb-3">
+        <div className="flex items-center gap-4 flex-1 min-w-0">
+          <div className="flex shrink-0 items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary">
+            <FiBox className="w-6 h-6" />
           </div>
-
-          {/* Orders list */}
-          {accountOrders.length === 0 ? (
-            <div className="rounded-2xl border border-border bg-surface p-12 text-center shadow-[0_5px_24px_var(--color-shadow)]">
-              <svg className="w-16 h-16 text-text-muted mx-auto mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-                <path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-1.8 7M17 13l1.8 7M13 5v8M13 13V5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <h2 className="text-xl font-semibold text-text-primary mb-2">Заказов пока нет</h2>
-              <p className="text-sm text-text-muted mb-6">Оформите первый заказ в каталоге или корзине.</p>
-              <a
-                href="/catalog"
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover transition-colors"
-              >
-                Перейти в каталог
-              </a>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {accountOrders.map((order) => (
-                <OrderCard
-                  key={order.id}
-                  order={order}
-                  isExpanded={expandedOrderId === order.id}
-                  onToggle={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
-    </div>
-  )
-}
-
-interface OrderCardProps {
-  order: Order
-  isExpanded: boolean
-  onToggle: () => void
-}
-
-function OrderCard({ order, isExpanded, onToggle }: OrderCardProps) {
-  return (
-    <div className="rounded-2xl border border-border bg-surface shadow-[0_5px_24px_var(--color-shadow)] overflow-hidden">
-      {/* Order header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 px-6 py-4 border-b border-border">
-        <div className="flex items-center gap-4">
-          {/* Order icon */}
-          <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
-            <FiBox className="w-5 h-5 text-primary" />
-          </div>
-          <div>
+          <div className="min-w-0">
             <h2 className="text-lg font-bold text-text-primary">Заказ #{String(order.id).padStart(6, '0')}</h2>
-            <p className="text-sm text-text-muted">
-              от {formatDate(order.timestamp)} · {order.itemCount} {itemLabel(order.itemCount)}
-            </p>
+            <p className="text-sm text-text-muted">от {formatDate(order.timestamp)} · {order.itemCount} {countLabel(order.itemCount)}</p>
           </div>
         </div>
-        <div className="flex items-center gap-4 shrink-0">
-          <span className="text-xl font-bold text-text-primary whitespace-nowrap">
-            {formatPrice(order.total)}
+        <div className="flex items-center flex-wrap gap-3 sm:gap-4 justify-between sm:justify-end">
+          <strong className="text-xl text-text-primary whitespace-nowrap">{formatPrice(order.total)}</strong>
+          <span className="inline-flex gap-2 items-center rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+            <FiCheckCircle />Завершён (демо)
           </span>
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 px-3 py-1 text-sm font-medium text-emerald-500">
-            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" strokeLinecap="round" strokeLinejoin="round" />
-              <path d="M22 4L12 14.01l-3-3" strokeLinecap="round" strokeLinejoin="round" />
-            </svg>
-            Завершён (демо)
-          </span>
-          <button
-            onClick={onToggle}
-            className="w-8 h-8 flex items-center justify-center rounded-lg bg-surface-3 text-text-muted hover:text-text-primary hover:bg-surface transition-colors"
-            aria-label={isExpanded ? 'Скрыть' : 'Развернуть'}
-          >
-            {isExpanded ? <FiChevronDown className="w-4 h-4" /> : <FiChevronRight className="w-4 h-4" />}
+          <button type="button" onClick={onToggle}
+            aria-expanded={isExpanded} aria-label={isExpanded ? 'Свернуть заказ' : 'Развернуть заказ'}
+            className="shrink-0 w-9 h-9 rounded-lg border border-border bg-surface-2 text-text-primary flex items-center justify-center hover:bg-surface-3">
+            {isExpanded ? <FiChevronUp /> : <FiChevronDown />}
           </button>
         </div>
       </div>
-
-      {/* Order items */}
       {isExpanded && (
-        <div className="p-4 sm:p-6">
-          <div className="divide-y divide-border">
-            {order.items.map((item) => (
-              <OrderItemCard key={`${item.id}-${item.timestamp}`} item={item} />
-            ))}
-          </div>
+        <div className="rounded-xl border border-border overflow-hidden">
+          {order.items.map((item, index) => <PurchasedItem key={`${order.id}-${item.id}-${index}`} item={item} />)}
         </div>
       )}
-    </div>
+    </article>
   )
 }
 
+function OrdersContent() {
+  const account = useAccountStore(selectActiveAccount)
+  const orders = useCartStore((state) => state.orders)
+  const openAuthModal = useUIStore((state) => state.openAuthModal)
+  const [expandedId, setExpandedId] = useState<number | null | undefined>(undefined)
 
+  if (!account) {
+    return (
+      <main className="min-h-screen bg-surface-2 pt-24 px-4">
+        <div className="mx-auto w-full max-w-[1120px]">
+          <BackButton className="mb-5" />
+          <div className="max-w-md mx-auto w-full h-fit rounded-2xl border border-border bg-surface p-8 text-center">
+          <h1 className="text-2xl font-bold text-text-primary mb-2">Мои заказы</h1>
+          <p className="text-text-muted mb-6">Войдите в аккаунт, чтобы увидеть историю заказов.</p>
+          <button type="button" onClick={() => openAuthModal('login')}
+            className="rounded-lg bg-primary text-white dark:text-[#08090C] px-6 py-2.5 text-sm font-semibold hover:bg-primary-hover">Войти</button>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
+  const accountOrders = orders.filter((order) => order.ownerId === account.id)
+    .sort((a, b) => b.timestamp - a.timestamp || b.id - a.id)
+  const openOrder = expandedId === undefined ? accountOrders[0]?.id : expandedId
+
+  return (
+    <main className="min-h-screen bg-surface-2 pt-24 px-4 pb-12">
+      <div className="max-w-[1120px] mx-auto">
+        <BackButton className="mb-5" />
+        <div className="flex flex-wrap items-center gap-4 mb-6">
+          <h1 className="text-3xl font-bold text-text-primary">Мои заказы</h1>
+          <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm text-text-muted">Всего заказов: {accountOrders.length}</span>
+        </div>
+        {accountOrders.length === 0 ? (
+          <div className="rounded-xl border border-border bg-surface px-6 py-12 text-center">
+            <FiShoppingCart className="w-14 h-14 text-text-muted mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-text-primary mb-2">Заказов пока нет</h2>
+            <p className="text-text-muted mb-6">После покупки товары появятся здесь.</p>
+            <Link to="/catalog" className="inline-flex rounded-lg bg-primary text-white dark:text-[#08090C] px-5 py-2.5 font-medium hover:bg-primary-hover">Перейти в каталог</Link>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {accountOrders.map((order) => (
+              <OrderCard
+                key={order.id} order={order} isExpanded={openOrder === order.id}
+                onToggle={() => setExpandedId(openOrder === order.id ? null : order.id)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
+
+export function OrdersPage() {
+  return <div className="min-h-screen bg-surface-2"><Header /><OrdersContent /><Footer /></div>
+}

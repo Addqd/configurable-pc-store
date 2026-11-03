@@ -1,7 +1,7 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useUIStore } from '../stores/uiStore'
 import { useCartStore } from '../stores/cartStore'
-import { useAccountStore } from '../stores/accountStore'
+import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router'
 import logo from '../assets/home/logo-pc-builder.png'
@@ -11,41 +11,26 @@ import { SearchDropdown } from './SearchDropdown'
 import { ProfileDropdown } from './ProfileDropdown'
 import { HeaderPopup } from './HeaderPopup'
 
-interface HeaderAuthProps {
-  user: { name: string; email: string; avatar: string } | null
-  onProfileClick: () => void
-  onAuthModalOpen: () => void
-  onLogout: () => void
-}
-
-interface HeaderProps {
-  user: { name: string; email: string; avatar: string } | null
-  onProfileClick: () => void
-  onAuthModalOpen: () => void
-  onLogout: () => void
-}
-
-export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: HeaderProps) {
+/** Each page already renders its Header; authentication is shared through stores. */
+export function Header() {
   const navigate = useNavigate()
-  const { navOpen, searchOpen, profileOpen, toggleNav, openSearch, toggleProfile, closeSearch, setSearchQuery, searchQuery, closeNav, closeProfile } =
-    useUIStore()
+  const {
+    navOpen, searchOpen, profileOpen, toggleNav, openSearch, toggleProfile,
+    closeSearch, setSearchQuery, searchQuery, closeNav, closeProfile, openAuthModal,
+  } = useUIStore()
+  const account = useAccountStore(selectActiveAccount)
+  const logout = useAccountStore((s) => s.logout)
   const totalItems = useCartStore((s) => s.totalItems())
   const headerRef = useRef<HTMLElement>(null)
   const navButtonRef = useRef<HTMLButtonElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const avatarRef = useRef<HTMLImageElement>(null)
 
-  // Close all panels when clicking outside
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target
       if (!(target instanceof Element)) return
-
-      const insideHeader = headerRef.current?.contains(target)
-      const insidePopup = target.closest('[data-header-popup]')
-
-      if (insideHeader || insidePopup) return
-
+      if (headerRef.current?.contains(target) || target.closest('[data-header-popup]')) return
       closeNav()
       closeSearch()
       closeProfile()
@@ -54,7 +39,11 @@ export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: Head
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [closeNav, closeSearch, closeProfile])
 
-  const handleSearchKeyDown = useCallback((e: React.KeyboardEvent) => {
+  useEffect(() => {
+    if (!account) closeProfile()
+  }, [account, closeProfile])
+
+  const handleSearchKeyDown = useCallback((e: KeyboardEvent) => {
     if (e.key === 'Escape') {
       closeSearch()
       searchInputRef.current?.blur()
@@ -65,10 +54,12 @@ export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: Head
         closeSearch()
         navigate(`/catalog?q=${encodeURIComponent(trimmed)}`)
       }
-    } else if (e.key === 'Tab') {
-      // Allow tab to escape without closing
     }
   }, [searchQuery, closeSearch, navigate])
+
+  const currentUser = account
+    ? { name: account.displayName, email: account.email, avatar: account.avatar || placeholder }
+    : null
 
   return (
     <header
@@ -76,7 +67,6 @@ export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: Head
       className="fixed top-0 left-0 right-0 z-50 bg-surface border-b border-border shadow-[0_1px_3px_var(--color-shadow)]"
     >
       <div className="max-w-[1320px] mx-auto px-4 h-16 flex items-center gap-4">
-        {/* Hamburger */}
         <button
           ref={navButtonRef}
           onClick={toggleNav}
@@ -85,14 +75,10 @@ export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: Head
         >
           <FiMenu className="w-5 h-5" />
         </button>
-
-        {/* Logo */}
-        <Link to="/" className="shrink-0 flex items-center gap-2">
+        <Link to="/" className="shrink-0 flex items-center gap-2" onClick={() => { closeNav(); closeProfile() }}>
           <img src={logo} alt="PC Builder" className="h-9 w-auto" />
         </Link>
-
-        {/* Search */}
-        <div className="flex-1 relative">
+        <div className="flex-1 relative min-w-0">
           <div className="relative">
             <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
             <input
@@ -107,19 +93,15 @@ export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: Head
             />
             {searchQuery.trim() && (
               <button
-                onClick={() => {
-                  setSearchQuery('')
-                  searchInputRef.current?.focus()
-                }}
+                onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted hover:text-text-primary"
+                aria-label="Очистить поиск"
               >
                 <FiX className="w-4 h-4" />
               </button>
             )}
           </div>
         </div>
-
-        {/* Cart */}
         <Link
           to="/cart"
           className="relative w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-3 transition-colors text-text-primary"
@@ -132,55 +114,35 @@ export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: Head
             </span>
           )}
         </Link>
-
-        {/* Profile */}
         <div className="relative shrink-0">
           <button
-            onClick={user ? onProfileClick : onAuthModalOpen}
+            onClick={() => account ? toggleProfile() : openAuthModal('login')}
             className="w-10 h-10 flex items-center justify-center rounded-full hover:opacity-80 transition-opacity"
             aria-label="Профиль"
           >
             <img
               ref={avatarRef}
-              src={user?.avatar || placeholder}
+              src={currentUser?.avatar || placeholder}
+              onError={(e) => { e.currentTarget.src = placeholder }}
               alt=""
-              className="w-8 h-8 rounded-full"
+              className="w-8 h-8 rounded-full object-cover"
             />
-            {user && <FiChevronDown className="w-3.5 h-3.5 ml-1 text-text-muted" />}
+            {account && <FiChevronDown className="w-3.5 h-3.5 ml-1 text-text-muted" />}
           </button>
         </div>
-
-        {/* Nav Menu */}
         {navOpen && (
-          <HeaderPopup
-            headerRef={headerRef}
-            anchorRef={navButtonRef}
-            placement="start"
-            testId="navigation-popup"
-          >
-            <NavigationMenu onClose={toggleNav} />
+          <HeaderPopup headerRef={headerRef} anchorRef={navButtonRef} placement="start" testId="navigation-popup">
+            <NavigationMenu onClose={closeNav} />
           </HeaderPopup>
         )}
-
         {searchOpen && (
-          <HeaderPopup
-            headerRef={headerRef}
-            anchorRef={searchInputRef}
-            placement="stretch"
-            testId="search-popup"
-          >
+          <HeaderPopup headerRef={headerRef} anchorRef={searchInputRef} placement="stretch" testId="search-popup">
             <SearchDropdown />
           </HeaderPopup>
         )}
-
-        {profileOpen && (
-          <HeaderPopup
-            headerRef={headerRef}
-            anchorRef={avatarRef}
-            placement="center"
-            testId="profile-popup"
-          >
-            <ProfileDropdown user={user} onLogout={onLogout} />
+        {profileOpen && account && (
+          <HeaderPopup headerRef={headerRef} anchorRef={avatarRef} placement="center" testId="profile-popup">
+            <ProfileDropdown user={currentUser} onLogout={logout} />
           </HeaderPopup>
         )}
       </div>

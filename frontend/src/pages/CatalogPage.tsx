@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
 import { FiFilter } from 'react-icons/fi'
 import { Header } from '../components/Header'
+import { BackButton } from '../components/BackButton'
 import { Footer } from '../components/Footer'
 import { CatalogProductCard } from '../components/CatalogProductCard'
 import { FilterDrawer } from '../components/FilterDrawer'
@@ -54,6 +55,7 @@ export function CatalogPage() {
   return <div className="flex min-h-screen flex-col bg-surface-2">
     <Header />
     <main className="w-full flex-1 pt-[64px]">
+      <div className="mx-auto max-w-[1320px] px-4 pt-4"><BackButton /></div>
       <div className="mx-auto flex max-w-[1320px] items-center justify-between px-4 py-4">
         <button ref={openButtonRef} type="button" onClick={open} aria-haspopup="dialog" aria-expanded={filtersOpen} className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-medium text-text-primary hover:border-border-hover hover:bg-surface-3"><FiFilter className="h-4 w-4" aria-hidden="true"/>Фильтры</button>
         <span className="text-sm text-text-muted">Найдено {products.length} {countProductLabel(products.length)}</span>
