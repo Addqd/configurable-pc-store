@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback } from 'react'
 import { useUIStore } from '../stores/uiStore'
 import { useCartStore } from '../stores/cartStore'
+import { useAccountStore } from '../stores/accountStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router'
 import logo from '../assets/home/logo-pc-builder.png'
@@ -10,13 +11,21 @@ import { SearchDropdown } from './SearchDropdown'
 import { ProfileDropdown } from './ProfileDropdown'
 import { HeaderPopup } from './HeaderPopup'
 
-const DEMO_USER = {
-  name: 'Анна Петрова',
-  email: 'anna.petrova@mail.ru',
-  avatar: placeholder,
+interface HeaderAuthProps {
+  user: { name: string; email: string; avatar: string } | null
+  onProfileClick: () => void
+  onAuthModalOpen: () => void
+  onLogout: () => void
 }
 
-export function Header() {
+interface HeaderProps {
+  user: { name: string; email: string; avatar: string } | null
+  onProfileClick: () => void
+  onAuthModalOpen: () => void
+  onLogout: () => void
+}
+
+export function Header({ user, onProfileClick, onAuthModalOpen, onLogout }: HeaderProps) {
   const navigate = useNavigate()
   const { navOpen, searchOpen, profileOpen, toggleNav, openSearch, toggleProfile, closeSearch, setSearchQuery, searchQuery, closeNav, closeProfile } =
     useUIStore()
@@ -127,17 +136,17 @@ export function Header() {
         {/* Profile */}
         <div className="relative shrink-0">
           <button
-            onClick={toggleProfile}
+            onClick={user ? onProfileClick : onAuthModalOpen}
             className="w-10 h-10 flex items-center justify-center rounded-full hover:opacity-80 transition-opacity"
             aria-label="Профиль"
           >
             <img
               ref={avatarRef}
-              src={DEMO_USER.avatar}
+              src={user?.avatar || placeholder}
               alt=""
               className="w-8 h-8 rounded-full"
             />
-            <FiChevronDown className="w-3.5 h-3.5 ml-1 text-text-muted" />
+            {user && <FiChevronDown className="w-3.5 h-3.5 ml-1 text-text-muted" />}
           </button>
         </div>
 
@@ -171,7 +180,7 @@ export function Header() {
             placement="center"
             testId="profile-popup"
           >
-            <ProfileDropdown user={DEMO_USER} />
+            <ProfileDropdown user={user} onLogout={onLogout} />
           </HeaderPopup>
         )}
       </div>

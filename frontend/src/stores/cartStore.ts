@@ -42,6 +42,7 @@ export interface OrderItem {
   price: number
   quantity: number
   total: number
+  image?: string
   components?: BuildComponent[]
   timestamp: number
 }
@@ -52,6 +53,7 @@ export interface Order {
   total: number
   itemCount: number
   timestamp: number
+  ownerId?: string  // account id of the user who placed this order
 }
 
 interface CartState {
@@ -59,6 +61,7 @@ interface CartState {
   orders: Order[]
   favorites: number[]
   nextOrderId: number
+  activeAccountId: string | null
   addItem: (item: Omit<RegularCartItem, 'quantity'>, quantity?: number) => void
   toggleFavorite: (id: number) => void
   purchaseProduct: (item: Omit<RegularCartItem, 'quantity'>, quantity: number) => Order | null
@@ -70,6 +73,7 @@ interface CartState {
   totalItems: () => number
   totalPrice: () => number
   placeOrder: () => Order
+  setActiveAccountId: (id: string | null) => void
 }
 
 export const useCartStore = create<CartState>()(persist(
@@ -78,6 +82,9 @@ export const useCartStore = create<CartState>()(persist(
     orders: [],
     favorites: [],
     nextOrderId: 1,
+    activeAccountId: null,
+
+    setActiveAccountId: (id: string | null) => set({ activeAccountId: id }),
 
     addItem: (item, quantity = 1) => {
       if (!Number.isFinite(item.price) || item.price < 0 || !Number.isSafeInteger(quantity) || quantity < 1) return
@@ -115,11 +122,13 @@ export const useCartStore = create<CartState>()(persist(
             price: item.price,
             quantity,
             total: item.price * quantity,
+            image: item.image,
             timestamp,
           }],
           itemCount: quantity,
           total: item.price * quantity,
           timestamp,
+          ownerId: state.activeAccountId,
         }
         createdOrder = order
         return {
@@ -199,6 +208,7 @@ export const useCartStore = create<CartState>()(persist(
           price: i.price,
           quantity: i.quantity,
           total: lineTotal,
+          image: 'image' in i ? (i as { image?: string }).image : undefined,
           timestamp,
         }
         if ('components' in i && i.components) {
@@ -207,7 +217,7 @@ export const useCartStore = create<CartState>()(persist(
         return orderItem
       })
       const orderId = get().nextOrderId
-      const order: Order = { id: orderId, items: orderItems, total, itemCount, timestamp }
+      const order: Order = { id: orderId, items: orderItems, total, itemCount, timestamp, ownerId: get().activeAccountId }
       set({
         orders: [...get().orders, order],
         nextOrderId: orderId + 1,

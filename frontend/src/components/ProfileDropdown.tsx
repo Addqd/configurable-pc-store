@@ -3,6 +3,8 @@ import { useThemeStore } from '../stores/themeStore'
 import { FiUser, FiBox, FiFileText, FiSettings, FiLogOut } from 'react-icons/fi'
 import { HiMiniMoon, HiMiniSun } from 'react-icons/hi2'
 import { Link } from 'react-router'
+import placeholder from '../assets/placeholder.jpg'
+import { useAccountStore } from '../stores/accountStore'
 
 interface User {
   name: string
@@ -11,17 +13,19 @@ interface User {
 }
 
 interface ProfileDropdownProps {
-  user: User
+  user: User | null
+  onLogout: () => void
 }
 
-export function ProfileDropdown({ user }: ProfileDropdownProps) {
+export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
   const { closeProfile } = useUIStore()
   const { isDark, toggle } = useThemeStore()
+  const avatarUrl = user?.avatar || placeholder
 
   const MENU_ITEMS = [
     { label: 'Личный кабинет', icon: FiUser, to: '/account' },
-    { label: 'Мои сборки', icon: FiBox, to: null, stub: true },
-    { label: 'Мои заказы', icon: FiFileText, to: null, stub: true },
+    { label: 'Мои сборки', icon: FiBox, to: '/builds', stub: true },
+    { label: 'Мои заказы', icon: FiFileText, to: '/account/orders', stub: false },
     { label: 'Настройки', icon: FiSettings, to: null, stub: true },
   ]
 
@@ -36,15 +40,17 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
       onMouseUp={(e) => e.stopPropagation()}
     >
       {/* User info */}
-      <div className="px-4 py-3 border-b border-border">
-        <div className="flex items-center gap-3">
-          <img src={user.avatar} alt={user.name} className="w-10 h-10 rounded-full shrink-0" />
-          <div>
-            <p className="text-sm font-medium text-text-primary">{user.name}</p>
-            <p className="text-xs text-text-muted">{user.email}</p>
+      {user ? (
+        <div className="px-4 py-3 border-b border-border">
+          <div className="flex items-center gap-3">
+            <img src={avatarUrl} alt={user.name} className="w-10 h-10 rounded-full shrink-0" />
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-text-primary truncate">{user.name}</p>
+              <p className="text-xs text-text-muted truncate">{user.email}</p>
+            </div>
           </div>
         </div>
-      </div>
+      ) : null}
 
       {/* Menu items */}
       {MENU_ITEMS.map((item) => (
@@ -101,10 +107,11 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
           className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-muted hover:bg-surface-3 hover:text-primary transition-colors"
           onClick={() => {
             closeProfile()
+            onLogout()
           }}
         >
           <FiLogOut className="w-5 h-5" />
-          <span>Выйти из аккаунта (демо-режим, вход не реализован)</span>
+          <span>Выйти</span>
         </button>
       </div>
     </div>
