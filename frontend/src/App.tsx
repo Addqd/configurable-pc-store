@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useThemeStore } from './stores/themeStore'
 import { useAccountStore } from './stores/accountStore'
 import { useCartStore } from './stores/cartStore'
+import { useBuilderStore } from './stores/builderStore'
 import { useUIStore } from './stores/uiStore'
 import { HomePage } from './pages/HomePage'
 import { CatalogPage } from './pages/CatalogPage'
@@ -12,6 +13,7 @@ import { CartPage } from './pages/CartPage'
 import { ProductPage } from './pages/ProductPage'
 import { AccountPage } from './pages/AccountPage'
 import { OrdersPage } from './pages/OrdersPage'
+import { SavesPage } from './pages/SavesPage'
 import { NotFound } from './pages/NotFound'
 import { AuthModal } from './components/AuthModal'
 
@@ -24,6 +26,12 @@ function AppStateEffects() {
   useEffect(() => { document.documentElement.classList.toggle('dark', isDark) }, [isDark])
   // Restore cart/order ownership after a page refresh and prevent stale cart sessions.
   useEffect(() => { setOrderAccount(accountId) }, [accountId, setOrderAccount])
+  // A saved draft opened by account A must never remain editable after A logs out
+  // or account B signs in. Keep unowned, unsaved guest drafts untouched.
+  useEffect(() => {
+    const { editingBuildId, getSavedBuild, startNewBuild } = useBuilderStore.getState()
+    if (editingBuildId !== null && (!accountId || !getSavedBuild(editingBuildId, accountId))) startNewBuild()
+  }, [accountId])
   return null
 }
 
@@ -58,6 +66,7 @@ export default function App() {
           <Route path="/products/:slug" element={<ProductPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/account/orders" element={<OrdersPage />} />
+          <Route path="/builds" element={<SavesPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <AuthModalHost />
