@@ -1,6 +1,7 @@
 import { create } from 'zustand'
+import { persist } from 'zustand/middleware'
 import { mockProducts, type Product } from '../data/mockProducts'
-import type { BuildCartItem } from './cartStore'
+import type { BuildCartItem, BuildComponent } from './cartStore'
 
 export const BUILDER_CATEGORIES = ['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling'] as const
 export type BuilderCategory = typeof BUILDER_CATEGORIES[number]
@@ -199,8 +200,22 @@ export function createBuildCartPayload(
   }
 }
 
+export interface SavedBuild {
+  id: number
+  name: string
+  description: string
+  totalPrice: number
+  image: string
+  components: BuildComponent[]
+  savedAt: number
+  ownerId: string
+  isCompatible: boolean
+}
+
 export interface BuilderState {
   selections: BuilderSelections
+  savedBuilds: SavedBuild[]
+  nextSavedBuildId: number
   setProduct: (category: BuilderCategory, product: Product) => void
   removeProduct: (category: BuilderCategory) => void
   clearAll: () => void
@@ -210,21 +225,90 @@ export interface BuilderState {
   hasIncompatibilities: () => boolean
   checkCompatibility: () => CompatibilityCheck[]
   estimatedPower: () => number | null
+  saveBuild: (name: string, description: string, image: string, owner: string) => SavedBuild
+  deleteSavedBuild: (id: number) => void
+  restoreBuild: (id: number) => void
+  getSavedBuild: (id: number) => SavedBuild | undefined
+  saveBuildsForAccount: (accountId: string) => SavedBuild[]
 }
 
-export const useBuilderStore = create<BuilderState>()((set, get) => ({
-  selections: emptyBuilderSelections(),
-  setProduct: (category, product) => {
-    // UI should not be able to attach a GPU to the CPU slot, even accidentally.
-    if (product.category !== CATALOG_CATEGORY_MAP[category] || !Number.isFinite(product.price) || product.price < 0) return
-    set((state) => ({ selections: { ...state.selections, [category]: product } }))
+export const useBuilderStore = create<BuilderState>()(persist(
+  (set, get) => ({
+    selections: emptyBuilderSelections(),
+    savedBuilds: [],
+    nextSavedBuildId: 1,
+    setProduct: (category, product) => {
+      // UI should not be able to attach a GPU to the CPU slot, even accidentally.
+      if (product.category !== CATALOG_CATEGORY_MAP[category] || !Number.isFinite(product.price) || product.price < 0) return
+      set((state) => ({ selections: { ...state.selections, [category]: product } }))
+    },
+    removeProduct: (category) => set((state) => ({ selections: { ...state.selections, [category]: null } })),
+    clearAll: () => set({ selections: emptyBuilderSelections() }),
+    selectedCount: () => countSelected(get().selections),
+    totalPrice: () => calculateBuilderPrice(get().selections),
+    isComplete: () => isBuildCartEligible(get().selections),
+    hasIncompatibilities: () => checkBuildCompatibility(get().selections).some((check) => check.status === 'incompatible'),
+    checkCompatibility: () => checkBuildCompatibility(get().selections),
+    estimatedPower: () => estimateComponentPower(get().selections),
+
+    saveBuild: (name, description, image, owner) => {
+      const selections = get().selections
+      const compatible = isBuildCartEligible(selections)
+      if (!compatible) return get().savedBuilds[0] ?? { id: 0, name: '', description: '', totalPrice: 0, image: '', components: [], savedAt: 0, ownerId: '', isCompatible: false }
+      const components = BUILDER_CATEGORIES.map((category) => {
+        const product = selections[category]!
+        return {
+          category: CATEGORY_LABELS[category],
+          name: product.name,
+          specs: product.specs.join(', '),
+          quantity: 1,
+          image: product.image || '',
+        }
+      })
+      const id = get().nextSavedBuildId
+      const build: SavedBuild = {
+        id, name, description, totalPrice: calculateBuilderPrice(selections),
+        image: selections.case?.image || image,
+        components, savedAt: Date.now(), ownerId: owner, isCompatible: true,
+      }
+      set((state) => ({ savedBuilds: [...state.savedBuilds, build], nextSavedBuildId: id + 1 }))
+      return build
+    },
+
+    deleteSavedBuild: (id) => set((state) => ({
+      savedBuilds: state.savedBuilds.filter((b) => b.id !== id),
+    })),
+
+    restoreBuild: (id) => {
+      const build = get().savedBuilds.find((b) => b.id === id)
+      if (!build) return
+      const selections: BuilderSelections = emptyBuilderSelections()
+      for (const comp of build.components) {
+        const category = BUILDER_CATEGORIES.find((c) => CATEGORY_LABELS[c] === comp.category)
+        if (category) selections[category] = {
+          id: 0, name: comp.name, price: 0, specs: comp.specs.split(', '),
+          category: '', image: comp.image || '', type: comp.category,
+        } as unknown as Product
+      }
+      set({ selections })
+    },
+
+    getSavedBuild: (id) => get().savedBuilds.find((b) => b.id === id),
+
+    saveBuildsForAccount: (accountId) => get().savedBuilds.filter((b) => b.ownerId === accountId),
+  }),
+  {
+    name: 'pc-builder-saved', version: 1,
+    partialize: (s) => ({ savedBuilds: s.savedBuilds, nextSavedBuildId: s.nextSavedBuildId }),
+    merge: (saved, current) => {
+      const s = saved && typeof saved === 'object' ? saved as Partial<Pick<BuilderState, 'savedBuilds' | 'nextSavedBuildId'>> : {}
+      const builds = Array.isArray(s.savedBuilds) ? s.savedBuilds : []
+      const maxId = builds.reduce((n, b) => Math.max(n, Number.isSafeInteger(b?.id) ? b.id : 0), 0)
+      return {
+        ...current,
+        savedBuilds: builds,
+        nextSavedBuildId: Math.max(maxId + 1, Number.isSafeInteger(s.nextSavedBuildId) ? s.nextSavedBuildId! : 1),
+      }
+    },
   },
-  removeProduct: (category) => set((state) => ({ selections: { ...state.selections, [category]: null } })),
-  clearAll: () => set({ selections: emptyBuilderSelections() }),
-  selectedCount: () => countSelected(get().selections),
-  totalPrice: () => calculateBuilderPrice(get().selections),
-  isComplete: () => isBuildCartEligible(get().selections),
-  hasIncompatibilities: () => checkBuildCompatibility(get().selections).some((check) => check.status === 'incompatible'),
-  checkCompatibility: () => checkBuildCompatibility(get().selections),
-  estimatedPower: () => estimateComponentPower(get().selections),
-}))
+))

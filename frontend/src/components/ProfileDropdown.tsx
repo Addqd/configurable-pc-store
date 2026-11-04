@@ -43,10 +43,10 @@ export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
         to="/account" onClick={closeProfile}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors"
       ><FiUser className="w-5 h-5 text-text-muted" /><span>Личный кабинет</span></Link>
-      <button
-        type="button" disabled aria-disabled="true" title="Раздел в разработке"
-        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-muted opacity-60 cursor-not-allowed"
-      ><FiBox className="w-5 h-5" /><span>Мои сборки</span><span className="text-xs ml-auto">(скоро)</span></button>
+      <Link
+        to="/builds" onClick={closeProfile}
+        className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors"
+      ><FiBox className="w-5 h-5 text-text-muted" /><span>Мои сборки</span></Link>
       {MENU_ITEMS.slice(1).map((item) => (
         <Link
           key={item.label} to={item.to} onClick={closeProfile}

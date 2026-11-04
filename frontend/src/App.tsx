@@ -12,6 +12,7 @@ import { CartPage } from './pages/CartPage'
 import { ProductPage } from './pages/ProductPage'
 import { AccountPage } from './pages/AccountPage'
 import { OrdersPage } from './pages/OrdersPage'
+import { SavesPage } from './pages/SavesPage'
 import { NotFound } from './pages/NotFound'
 import { AuthModal } from './components/AuthModal'
 
@@ -58,6 +59,7 @@ export default function App() {
           <Route path="/products/:slug" element={<ProductPage />} />
           <Route path="/account" element={<AccountPage />} />
           <Route path="/account/orders" element={<OrdersPage />} />
+          <Route path="/builds" element={<SavesPage />} />
           <Route path="*" element={<NotFound />} />
         </Routes>
         <AuthModalHost />
