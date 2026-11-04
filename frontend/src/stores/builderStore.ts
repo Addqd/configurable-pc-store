@@ -1,17 +1,10 @@
 import { create } from 'zustand'
 import { mockProducts, type Product } from '../data/mockProducts'
+import type { BuildCartItem } from './cartStore'
 
-/** Builder component categories in display order. */
-export const BUILDER_CATEGORIES: BuilderCategory[] = [
-  'cpu',
-  'mobo',
-  'gpu',
-  'ram',
-  'storage',
-  'psu',
-  'case',
-  'cooling',
-]
+export const BUILDER_CATEGORIES = ['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling'] as const
+export type BuilderCategory = typeof BUILDER_CATEGORIES[number]
+export type BuilderSelections = Record<BuilderCategory, Product | null>
 
 export const CATEGORY_LABELS: Record<BuilderCategory, string> = {
   cpu: 'Процессор',
@@ -24,17 +17,6 @@ export const CATEGORY_LABELS: Record<BuilderCategory, string> = {
   cooling: 'Охлаждение',
 }
 
-export type BuilderCategory =
-  | 'cpu'
-  | 'mobo'
-  | 'gpu'
-  | 'ram'
-  | 'storage'
-  | 'psu'
-  | 'case'
-  | 'cooling'
-
-/** Map builder categories to catalog product categories. */
 export const CATALOG_CATEGORY_MAP: Record<BuilderCategory, string> = {
   cpu: 'Процессоры',
   mobo: 'Материнские платы',
@@ -46,23 +28,179 @@ export const CATALOG_CATEGORY_MAP: Record<BuilderCategory, string> = {
   cooling: 'Охлаждение',
 }
 
-export interface BuilderSelection {
-  category: BuilderCategory
-  product: Product
-}
-
 export interface CompatibilityCheck {
   status: 'compatible' | 'incompatible' | 'unknown'
   label: string
   detail?: string
 }
 
-/**
- * Product selected in the builder.
- * `null` means not yet selected.
- */
+export function emptyBuilderSelections(): BuilderSelections {
+  return { cpu: null, mobo: null, gpu: null, ram: null, storage: null, psu: null, case: null, cooling: null }
+}
+
+export function getProductsForCategory(category: BuilderCategory): Product[] {
+  return mockProducts.filter((product) => product.category === CATALOG_CATEGORY_MAP[category])
+}
+
+export function countSelected(selections: BuilderSelections): number {
+  return BUILDER_CATEGORIES.filter((category) => selections[category] !== null).length
+}
+
+export function calculateBuilderPrice(selections: BuilderSelections): number {
+  return BUILDER_CATEGORIES.reduce((sum, category) => sum + (selections[category]?.price ?? 0), 0)
+}
+
+function textFor(product: Product | null): string {
+  return product ? [product.type, product.name, ...product.specs].join(' ') : ''
+}
+
+function socket(product: Product | null): string | null {
+  if (!product) return null
+  const raw = product.specs.join(' ')
+  const match = raw.match(/\bAM[345]\b|\bLGA[\s-]?\d{4}\b/i)
+  return match ? match[0].toUpperCase().replace(/[\s-]/g, '') : null
+}
+
+function memoryType(product: Product | null): string | null {
+  const match = textFor(product).match(/\bDDR[345]\b/i)
+  return match ? match[0].toUpperCase() : null
+}
+
+type FormFactor = 'ATX' | 'MATX' | 'ITX'
+function formFactor(product: Product | null): FormFactor | null {
+  if (!product) return null
+  const raw = [product.type, ...product.specs].join(' ')
+  if (/\b(?:micro[ -]?atx|m[ -]?atx)\b/i.test(raw)) return 'MATX'
+  if (/\b(?:mini[ -]?itx|itx)\b/i.test(raw)) return 'ITX'
+  if (/\bATX\b/i.test(raw)) return 'ATX'
+  return null
+}
+
+/** Only explicitly stated component consumption; cooler heat-dissipation ratings do NOT count. */
+function electricalWatts(product: Product | null): number | null {
+  if (!product) return null
+  for (const spec of product.specs) {
+    const match = spec.match(/\b(?:TDP|TBP|TGP|потреблени[ея]|энергопотреблени[ея]|мощность\s+потреблени[яе])\b[^\d]{0,12}(\d{1,4})\s*(?:Вт|W)(?![A-Za-zА-Яа-я0-9])/i)
+      ?? spec.match(/\b(\d{1,4})\s*(?:Вт|W)\s*(?:TDP|TBP|TGP)\b/i)
+    if (match) {
+      const watts = Number(match[1])
+      if (watts > 0 && watts <= 1500) return watts
+    }
+  }
+  return null
+}
+
+function psuWatts(product: Product | null): number | null {
+  if (!product) return null
+  const pattern = /\b(\d{2,4})\s*(?:Вт|W)(?![A-Za-zА-Яа-я0-9])/i
+  const fromName = product.name.match(pattern)?.[1]
+  const fromSpecs = product.specs.map((spec) => spec.match(pattern)?.[1]).filter((value): value is string => Boolean(value))
+  const declared = [...fromSpecs, ...(fromName ? [fromName] : [])].map(Number)
+  if (!declared.length || declared.some((watts) => watts !== declared[0])) return null
+  return declared[0]
+}
+
+/** Lower bound for CPU + GPU only, NOT total system consumption. */
+export function estimateComponentPower(selections: BuilderSelections): number | null {
+  const cpu = electricalWatts(selections.cpu)
+  const gpu = electricalWatts(selections.gpu)
+  return cpu !== null && gpu !== null ? cpu + gpu : null
+}
+
+/** Pure evaluation, based solely on available catalog metadata. No fabricated fitment or power data. */
+export function checkBuildCompatibility(selections: BuilderSelections): CompatibilityCheck[] {
+  const checks: CompatibilityCheck[] = []
+  const add = (status: CompatibilityCheck['status'], label: string, detail: string) => {
+    checks.push({ status, label, detail })
+  }
+
+  if (selections.cpu && selections.mobo) {
+    const a = socket(selections.cpu)
+    const b = socket(selections.mobo)
+    add(!a || !b ? 'unknown' : a === b ? 'compatible' : 'incompatible', 'Сокет CPU и платы',
+      !a || !b ? 'В каталоге нет данных о сокете' : `CPU: ${a}, плата: ${b}`)
+  }
+
+  if (selections.ram && selections.mobo) {
+    const a = memoryType(selections.ram)
+    const b = memoryType(selections.mobo)
+    add(!a || !b ? 'unknown' : a === b ? 'compatible' : 'incompatible', 'Тип оперативной памяти',
+      !a || !b ? 'В каталоге нет данных о типе памяти' : `RAM: ${a}, плата: ${b}`)
+  }
+
+  if (selections.mobo && selections.case) {
+    const board = formFactor(selections.mobo)
+    const chassis = formFactor(selections.case)
+    // A case's listed form factor is not a complete support matrix.
+    // We can confirm identical size or reject a board larger than its case.
+    const confirmed = Boolean(board && chassis && board === chassis)
+    const tooLarge = board === 'ATX' && (chassis === 'MATX' || chassis === 'ITX')
+      || board === 'MATX' && chassis === 'ITX'
+    add(confirmed ? 'compatible' : tooLarge ? 'incompatible' : 'unknown', 'Форм-фактор корпуса и платы',
+      !board || !chassis ? 'Не указан форм-фактор' : confirmed ? `${board}: совпадает с форм-фактором корпуса` : tooLarge ? `Плата ${board} больше корпуса ${chassis}` : 'Нужен список поддерживаемых форм-факторов корпуса')
+  }
+
+  if (selections.cooling && selections.cpu) {
+    const cpuSocket = socket(selections.cpu)
+    const supported = selections.cooling.specs.join(' ').match(/\bAM[345]\b|\bLGA[\s-]?\d{4}\b/gi)?.map((value) => value.toUpperCase().replace(/[\s-]/g, ''))
+    // A generic Intel/AMD label (or heat dissipation rating) is not proof of socket support.
+    add(!cpuSocket || !supported?.length ? 'unknown' : supported.includes(cpuSocket) ? 'compatible' : 'incompatible',
+      'Совместимость охлаждения',
+      !cpuSocket || !supported?.length ? 'Точный список сокетов кулера неизвестен' : `Сокет CPU: ${cpuSocket}; кулер: ${supported.join(', ')}`)
+  }
+
+  if (selections.gpu && selections.case) {
+    add('unknown', 'Габариты видеокарты', 'Нет сопоставимых данных о длине GPU и допустимой длине в корпусе')
+  }
+
+  if (selections.cpu && selections.gpu && selections.psu) {
+    const lowerBound = estimateComponentPower(selections)
+    const maxPower = psuWatts(selections.psu)
+    add(lowerBound !== null && maxPower !== null && lowerBound > maxPower ? 'incompatible' : 'unknown',
+      'Мощность блока питания',
+      lowerBound === null || maxPower === null
+        ? 'Недостаточно данных о потреблении CPU/GPU или мощности БП'
+        : lowerBound > maxPower
+          ? `CPU + GPU требуют минимум ${lowerBound} Вт, БП рассчитан на ${maxPower} Вт`
+          : `CPU + GPU: ${lowerBound} Вт; прочие потребители и запас не учтены — нельзя подтвердить достаточность ${maxPower} Вт`)
+  }
+
+  return checks
+}
+
+export function isBuildCartEligible(selections: BuilderSelections): boolean {
+  return countSelected(selections) === BUILDER_CATEGORIES.length &&
+    !checkBuildCompatibility(selections).some((check) => check.status === 'incompatible')
+}
+
+/** Cart-ready immutable snapshot; kept reusable for TASK 007 without persisting drafts yet. */
+export function createBuildCartPayload(
+  selections: BuilderSelections, id: number, fallbackImage: string,
+): Omit<BuildCartItem, 'quantity' | 'isExpanded'> | null {
+  if (!isBuildCartEligible(selections) || !Number.isSafeInteger(id)) return null
+  return {
+    id,
+    name: 'Сборка ПК',
+    price: calculateBuilderPrice(selections),
+    image: selections.case?.image || fallbackImage,
+    description: 'Пользовательская конфигурация из 8 компонентов (демо)',
+    category: 'Готовые сборки',
+    specs: '',
+    components: BUILDER_CATEGORIES.map((category) => {
+      const product = selections[category]!
+      return {
+        category: CATEGORY_LABELS[category],
+        name: product.name,
+        specs: product.specs.join(', '),
+        quantity: 1,
+        image: product.image || fallbackImage,
+      }
+    }),
+  }
+}
+
 export interface BuilderState {
-  selections: Record<BuilderCategory, Product | null>
+  selections: BuilderSelections
   setProduct: (category: BuilderCategory, product: Product) => void
   removeProduct: (category: BuilderCategory) => void
   clearAll: () => void
@@ -71,255 +209,22 @@ export interface BuilderState {
   isComplete: () => boolean
   hasIncompatibilities: () => boolean
   checkCompatibility: () => CompatibilityCheck[]
-  estimatedPower: number | null
+  estimatedPower: () => number | null
 }
 
 export const useBuilderStore = create<BuilderState>()((set, get) => ({
-  selections: {
-    cpu: null,
-    mobo: null,
-    gpu: null,
-    ram: null,
-    storage: null,
-    psu: null,
-    case: null,
-    cooling: null,
-  },
-
+  selections: emptyBuilderSelections(),
   setProduct: (category, product) => {
-    set((s) => ({
-      selections: { ...s.selections, [category]: product },
-    }))
+    // UI should not be able to attach a GPU to the CPU slot, even accidentally.
+    if (product.category !== CATALOG_CATEGORY_MAP[category] || !Number.isFinite(product.price) || product.price < 0) return
+    set((state) => ({ selections: { ...state.selections, [category]: product } }))
   },
-
-  removeProduct: (category) => {
-    set((s) => ({
-      selections: { ...s.selections, [category]: null },
-    }))
-  },
-
-  clearAll: () => {
-    set({
-      selections: {
-        cpu: null,
-        mobo: null,
-        gpu: null,
-        ram: null,
-        storage: null,
-        psu: null,
-        case: null,
-        cooling: null,
-      },
-    })
-  },
-
-  selectedCount: () => {
-    const selections = get().selections
-    return BUILDER_CATEGORIES.filter(
-      (cat) => selections[cat] !== null,
-    ).length
-  },
-
-  totalPrice: () => {
-    let total = 0
-    for (const cat of BUILDER_CATEGORIES) {
-      const product = get().selections[cat]
-      if (product) total += product.price
-    }
-    return total
-  },
-
-  isComplete: () => {
-    return get().selectedCount() === BUILDER_CATEGORIES.length && !get().hasIncompatibilities()
-  },
-
-  hasIncompatibilities: () => {
-    return get().checkCompatibility().some(
-      (check) => check.status === 'incompatible',
-    )
-  },
-
-  checkCompatibility: () => {
-    const checks: CompatibilityCheck[] = []
-    const { selections } = get()
-
-    // 1. CPU socket ↔ motherboard socket
-    if (selections.cpu && selections.mobo) {
-      const cpuSockets = selections.cpu.specs.filter((s) => /AM\d|LGA\s*\d+/i.test(s))
-      const moboSockets = selections.mobo.specs.filter((s) => /AM\d|LGA\s*\d+/i.test(s))
-      const cpuSocket = cpuSockets[0]?.trim()
-      const moboSocket = moboSockets[0]?.trim()
-      if (cpuSocket && moboSocket) {
-        if (cpuSocket === moboSocket) {
-          checks.push({ status: 'compatible', label: 'Сокет процессора', detail: cpuSocket })
-        } else {
-          checks.push({
-            status: 'incompatible',
-            label: 'Сокет процессора',
-            detail: `Процессор: ${cpuSocket} · Материнская плата: ${moboSocket}`,
-          })
-        }
-      } else {
-        checks.push({ status: 'unknown', label: 'Сокет процессора' })
-      }
-    }
-
-    // 2. RAM type ↔ motherboard memory support
-    if (selections.ram && selections.mobo) {
-      const ramType = selections.ram.specs.find((s) => /DDR\d/i.test(s))
-      const moboRamType = selections.mobo.specs.find((s) => /DDR\d/i.test(s))
-      if (ramType && moboRamType) {
-        if (ramType === moboRamType) {
-          checks.push({ status: 'compatible', label: 'Тип памяти', detail: ramType })
-        } else {
-          checks.push({
-            status: 'incompatible',
-            label: 'Тип памяти',
-            detail: `RAM: ${ramType} · Материнская плата: ${moboRamType}`,
-          })
-        }
-      } else {
-        checks.push({ status: 'unknown', label: 'Тип памяти' })
-      }
-    }
-
-    // 3. Motherboard form factor ↔ case support
-    if (selections.mobo && selections.case) {
-      const moboFormFactor = selections.mobo.specs.find((s) => /^(ATX|mATX|Micro-ATX|ITX)$/i.test(s))
-      if (moboFormFactor) {
-        const ff = moboFormFactor.toUpperCase()
-        const caseSpecs = selections.case.specs.join(' ').toUpperCase()
-        // Most ATX cases support ATX, mATX, and sometimes Micro-ATX
-        if (ff.includes('ATX') && caseSpecs.includes('ATX')) {
-          checks.push({ status: 'compatible', label: 'Форм-фактор', detail: `Мат. плата ${moboFormFactor} поддерживается корпусом` })
-        } else if (ff.includes('MATX') && (caseSpecs.includes('MATX') || caseSpecs.includes('ATX'))) {
-          checks.push({ status: 'compatible', label: 'Форм-фактор', detail: `Мат. плата ${moboFormFactor} поддерживается корпусом` })
-        } else if (ff.includes('ITX') && caseSpecs.includes('ITX')) {
-          checks.push({ status: 'compatible', label: 'Форм-фактор', detail: `Мат. плата ${moboFormFactor} поддерживается корпусом` })
-        } else {
-          checks.push({
-            status: 'unknown',
-            label: 'Форм-фактор',
-            detail: `Мат. плата: ${moboFormFactor}, поддержка корпуса не определена`,
-          })
-        }
-      } else {
-        checks.push({ status: 'unknown', label: 'Форм-фактор' })
-      }
-    }
-
-    // 4. GPU length vs case support
-    if (selections.gpu && selections.case) {
-      const gpuLength = selections.gpu.specs.find((s) => /до\s*\d+\s*мм|支持.*\d+mm/i.test(s))
-      const caseGpuSupport = selections.case.specs.find((s) => /GPU.*\d+|видеокарт.*\d+|поддерживает.*\d+|до\s*\d+\s*мм/i.test(s))
-      if (gpuLength && caseGpuSupport) {
-        checks.push({ status: 'compatible', label: 'Длина видеокарты', detail: 'Подходит по длине' })
-      } else {
-        checks.push({ status: 'unknown', label: 'Длина видеокарты' })
-      }
-    }
-
-    // 5. PSU wattage estimation
-    if (selections.cpu && selections.gpu && selections.psu) {
-      const cpuWattage = getTdpFromSpecs(selections.cpu.specs)
-      const gpuWattage = getTdpFromSpecs(selections.gpu.specs)
-      const psuWattage = Number(selections.psu.specs.find((s) => /\d+\s*Вт/i.test(s))?.match(/\d+/)?.[0])
-
-      if (cpuWattage && gpuWattage && psuWattage) {
-        const estimated = cpuWattage + gpuWattage + 80 // +80 for other components
-        if (estimated <= psuWattage) {
-          checks.push({
-            status: 'compatible',
-            label: 'Мощность БП',
-            detail: `Расчёт: ~${estimated} Вт, БП: ${psuWattage} Вт`,
-          })
-        } else {
-          checks.push({
-            status: 'incompatible',
-            label: 'Мощность БП',
-            detail: `Расчёт: ~${estimated} Вт, БП: ${psuWattage} Вт — может не хватить`,
-          })
-        }
-      } else {
-        checks.push({ status: 'unknown', label: 'Мощность БП' })
-      }
-    }
-
-    // 6. CPU cooler compatibility
-    if (selections.cooling && selections.cpu) {
-      const coolerSockets = selections.cooling.specs.filter((s) => /Intel|AMD|LGA|AM\d/i.test(s))
-      const cpuSockets = selections.cpu.specs.filter((s) => /AM\d|LGA\s*\d+/i.test(s))
-      if (coolerSockets.length > 0 && cpuSockets.length > 0) {
-        const hasIntel = coolerSockets.some((s) => /Intel|LGA/i.test(s))
-        const hasAMD = coolerSockets.some((s) => /AMD|AM\d/i.test(s))
-        const cpuIsIntel = cpuSockets.some((s) => /LGA/i.test(s))
-        const cpuIsAMD = cpuSockets.some((s) => /AM\d/i.test(s))
-        if (
-          (cpuIsIntel && hasIntel) ||
-          (cpuIsAMD && hasAMD) ||
-          (cpuIsIntel && cpuIsAMD && hasIntel && hasAMD) ||
-          (coolerSockets.length > 0 && (hasIntel || hasAMD))
-        ) {
-          checks.push({ status: 'compatible', label: 'Совместимость охлаждения', detail: 'Поддерживает сокет процессора' })
-        } else {
-          checks.push({
-            status: 'incompatible',
-            label: 'Совместимость охлаждения',
-            detail: 'Сокет процессора не указан в поддержке кулера',
-          })
-        }
-      } else {
-        checks.push({ status: 'unknown', label: 'Совместимость охлаждения' })
-      }
-    }
-
-    return checks
-  },
-
-  estimatedPower: () => {
-    const { selections } = get()
-    let total = 0
-    let hasData = true
-
-    if (selections.cpu) {
-      const w = getTdpFromSpecs(selections.cpu.specs)
-      total += w ?? 0
-      if (w === null) hasData = false
-    }
-    if (selections.gpu) {
-      const w = getTdpFromSpecs(selections.gpu.specs)
-      total += w ?? 0
-      if (w === null) hasData = false
-    }
-
-    // Add base for other components if we have at least CPU and GPU
-    if (selections.cpu && selections.gpu) {
-      total += 80 // motherboard, RAM, storage, fans
-      hasData = hasData && true
-    }
-
-    return hasData ? total : null
-  },
+  removeProduct: (category) => set((state) => ({ selections: { ...state.selections, [category]: null } })),
+  clearAll: () => set({ selections: emptyBuilderSelections() }),
+  selectedCount: () => countSelected(get().selections),
+  totalPrice: () => calculateBuilderPrice(get().selections),
+  isComplete: () => isBuildCartEligible(get().selections),
+  hasIncompatibilities: () => checkBuildCompatibility(get().selections).some((check) => check.status === 'incompatible'),
+  checkCompatibility: () => checkBuildCompatibility(get().selections),
+  estimatedPower: () => estimateComponentPower(get().selections),
 }))
-
-/**
- * Extract TDP (wattage) from product specs.
- * Returns null if not found — don't invent numbers.
- */
-function getTdpFromSpecs(specs: string[]): number | null {
-  // Look for patterns like "до 170 Вт", "TDP 120W", "170W", etc.
-  for (const spec of specs) {
-    const match = spec.match(/(\d+)\s*(Вт|W|watt|TDP|tj)/i)
-    if (match) {
-      const val = Number(match[1])
-      if (val > 0 && val < 2000) return val
-    }
-  }
-  return null
-}
-
-/** Get all available products for a builder category from the catalog. */
-export function getProductsForCategory(category: BuilderCategory): Product[] {
-  const catalogCat = CATALOG_CATEGORY_MAP[category]
-  return mockProducts.filter((p) => p.category === catalogCat)
-}

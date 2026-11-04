@@ -1,42 +1,32 @@
-import { useBuilderStore } from '../stores/builderStore'
 import { FiPlus, FiSave, FiTrash2 } from 'react-icons/fi'
 
 interface BuilderActionsProps {
   onClear: () => void
-  onSave: () => void
   onCreate: () => void
+  hasSelections?: boolean
+  canCreate: boolean
+  validationMessage?: string
 }
 
-export function BuilderActions({ onClear, onSave, onCreate }: BuilderActionsProps) {
+export function BuilderActions({ onClear, onCreate, hasSelections = false, canCreate, validationMessage }: BuilderActionsProps) {
   return (
     <div className="space-y-2">
-      {/* Primary action: Create build */}
-      <button
-        onClick={onCreate}
-        className="w-full flex items-center justify-center gap-2 rounded-xl bg-primary py-3 text-sm font-semibold text-white transition-all hover:bg-primary-hover"
-      >
-        <FiPlus className="h-5 w-5" />
-        Создать сборку
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M5 12h14" /><path d="M12 5l7 7-7 7" />
-        </svg>
+      <button type="button" onClick={onCreate} disabled={!canCreate}
+        aria-describedby={!canCreate && validationMessage ? 'builder-create-validation' : undefined}
+        className="flex w-full items-center justify-center gap-3 rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-default disabled:opacity-50 disabled:hover:bg-primary dark:text-[#08090C]">
+        <FiPlus className="h-4 w-4" /> Создать сборку <span aria-hidden="true">→</span>
       </button>
-
-      {/* Secondary actions */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={onSave}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-surface py-2.5 text-sm text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
-        >
-          <FiSave className="h-4 w-4" />
-          Сохранить сборку
+      {!canCreate && validationMessage && (
+        <p id="builder-create-validation" role="alert" className="px-1 text-xs text-red-500">{validationMessage}</p>
+      )}
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <button type="button" disabled
+          className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary transition-colors hover:bg-surface-3 hover:text-primary disabled:cursor-default disabled:opacity-60 disabled:hover:bg-surface-2 disabled:hover:text-text-primary">
+          <FiSave className="h-4 w-4" /> Сохранить сборку
         </button>
-        <button
-          onClick={onClear}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-border bg-surface py-2.5 text-sm text-text-secondary transition-colors hover:bg-surface-3 hover:text-text-primary"
-        >
-          <FiTrash2 className="h-4 w-4" />
-          Очистить
+        <button type="button" onClick={onClear} disabled={!hasSelections}
+          className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary transition-colors hover:bg-surface-3 hover:text-primary disabled:cursor-default disabled:opacity-50 disabled:hover:bg-surface-2 disabled:hover:text-text-primary">
+          <FiTrash2 className="h-4 w-4" /> Очистить
         </button>
       </div>
     </div>

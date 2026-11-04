@@ -1,37 +1,47 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useBuilderStore, CATEGORY_LABELS, getProductsForCategory, type BuilderCategory } from '../stores/builderStore'
+import type { Product } from '../data/mockProducts'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiX, FiSearch, FiCheck } from 'react-icons/fi'
 
-interface BuilderProductSelectorProps {
-  category: BuilderCategory
-  onClose: () => void
-}
+interface BuilderProductSelectorProps { category: BuilderCategory; onClose: () => void }
 
 export function BuilderProductSelector({ category, onClose }: BuilderProductSelectorProps) {
   const [search, setSearch] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  const setProduct = useBuilderStore((s) => s.setProduct)
-  const selections = useBuilderStore((s) => s.selections)
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const setProduct = useBuilderStore((state) => state.setProduct)
+  const selected = useBuilderStore((state) => state.selections[category])
 
   useEffect(() => {
+    const focusedBeforeOpen = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     inputRef.current?.focus()
-  }, [])
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
+      if (event.key !== 'Tab' || !dialogRef.current) return
+      const focusables = Array.from(dialogRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled)'))
+        .filter((item) => item.getClientRects().length > 0)
+      if (!focusables.length) return
+      const first = focusables[0], last = focusables[focusables.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => {
+      document.body.style.overflow = overflow
+      document.removeEventListener('keydown', onKeyDown)
+      focusedBeforeOpen?.focus()
+    }
+  }, [onClose])
 
+  const query = search.trim().toLocaleLowerCase('ru-RU')
   const products = getProductsForCategory(category)
-
-  const filtered = products.filter((p) => {
-    const q = search.trim().toLocaleLowerCase('ru-RU')
-    if (!q) return true
-    return (
-      p.name.toLocaleLowerCase('ru-RU').includes(q) ||
-      p.manufacturer.toLocaleLowerCase('ru-RU').includes(q) ||
-      p.specs.some((s) => s.toLocaleLowerCase('ru-RU').includes(q))
-    )
-  })
-
-  const currentProduct = selections[category]
+  const filtered = products.filter((product) => !query ||
+    [product.name, product.manufacturer, ...product.specs].some((part) => part.toLocaleLowerCase('ru-RU').includes(query)))
+  const hasSearchError = query.length > 0 && filtered.length === 0
 
   const handleSelect = (product: Product) => {
     setProduct(category, product)
@@ -39,113 +49,58 @@ export function BuilderProductSelector({ category, onClose }: BuilderProductSele
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div
-        className="w-full max-w-[720px] max-h-[80vh] overflow-hidden rounded-xl border border-border bg-surface shadow-xl flex flex-col"
-        role="dialog"
-        aria-label={`Выбрать ${CATEGORY_LABELS[category]}`}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-5 py-4">
-          <h2 className="text-lg font-semibold text-text-primary">
-            {CATEGORY_LABELS[category]}
-          </h2>
-          <button
-            onClick={onClose}
-            className="rounded-md p-1.5 text-text-muted hover:bg-surface-3 hover:text-text-primary"
-            aria-label="Закрыть"
-          >
-            <FiX className="h-5 w-5" />
-          </button>
+    <div className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-black/60 p-4"
+      onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
+      <div ref={dialogRef} role="dialog" aria-modal="true" aria-labelledby="builder-selector-title"
+        className="flex w-full max-w-[720px] max-h-[calc(100dvh-32px)] flex-col overflow-hidden rounded-2xl border border-border bg-surface shadow-2xl">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border px-4 py-4 sm:px-6">
+          <h2 id="builder-selector-title" className="text-lg font-bold text-text-primary">{CATEGORY_LABELS[category]}</h2>
+          <button type="button" onClick={onClose} aria-label="Закрыть" className="rounded-lg p-2 text-text-muted hover:bg-surface-3 hover:text-text-primary"><FiX /></button>
         </div>
-
-        {/* Search */}
-        <div className="px-5 pt-4">
+        <div className="shrink-0 p-4 pb-2 sm:px-6">
           <div className="relative">
-            <FiSearch className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-            <input
-              ref={inputRef}
-              type="text"
-              placeholder="Поиск по названию, производителю или характеристикам..."
-              className="w-full h-10 pl-10 pr-4 rounded-lg border border-border bg-surface-2 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+            <FiSearch className="absolute left-3 top-3 h-4 w-4 text-text-muted" />
+            <input ref={inputRef} value={search} onChange={(event) => setSearch(event.target.value)}
+              type="search" placeholder="Поиск по названию и характеристикам"
+              aria-invalid={hasSearchError}
+              aria-describedby={hasSearchError ? 'builder-selector-search-error' : undefined}
+              className={`h-10 w-full rounded-lg border bg-surface-2 pl-10 pr-3 text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 ${hasSearchError ? 'border-red-500 focus:ring-red-500' : 'border-border focus:ring-primary'}`} />
           </div>
+          {hasSearchError && (
+            <p id="builder-selector-search-error" role="alert" className="mt-2 text-xs text-red-500">
+              По запросу ничего не найдено. Проверьте название или попробуйте другие характеристики.
+            </p>
+          )}
         </div>
-
-        {/* Product list */}
-        <div className="flex-1 overflow-y-auto px-5 py-3">
+        {/* The list has its own fixed desktop height and a permanently scrollable track;
+            on short screens it shrinks to remain fully reachable. */}
+        <div data-testid="builder-products-scroll" className="h-[400px] max-h-[calc(100dvh-230px)] min-h-0 shrink overflow-y-scroll overscroll-contain px-4 py-3 sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-hover [&::-webkit-scrollbar-track]:bg-surface-2" style={{ scrollbarGutter: 'stable' }}>
           {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-12 text-center">
-              <p className="text-text-secondary">Ничего не найдено</p>
-              {search && (
-                <button
-                  onClick={() => setSearch('')}
-                  className="mt-2 text-sm text-primary hover:underline"
-                >
-                  Сбросить поиск
-                </button>
-              )}
+            <div className="py-10 text-center text-sm text-text-muted">
+              Ничего не найдено.
+              {search && <button type="button" onClick={() => setSearch('')} className="ml-2 text-primary hover:underline">Сбросить поиск</button>}
             </div>
           ) : (
             <div className="space-y-2">
-              {filtered.map((product) => {
-                const isSelected = currentProduct?.id === product.id
-                return (
-                  <button
-                    key={product.id}
-                    onClick={() => handleSelect(product)}
-                    className={`w-full flex items-center gap-4 p-3 rounded-lg border transition-all text-left ${
-                      isSelected
-                        ? 'border-primary bg-primary/5'
-                        : 'border-border hover:border-border-hover hover:bg-surface-3'
-                    }`}
-                  >
-                    {/* Image */}
-                    <img
-                      src={product.image || placeholder}
-                      alt={product.name}
-                      className="h-14 w-14 shrink-0 rounded-md bg-surface-2 object-contain"
-                      onError={(e) => {
-                        ;(e.target as HTMLImageElement).src = placeholder
-                      }}
-                    />
-                    {/* Info */}
-                    <div className="min-w-0 flex-1">
-                      <p className="text-sm font-medium text-text-primary truncate">
-                        {product.name}
-                      </p>
-                      <p className="text-xs text-text-secondary mt-0.5 truncate">
-                        {product.specs.slice(0, 3).join(' · ')}
-                      </p>
-                      <p className="text-xs text-text-muted mt-1">
-                        {product.manufacturer}
-                      </p>
-                    </div>
-                    {/* Price */}
-                    <span className="shrink-0 text-sm font-semibold text-text-primary whitespace-nowrap">
-                      {formatPrice(product.price)}
-                    </span>
-                    {/* Check icon */}
-                    {isSelected && (
-                      <FiCheck className="h-5 w-5 text-primary shrink-0" />
-                    )}
-                  </button>
-                )
-              })}
+              {filtered.map((product) => (
+                <button type="button" key={product.id} onClick={() => handleSelect(product)}
+                  className={`flex w-full min-w-0 flex-wrap items-center gap-3 rounded-xl border p-3 text-left transition-colors hover:border-primary hover:bg-surface-3 sm:flex-nowrap ${selected?.id === product.id ? 'border-primary bg-primary/5' : 'border-border'}`}>
+                  <img src={product.image || placeholder} alt="" loading="lazy"
+                    onError={(event) => { if (event.currentTarget.src !== placeholder) event.currentTarget.src = placeholder }}
+                    className="h-14 w-14 shrink-0 rounded-md bg-surface-2 object-contain" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block break-words text-sm font-semibold text-text-primary">{product.name}</span>
+                    <span className="mt-1 block text-xs text-text-muted">{product.specs.slice(0, 3).join(', ')}</span>
+                  </span>
+                  <span className="whitespace-nowrap text-sm font-bold text-text-primary">{formatPrice(product.price)}</span>
+                  {selected?.id === product.id && <FiCheck className="shrink-0 text-primary" aria-label="Выбрано" />}
+                </button>
+              ))}
             </div>
           )}
         </div>
-
-        {/* Footer */}
-        <div className="border-t border-border px-5 py-3 flex justify-end">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded-lg text-sm text-text-secondary hover:bg-surface-3 transition-colors"
-          >
-            Отмена
-          </button>
+        <div className="flex shrink-0 justify-end border-t border-border px-4 py-3 sm:px-6">
+          <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-text-primary hover:bg-surface-3">Отмена</button>
         </div>
       </div>
     </div>

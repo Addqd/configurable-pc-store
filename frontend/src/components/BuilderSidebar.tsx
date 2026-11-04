@@ -1,137 +1,99 @@
-import { useBuilderStore, BUILDER_CATEGORIES } from '../stores/builderStore'
+import { useMemo } from 'react'
+import {
+  useBuilderStore, BUILDER_CATEGORIES, countSelected, calculateBuilderPrice,
+  checkBuildCompatibility, estimateComponentPower, isBuildCartEligible,
+} from '../stores/builderStore'
 import { formatPrice } from '../utils/formatPrice'
-import { FiCheckCircle, FiAlertCircle, FiMinus, FiZap } from 'react-icons/fi'
+import { FiCheckCircle, FiAlertTriangle, FiShield, FiShoppingCart } from 'react-icons/fi'
 
-interface BuilderSidebarProps {
-  onAddToCart: () => void
-}
+interface BuilderSidebarProps { onAddToCart: () => void }
 
 export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
-  const selectedCount = useBuilderStore((s) => s.selectedCount())
-  const totalPrice = useBuilderStore((s) => s.totalPrice())
-  const compatChecks = useBuilderStore((s) => s.checkCompatibility())
-  const estimatedPower = useBuilderStore((s) => s.estimatedPower)
-  const hasIncompatibilities = useBuilderStore((s) => s.hasIncompatibilities())
-  const isComplete = useBuilderStore((s) => s.isComplete())
-
-  const compatibleCount = compatChecks.filter((c) => c.status === 'compatible').length
-  const incompatibleCount = compatChecks.filter((c) => c.status === 'incompatible').length
-  const unknownCount = compatChecks.filter((c) => c.status === 'unknown').length
-
-  const allCompatible = incompatibleCount === 0 && selectedCount === BUILDER_CATEGORIES.length
-  const canAddToCart = isComplete
+  const selections = useBuilderStore((state) => state.selections)
+  // Never return a newly created array from a Zustand selector (React 19 infinite-loop risk).
+  const checks = useMemo(() => checkBuildCompatibility(selections), [selections])
+  const count = countSelected(selections)
+  const price = calculateBuilderPrice(selections)
+  const power = estimateComponentPower(selections)
+  const eligible = isBuildCartEligible(selections)
+  const conflicts = checks.filter((check) => check.status === 'incompatible')
+  const unknown = checks.filter((check) => check.status === 'unknown')
+  const completelyChecked = eligible && unknown.length === 0 && checks.length >= 6
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-5 space-y-5 sticky top-24">
-      {/* Header */}
-      <div>
-        <h2 className="text-lg font-semibold text-text-primary">Ваша сборка</h2>
-        <p className="text-sm text-text-secondary mt-1">
-          {selectedCount} из {BUILDER_CATEGORIES.length} компонентов
-        </p>
+    <aside className="rounded-2xl border border-border bg-surface p-5 shadow-[0_5px_24px_var(--color-shadow)] lg:sticky lg:top-24">
+      <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-4">
+        <h2 className="text-xl font-bold text-text-primary">Ваша сборка</h2>
+        <span className="text-xs text-text-muted">{count} из {BUILDER_CATEGORIES.length} компонентов</span>
       </div>
 
-      {/* Compatibility */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-text-secondary">Совместимость</span>
-          {allCompatible ? (
-            <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
-              <FiCheckCircle className="h-4 w-4" />
-              Всё совместимо
-            </span>
-          ) : incompatibleCount > 0 ? (
-            <span className="inline-flex items-center gap-1 text-sm text-red-500">
-              <FiAlertCircle className="h-4 w-4" />
-              {incompatibleCount} конфликтов
-            </span>
+      <div className="space-y-3 border-b border-border py-5">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className="text-text-muted">Совместимость</span>
+          {conflicts.length ? (
+            <span className="inline-flex items-center gap-1.5 font-medium text-red-500"><FiAlertTriangle /> {conflicts.length} конфликт(ов)</span>
+          ) : completelyChecked ? (
+            <span className="inline-flex items-center gap-1.5 font-medium text-emerald-500"><FiCheckCircle /> Всё совместимо</span>
           ) : (
-            <span className="text-sm text-text-muted">Проверка...</span>
+            <span className="font-medium text-amber-600 dark:text-amber-400">{count === 0 ? 'Не проверена' : 'Проверено частично'}</span>
           )}
         </div>
-
-        {/* Compatibility details */}
-        {compatChecks.length > 0 && (
-          <div className="space-y-1.5">
-            {compatChecks.map((check, index) => (
-              <div key={index} className="flex items-start gap-2 text-xs">
-                {check.status === 'compatible' ? (
-                  <FiCheckCircle className="h-3.5 w-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                ) : check.status === 'incompatible' ? (
-                  <FiAlertCircle className="h-3.5 w-3.5 text-red-500 shrink-0 mt-0.5" />
-                ) : (
-                  <FiMinus className="h-3.5 w-3.5 text-text-muted shrink-0 mt-0.5" />
-                )}
-                <div>
-                  <span className={`font-medium ${
-                    check.status === 'compatible' ? 'text-text-primary' :
-                    check.status === 'incompatible' ? 'text-red-500' : 'text-text-muted'
-                  }`}>
-                    {check.label}
-                  </span>
-                  {check.detail && (
-                    <span className="block text-text-muted">{check.detail}</span>
-                  )}
-                </div>
-              </div>
-            ))}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className="text-text-muted">Оценка энергопотребления</span>
+          <span className="font-medium text-text-primary">{power !== null ? `≥ ${power} Вт*` : 'Нет данных'}</span>
+        </div>
+        {power !== null && <p className="text-xs text-text-muted">* Только CPU + GPU; остальные компоненты и запас не учтены.</p>}
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className="text-text-muted">Стоимость комплектующих</span>
+          <span className="font-medium text-text-primary">{formatPrice(price)}</span>
+        </div>
+        {conflicts.length > 0 && (
+          <div className="space-y-1 text-xs text-red-500" role="alert">
+            {conflicts.map((check) => <p key={check.label}>{check.label}: {check.detail}</p>)}
           </div>
+        )}
+        {unknown.length > 0 && count > 0 && (
+          <details className="text-xs text-text-muted">
+            <summary className="cursor-pointer hover:text-primary">Не удалось проверить: {unknown.length}</summary>
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {unknown.map((check) => <li key={check.label}>{check.label}: {check.detail}</li>)}
+            </ul>
+          </details>
         )}
       </div>
 
-      {/* Power consumption */}
-      <div className="flex items-center justify-between">
-        <span className="flex items-center gap-1.5 text-sm text-text-secondary">
-          <FiZap className="h-4 w-4" />
-          Оценка энергопотребления
-        </span>
-        <span className="text-sm text-text-secondary">
-          {estimatedPower !== null ? `~ ${estimatedPower} Вт` : '—'}
-        </span>
+      <div className="flex flex-wrap items-baseline justify-between gap-3 py-5">
+        <strong className="text-lg text-text-primary">Итого</strong>
+        <strong className="text-2xl text-text-primary">{formatPrice(price)}</strong>
       </div>
-
-      {/* Divider */}
-      <div className="border-t border-border" />
-
-      {/* Price */}
-      <div className="flex items-center justify-between">
-        <span className="text-sm text-text-secondary">Стоимость комплектующих</span>
-        <span className="text-sm text-text-primary">{formatPrice(totalPrice)}</span>
-      </div>
-
-      {/* Total */}
-      <div className="flex items-center justify-between">
-        <span className="text-lg font-bold text-text-primary">Итого</span>
-        <span className="text-2xl font-bold text-primary">{formatPrice(totalPrice)}</span>
-      </div>
-
-      {/* Add to cart button */}
-      <button
-        onClick={onAddToCart}
-        disabled={!canAddToCart}
-        className={`w-full flex items-center justify-center gap-2 rounded-xl py-3 text-sm font-semibold transition-all ${
-          canAddToCart
-            ? 'bg-primary text-white hover:bg-primary-hover'
-            : 'bg-surface-3 text-text-muted cursor-not-allowed'
-        }`}
-      >
-        <FiCheckCircle className="h-5 w-5" />
-        Добавить сборку в корзину
-        <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M5 12h14" /><path d="M12 5l7 7-7 7" />
-        </svg>
+      <button type="button" onClick={onAddToCart} disabled={!eligible}
+        aria-describedby={!eligible ? 'builder-cart-validation' : undefined}
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-default disabled:opacity-50 disabled:hover:bg-primary dark:text-[#08090C]">
+        <FiShoppingCart className="h-5 w-5" /> Добавить сборку в корзину <span aria-hidden="true">→</span>
       </button>
+      {!eligible && (
+        <p id="builder-cart-validation" role="alert" className="mt-2 text-xs text-red-500">
+          {count < BUILDER_CATEGORIES.length && (
+            <span className="block">Выберите все компоненты: осталось {BUILDER_CATEGORIES.length - count} из {BUILDER_CATEGORIES.length}.</span>
+          )}
+          {conflicts.length > 0 && (
+            <span className="block">Устраните несовместимость: {conflicts.map((check) => check.label).join(', ')}.</span>
+          )}
+        </p>
+      )}
+      {eligible && unknown.length > 0 && (
+        <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" role="status">
+          Некоторые проверки недоступны. Добавление не означает полной совместимости.
+        </p>
+      )}
 
-      {incompatibleCount > 0 && canAddToCart && (
-        <p className="text-xs text-amber-600 text-center">
-          Есть несовместимости, но сборка завершена
-        </p>
-      )}
-      {unknownCount > 0 && incompatibleCount === 0 && canAddToCart && (
-        <p className="text-xs text-text-muted text-center">
-          Проверка совместимости включена. Некоторые параметры проверены частично.
-        </p>
-      )}
-    </div>
+      <div className="mt-4 flex items-start gap-3 rounded-xl bg-surface-2 p-4">
+        <FiShield className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
+        <div>
+          <p className="text-sm font-semibold text-text-primary">Проверка совместимости включена</p>
+          <p className="mt-1 text-xs leading-relaxed text-text-muted">Проверяем только параметры, подтверждённые характеристиками каталога.</p>
+        </div>
+      </div>
+    </aside>
   )
 }
