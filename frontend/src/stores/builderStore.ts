@@ -200,6 +200,7 @@ export function createBuildCartPayload(
   }
 }
 
+/** Persistent demo build, scoped by ownerId. No real backend authorization is implied. */
 export interface SavedBuild {
   id: number
   name: string
@@ -208,42 +209,107 @@ export interface SavedBuild {
   image: string
   components: BuildComponent[]
   savedAt: number
+  updatedAt?: number
+  version?: number
   ownerId: string
+  /** No *confirmed* conflicts. Unknown checks are NOT proof of compatibility. */
   isCompatible: boolean
+  /** Original product snapshots allow lossless reopen/edit, without zero-price placeholders. */
+  selections?: BuilderSelections
+}
+
+/** Do not share mutable spec arrays between a draft and a saved snapshot. */
+function cloneSelections(source: BuilderSelections): BuilderSelections {
+  const next = emptyBuilderSelections()
+  for (const category of BUILDER_CATEGORIES) {
+    const product = source[category]
+    next[category] = product ? {
+      ...product,
+      specs: [...product.specs],
+      ...(product.shortSpecs ? { shortSpecs: [...product.shortSpecs] } : {}),
+    } : null
+  }
+  return next
+}
+
+/** Restores current snapshots or legacy saved builds using exact existing catalog products. */
+export function selectionsFromSavedBuild(build: SavedBuild): BuilderSelections | null {
+  const selections = emptyBuilderSelections()
+  if (build.selections) {
+    for (const category of BUILDER_CATEGORIES) {
+      const product = build.selections[category]
+      if (!product || product.category !== CATALOG_CATEGORY_MAP[category] ||
+          !Number.isSafeInteger(product.id) || product.id < 1 ||
+          !Number.isFinite(product.price) || product.price < 0 ||
+          !Array.isArray(product.specs)) return null
+      selections[category] = product
+    }
+  } else {
+    // Compatibility with TASK 007's first SavedBuild records, which only saved names.
+    for (const category of BUILDER_CATEGORIES) {
+      const component = build.components.find((item) => item.category === CATEGORY_LABELS[category])
+      if (!component) return null
+      const product = getProductsForCategory(category).find((item) => item.name === component.name)
+      if (!product) return null
+      selections[category] = product
+    }
+  }
+  return isBuildCartEligible(selections) ? cloneSelections(selections) : null
+}
+
+export function savedBuildHasUnknownChecks(build: SavedBuild): boolean {
+  const selections = selectionsFromSavedBuild(build)
+  return !selections || checkBuildCompatibility(selections).some((check) => check.status === 'unknown')
 }
 
 export interface BuilderState {
   selections: BuilderSelections
+  editingBuildId: number | null
   savedBuilds: SavedBuild[]
   nextSavedBuildId: number
   setProduct: (category: BuilderCategory, product: Product) => void
   removeProduct: (category: BuilderCategory) => void
   clearAll: () => void
+  startNewBuild: () => void
   selectedCount: () => number
   totalPrice: () => number
   isComplete: () => boolean
   hasIncompatibilities: () => boolean
   checkCompatibility: () => CompatibilityCheck[]
   estimatedPower: () => number | null
-  saveBuild: (name: string, description: string, image: string, owner: string) => SavedBuild
-  deleteSavedBuild: (id: number) => void
-  restoreBuild: (id: number) => void
-  getSavedBuild: (id: number) => SavedBuild | undefined
-  saveBuildsForAccount: (accountId: string) => SavedBuild[]
+  saveBuild: (name: string, description: string, image: string, ownerId: string) => SavedBuild | null
+  deleteSavedBuild: (id: number, ownerId: string) => boolean
+  restoreBuild: (id: number, ownerId: string) => boolean
+  getSavedBuild: (id: number, ownerId: string) => SavedBuild | undefined
+  saveBuildsForAccount: (ownerId: string) => SavedBuild[]
+  removeBuildsForAccount: (ownerId: string) => void
+}
+
+function validSavedBuild(value: unknown): value is SavedBuild {
+  if (!value || typeof value !== 'object') return false
+  const build = value as Partial<SavedBuild>
+  return Number.isSafeInteger(build.id) && build.id! > 0 &&
+    typeof build.ownerId === 'string' && build.ownerId.length > 0 &&
+    typeof build.name === 'string' && typeof build.description === 'string' &&
+    typeof build.totalPrice === 'number' && Number.isFinite(build.totalPrice) && build.totalPrice >= 0 &&
+    typeof build.image === 'string' && typeof build.savedAt === 'number' &&
+    Number.isFinite(build.savedAt) && Array.isArray(build.components) &&
+    typeof build.isCompatible === 'boolean'
 }
 
 export const useBuilderStore = create<BuilderState>()(persist(
   (set, get) => ({
     selections: emptyBuilderSelections(),
+    editingBuildId: null,
     savedBuilds: [],
     nextSavedBuildId: 1,
     setProduct: (category, product) => {
-      // UI should not be able to attach a GPU to the CPU slot, even accidentally.
       if (product.category !== CATALOG_CATEGORY_MAP[category] || !Number.isFinite(product.price) || product.price < 0) return
       set((state) => ({ selections: { ...state.selections, [category]: product } }))
     },
     removeProduct: (category) => set((state) => ({ selections: { ...state.selections, [category]: null } })),
-    clearAll: () => set({ selections: emptyBuilderSelections() }),
+    clearAll: () => set({ selections: emptyBuilderSelections(), editingBuildId: null }),
+    startNewBuild: () => set({ selections: emptyBuilderSelections(), editingBuildId: null }),
     selectedCount: () => countSelected(get().selections),
     totalPrice: () => calculateBuilderPrice(get().selections),
     isComplete: () => isBuildCartEligible(get().selections),
@@ -251,63 +317,92 @@ export const useBuilderStore = create<BuilderState>()(persist(
     checkCompatibility: () => checkBuildCompatibility(get().selections),
     estimatedPower: () => estimateComponentPower(get().selections),
 
-    saveBuild: (name, description, image, owner) => {
-      const selections = get().selections
-      const compatible = isBuildCartEligible(selections)
-      if (!compatible) return get().savedBuilds[0] ?? { id: 0, name: '', description: '', totalPrice: 0, image: '', components: [], savedAt: 0, ownerId: '', isCompatible: false }
-      const components = BUILDER_CATEGORIES.map((category) => {
-        const product = selections[category]!
-        return {
-          category: CATEGORY_LABELS[category],
-          name: product.name,
-          specs: product.specs.join(', '),
-          quantity: 1,
-          image: product.image || '',
-        }
-      })
-      const id = get().nextSavedBuildId
-      const build: SavedBuild = {
-        id, name, description, totalPrice: calculateBuilderPrice(selections),
+    saveBuild: (name, description, image, ownerId) => {
+      const { selections, editingBuildId, savedBuilds, nextSavedBuildId } = get()
+      const trimmedName = name.trim()
+      if (!ownerId || !trimmedName || trimmedName.length > 100 ||
+          !isBuildCartEligible(selections)) return null
+      const existing = editingBuildId === null ? undefined : savedBuilds.find(
+        (build) => build.id === editingBuildId && build.ownerId === ownerId)
+      // Never silently duplicate someone else's or a deleted draft.
+      if (editingBuildId !== null && !existing) return null
+
+      const snapshot = cloneSelections(selections)
+      const now = Date.now()
+      const next: SavedBuild = {
+        id: existing?.id ?? nextSavedBuildId,
+        name: trimmedName,
+        description: description.trim().slice(0, 300),
+        totalPrice: calculateBuilderPrice(snapshot),
         image: selections.case?.image || image,
-        components, savedAt: Date.now(), ownerId: owner, isCompatible: true,
+        components: BUILDER_CATEGORIES.map((category) => {
+          const product = snapshot[category]!
+          return {
+            category: CATEGORY_LABELS[category], name: product.name,
+            specs: product.specs.join(', '), quantity: 1,
+            image: product.image || '',
+          }
+        }),
+        savedAt: existing?.savedAt ?? now,
+        updatedAt: now,
+        version: (existing?.version ?? 0) + 1,
+        ownerId,
+        isCompatible: true,
+        selections: snapshot,
       }
-      set((state) => ({ savedBuilds: [...state.savedBuilds, build], nextSavedBuildId: id + 1 }))
-      return build
+      set((state) => ({
+        savedBuilds: existing
+          ? state.savedBuilds.map((build) => build.id === existing.id ? next : build)
+          : [...state.savedBuilds, next],
+        nextSavedBuildId: existing ? state.nextSavedBuildId : nextSavedBuildId + 1,
+        editingBuildId: next.id,
+      }))
+      return next
     },
 
-    deleteSavedBuild: (id) => set((state) => ({
-      savedBuilds: state.savedBuilds.filter((b) => b.id !== id),
-    })),
-
-    restoreBuild: (id) => {
-      const build = get().savedBuilds.find((b) => b.id === id)
-      if (!build) return
-      const selections: BuilderSelections = emptyBuilderSelections()
-      for (const comp of build.components) {
-        const category = BUILDER_CATEGORIES.find((c) => CATEGORY_LABELS[c] === comp.category)
-        if (category) selections[category] = {
-          id: 0, name: comp.name, price: 0, specs: comp.specs.split(', '),
-          category: '', image: comp.image || '', type: comp.category,
-        } as unknown as Product
-      }
-      set({ selections })
+    deleteSavedBuild: (id, ownerId) => {
+      if (!ownerId || !get().savedBuilds.some((b) => b.id === id && b.ownerId === ownerId)) return false
+      set((state) => ({
+        savedBuilds: state.savedBuilds.filter((b) => b.id !== id || b.ownerId !== ownerId),
+        ...(state.editingBuildId === id
+          ? { editingBuildId: null, selections: emptyBuilderSelections() }
+          : {}),
+      }))
+      return true
     },
 
-    getSavedBuild: (id) => get().savedBuilds.find((b) => b.id === id),
-
-    saveBuildsForAccount: (accountId) => get().savedBuilds.filter((b) => b.ownerId === accountId),
+    restoreBuild: (id, ownerId) => {
+      const build = get().savedBuilds.find((b) => b.id === id && b.ownerId === ownerId)
+      if (!build) return false
+      const selections = selectionsFromSavedBuild(build)
+      if (!selections) return false
+      set({ selections, editingBuildId: id })
+      return true
+    },
+    getSavedBuild: (id, ownerId) => get().savedBuilds.find((b) => b.id === id && b.ownerId === ownerId),
+    saveBuildsForAccount: (ownerId) => get().savedBuilds.filter((b) => b.ownerId === ownerId),
+    removeBuildsForAccount: (ownerId) => {
+      if (!ownerId) return
+      const editingId = get().editingBuildId
+      const editingOwner = editingId === null ? null : get().savedBuilds.find((b) => b.id === editingId)?.ownerId
+      set((state) => ({
+        savedBuilds: state.savedBuilds.filter((b) => b.ownerId !== ownerId),
+        ...(editingOwner === ownerId ? { editingBuildId: null, selections: emptyBuilderSelections() } : {}),
+      }))
+    },
   }),
   {
-    name: 'pc-builder-saved', version: 1,
-    partialize: (s) => ({ savedBuilds: s.savedBuilds, nextSavedBuildId: s.nextSavedBuildId }),
-    merge: (saved, current) => {
-      const s = saved && typeof saved === 'object' ? saved as Partial<Pick<BuilderState, 'savedBuilds' | 'nextSavedBuildId'>> : {}
-      const builds = Array.isArray(s.savedBuilds) ? s.savedBuilds : []
-      const maxId = builds.reduce((n, b) => Math.max(n, Number.isSafeInteger(b?.id) ? b.id : 0), 0)
+    name: 'pc-builder-saved',
+    version: 1,
+    partialize: (state) => ({ savedBuilds: state.savedBuilds, nextSavedBuildId: state.nextSavedBuildId }),
+    merge: (stored, current) => {
+      const raw = stored && typeof stored === 'object' ? stored as Partial<BuilderState> : {}
+      const savedBuilds = Array.isArray(raw.savedBuilds) ? raw.savedBuilds.filter(validSavedBuild) : []
+      const maxId = savedBuilds.reduce((max, build) => Math.max(max, build.id), 0)
       return {
         ...current,
-        savedBuilds: builds,
-        nextSavedBuildId: Math.max(maxId + 1, Number.isSafeInteger(s.nextSavedBuildId) ? s.nextSavedBuildId! : 1),
+        savedBuilds,
+        nextSavedBuildId: Math.max(maxId + 1, Number.isSafeInteger(raw.nextSavedBuildId) && (raw.nextSavedBuildId ?? 0) > 0 ? raw.nextSavedBuildId! : 1),
       }
     },
   },

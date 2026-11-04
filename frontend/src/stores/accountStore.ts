@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { useCartStore } from './cartStore'
+import { useBuilderStore } from './builderStore'
 import { removeAccountReviews } from '../data/reviewStorage'
 
 /** Frontend-only demo accounts. This is NOT server-side authentication. */
@@ -286,6 +287,7 @@ export const useAccountStore = create<AccountState>()(
         delete next[id]
         set({ accounts: next, activeAccountId: null })
         useCartStore.getState().removeOrdersForAccount(id)
+        useBuilderStore.getState().removeBuildsForAccount(id)
         removeAccountReviews(id)
         useCartStore.getState().setActiveAccountId(null)
         return true

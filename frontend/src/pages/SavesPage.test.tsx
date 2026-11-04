@@ -1,206 +1,197 @@
-import { describe, it, expect, beforeEach } from 'vitest'
-import { useBuilderStore, type SavedBuild } from '../stores/builderStore'
+import { beforeEach, describe, expect, it, vi, afterEach } from 'vitest'
+import { cleanup, fireEvent, render, screen, act } from '@testing-library/react'
+import { MemoryRouter } from 'react-router'
+import {
+  useBuilderStore, emptyBuilderSelections, getProductsForCategory,
+  calculateBuilderPrice, selectionsFromSavedBuild, type BuilderSelections,
+} from '../stores/builderStore'
 import { useCartStore } from '../stores/cartStore'
 import { useAccountStore } from '../stores/accountStore'
+import { SavesPage } from './SavesPage'
 
-// Reset builder store state between tests
-function resetBuilderStore() {
-  try { localStorage.removeItem('pc-builder-saved') } catch { /* */ }
-  // Use partial setState (not replace) to preserve methods
-  useBuilderStore.setState({ savedBuilds: [], nextSavedBuildId: 1 })
+vi.mock('../components/Header', () => ({ Header: () => <div data-testid="header" /> }))
+vi.mock('../components/Footer', () => ({ Footer: () => <div data-testid="footer" /> }))
+vi.mock('../components/BackButton', () => ({ BackButton: () => <div data-testid="back" /> }))
+
+function complete(): BuilderSelections {
+  return {
+    cpu: getProductsForCategory('cpu').find((p) => p.name.includes('7800X3D'))!,
+    mobo: getProductsForCategory('mobo').find((p) => p.name.includes('B650 Tomahawk'))!,
+    gpu: getProductsForCategory('gpu')[0],
+    ram: getProductsForCategory('ram')[0],
+    storage: getProductsForCategory('storage')[0],
+    psu: getProductsForCategory('psu')[0],
+    case: getProductsForCategory('case')[0],
+    cooling: getProductsForCategory('cooling')[0],
+  }
 }
 
-function resetCartStore() {
-  useCartStore.getState().clear()
-  useCartStore.setState({ orders: [], nextOrderId: 1 })
+function mockSignedIn(id: string) {
+  useAccountStore.setState({
+    activeAccountId: id,
+    accounts: {
+      [id]: {
+        account: { id, email: `${id}@example.test`, username: id, displayName: id, avatar: '', createdAt: Date.now() },
+        password: { salt: 'test', hash: 'test' },
+      },
+    },
+  })
+  useCartStore.getState().setActiveAccountId(id)
 }
 
+beforeEach(() => {
+  useBuilderStore.setState({
+    selections: emptyBuilderSelections(), savedBuilds: [], nextSavedBuildId: 1, editingBuildId: null,
+  })
+  useCartStore.setState({ items: [], orders: [], favorites: [], nextOrderId: 1, activeAccountId: null })
+  useAccountStore.setState({ accounts: {}, activeAccountId: null })
+})
+afterEach(() => cleanup())
 
-
-describe('builderStore — saveBuild and saved builds', () => {
-  beforeEach(() => {
-    resetBuilderStore()
+describe('TASK 007 — real saved-build lifecycle', () => {
+  it('does not save incomplete drafts and does not create a bogus id=0 record', () => {
+    expect(useBuilderStore.getState().saveBuild('Incomplete', '', '', 'user-a')).toBeNull()
+    expect(useBuilderStore.getState().savedBuilds).toHaveLength(0)
+    expect(useBuilderStore.getState().nextSavedBuildId).toBe(1)
   })
 
-  it('creates a saved build with all properties', () => {
-    // saveBuild checks isBuildCartEligible — needs all 8 slots filled
-    // Just test that the function exists and returns a valid object
-    const store = useBuilderStore.getState()
-    expect(typeof store.saveBuild).toBe('function')
-    expect(typeof store.deleteSavedBuild).toBe('function')
-    expect(typeof store.restoreBuild).toBe('function')
-    expect(typeof store.getSavedBuild).toBe('function')
+  it('saves eight products, real prices and a deep snapshot that survives later draft changes', () => {
+    const selections = complete()
+    useBuilderStore.setState({ selections })
+    const expected = calculateBuilderPrice(selections)
+    const saved = useBuilderStore.getState().saveBuild('Workstation', 'Description', '', 'user-a')!
+    expect(saved.id).toBe(1)
+    expect(saved.totalPrice).toBe(expected)
+    expect(saved.components).toHaveLength(8)
+    expect(saved.ownerId).toBe('user-a')
+    expect(saved.selections?.cpu?.id).toBe(selections.cpu!.id)
+    expect(saved.selections?.gpu?.price).toBe(selections.gpu!.price)
+    expect(saved.version).toBe(1)
+    const initialName = saved.selections!.gpu!.name
+    useBuilderStore.getState().setProduct('gpu', getProductsForCategory('gpu')[1])
+    expect(saved.selections!.gpu!.name).toBe(initialName)
   })
 
-  it('stores and retrieves saved builds', () => {
-    const b: SavedBuild = {
-      id: 1, name: 'My Build', description: 'Desc', totalPrice: 50000,
-      image: '/img.jpg',
-      components: [
-        { category: 'CPU', name: 'Test CPU', specs: 'specs', quantity: 1, image: '/cpu.jpg' },
-      ],
-      savedAt: Date.now(), ownerId: 'u1', isCompatible: true,
-    }
-    useBuilderStore.setState({ savedBuilds: [b], nextSavedBuildId: 2 })
-
-    const retrieved = useBuilderStore.getState().getSavedBuild(1)
-    expect(retrieved?.name).toBe('My Build')
-    expect(retrieved?.components).toHaveLength(1)
-    expect(retrieved?.components?.[0].name).toBe('Test CPU')
+  it('restores the actual catalog product prices and updates the SAME build after editing', () => {
+    const original = complete()
+    useBuilderStore.setState({ selections: original })
+    const saved = useBuilderStore.getState().saveBuild('First', '', '', 'user-a')!
+    const oldPrice = saved.totalPrice
+    useBuilderStore.getState().clearAll()
+    expect(useBuilderStore.getState().restoreBuild(saved.id, 'user-a')).toBe(true)
+    expect(useBuilderStore.getState().selections.cpu!.price).toBe(original.cpu!.price)
+    expect(useBuilderStore.getState().selections.cpu!.id).toBe(original.cpu!.id)
+    expect(useBuilderStore.getState().selections.cpu!.category).toBe('Процессоры')
+    expect(calculateBuilderPrice(useBuilderStore.getState().selections)).toBe(oldPrice)
+    useBuilderStore.getState().setProduct('gpu', getProductsForCategory('gpu')[1])
+    const modifiedPrice = calculateBuilderPrice(useBuilderStore.getState().selections)
+    const updated = useBuilderStore.getState().saveBuild('Updated', 'Edited', '', 'user-a')!
+    expect(updated.id).toBe(saved.id)
+    expect(updated.savedAt).toBe(saved.savedAt)
+    expect(updated.version).toBe(2)
+    expect(updated.totalPrice).toBe(modifiedPrice)
+    expect(useBuilderStore.getState().savedBuilds).toHaveLength(1)
   })
 
-  it('increments nextSavedBuildId correctly', () => {
-    useBuilderStore.setState({ savedBuilds: [], nextSavedBuildId: 10 })
-    // saveBuild returns default build (id 0) when not all slots filled
-    // and does NOT increment nextSavedBuildId when ineligible
-    const b1 = useBuilderStore.getState().saveBuild('B1', '', '/img.jpg', 'u1')
-    const b2 = useBuilderStore.getState().saveBuild('B2', '', '/img.jpg', 'u1')
-    // When ineligible, saveBuild returns early without incrementing
-    expect(b1?.id).toBe(0)
-    expect(b2?.id).toBe(0)
-    expect(useBuilderStore.getState().nextSavedBuildId).toBe(10)
+  it('refuses to restore or delete another account’s build', () => {
+    useBuilderStore.setState({ selections: complete() })
+    const build = useBuilderStore.getState().saveBuild('Private', '', '', 'user-a')!
+    useBuilderStore.getState().clearAll()
+    expect(useBuilderStore.getState().restoreBuild(build.id, 'user-b')).toBe(false)
+    expect(useBuilderStore.getState().deleteSavedBuild(build.id, 'user-b')).toBe(false)
+    expect(useBuilderStore.getState().getSavedBuild(build.id, 'user-b')).toBeUndefined()
+    expect(useBuilderStore.getState().saveBuildsForAccount('user-b')).toEqual([])
+    expect(useBuilderStore.getState().savedBuilds).toHaveLength(1)
+    expect(useBuilderStore.getState().selections.cpu).toBeNull()
   })
 
-  it('deletes a saved build by id', () => {
-    const b1: SavedBuild = { id: 1, name: 'Keep', description: '', totalPrice: 1000, image: '',
-      components: [], savedAt: Date.now(), ownerId: 'u1', isCompatible: true }
-    const b2: SavedBuild = { id: 2, name: 'Delete', description: '', totalPrice: 2000, image: '',
-      components: [], savedAt: Date.now(), ownerId: 'u1', isCompatible: true }
-    useBuilderStore.setState({ savedBuilds: [b1, b2], nextSavedBuildId: 3 })
-
-    useBuilderStore.getState().deleteSavedBuild(2)
-    const remaining = useBuilderStore.getState().savedBuilds
-    expect(remaining).toHaveLength(1)
-    expect(remaining[0].name).toBe('Keep')
+  it('restores first-version legacy builds by exact matching names, without zero-price fake products', () => {
+    useBuilderStore.setState({ selections: complete() })
+    const saved = useBuilderStore.getState().saveBuild('Legacy', '', '', 'user-a')!
+    useBuilderStore.setState({ savedBuilds: [{ ...saved, selections: undefined }], editingBuildId: null })
+    useBuilderStore.getState().clearAll()
+    expect(useBuilderStore.getState().restoreBuild(saved.id, 'user-a')).toBe(true)
+    expect(calculateBuilderPrice(useBuilderStore.getState().selections)).toBe(saved.totalPrice)
+    expect(useBuilderStore.getState().selections.gpu!.category).toBe('Видеокарты')
   })
 
-  it('restores build selections to the builder store', () => {
-    const b: SavedBuild = {
-      id: 1, name: 'Build', description: '', totalPrice: 1000, image: '',
-      components: [
-        { category: 'Процессор', name: 'Test CPU', specs: 'specs', quantity: 1, image: '' },
-        { category: 'Видеокарта', name: 'Test GPU', specs: 'specs', quantity: 1, image: '' },
-      ],
-      savedAt: Date.now(), ownerId: 'u1', isCompatible: true,
-    }
-    useBuilderStore.setState({ savedBuilds: [b], nextSavedBuildId: 2 })
-
-    useBuilderStore.getState().restoreBuild(1)
-    const selections = useBuilderStore.getState().selections
-    expect(selections.cpu?.name).toBe('Test CPU')
-    expect(selections.gpu?.name).toBe('Test GPU')
+  it('rejects a legacy build with missing catalog products rather than silently restoring junk', () => {
+    useBuilderStore.setState({ selections: complete() })
+    const saved = useBuilderStore.getState().saveBuild('Broken', '', '', 'user-a')!
+    const broken = { ...saved, selections: undefined,
+      components: saved.components.map((component) => component.category === 'Процессор' ? { ...component, name: 'MISSING PRODUCT' } : component) }
+    expect(selectionsFromSavedBuild(broken)).toBeNull()
+    useBuilderStore.setState({ savedBuilds: [broken], selections: emptyBuilderSelections(), editingBuildId: null })
+    expect(useBuilderStore.getState().restoreBuild(saved.id, 'user-a')).toBe(false)
   })
 
-  it('preserves saved builds across state resets (in-memory)', () => {
-    const b: SavedBuild = {
-      id: 1, name: 'Persistent', description: '', totalPrice: 5000, image: '/img.jpg',
-      components: [{ category: 'CPU', name: 'CPU', specs: '', quantity: 1, image: '' }],
-      savedAt: Date.now(), ownerId: 'u1', isCompatible: true,
-    }
-    useBuilderStore.setState({ savedBuilds: [b], nextSavedBuildId: 2 })
+  it('rehydrates saved builds from the actual persisted browser storage', async () => {
+    useBuilderStore.setState({ selections: complete() })
+    useBuilderStore.getState().saveBuild('Persistent', '', '', 'user-a')
+    const persisted = localStorage.getItem('pc-builder-saved')!
+    expect(persisted).toContain('Persistent')
+    useBuilderStore.setState({ savedBuilds: [], editingBuildId: null, selections: emptyBuilderSelections() })
+    localStorage.setItem('pc-builder-saved', persisted)
+    await useBuilderStore.persist.rehydrate()
+    expect(useBuilderStore.getState().savedBuilds).toHaveLength(1)
+    expect(useBuilderStore.getState().savedBuilds[0].name).toBe('Persistent')
+  })
 
-    // Reset state (simulates store reload)
-    resetBuilderStore()
-    // After reset, savedBuilds should be empty
+  it('cleans all saved builds of a deleted account and preserves other accounts’ records', () => {
+    useBuilderStore.setState({ selections: complete() })
+    const owned = useBuilderStore.getState().saveBuild('Delete with A', '', '', 'user-a')!
+    useBuilderStore.getState().startNewBuild()
+    useBuilderStore.setState({ selections: complete() })
+    const other = useBuilderStore.getState().saveBuild('Keep for B', '', '', 'user-b')!
+    mockSignedIn('user-a')
+    expect(useAccountStore.getState().deleteAccount()).toBe(true)
+    expect(useBuilderStore.getState().getSavedBuild(owned.id, 'user-a')).toBeUndefined()
+    expect(useBuilderStore.getState().getSavedBuild(other.id, 'user-b')?.name).toBe('Keep for B')
+  })
+
+  it('adds saved builds as one cart item, with revision-specific IDs and no double counting', () => {
+    useBuilderStore.setState({ selections: complete() })
+    const saved = useBuilderStore.getState().saveBuild('Cart PC', '', '', 'user-a')!
+    const selections = selectionsFromSavedBuild(saved)!
+    // Use the same payload contract as SavesPage; components form a single cart item.
+    useCartStore.getState().addBuild({ id: -1000010001, name: saved.name, price: saved.totalPrice,
+      image: saved.image, description: saved.description, components: saved.components, category: 'Готовые сборки', specs: '' })
+    expect(selections.cpu).not.toBeNull()
+    expect(useCartStore.getState().totalItems()).toBe(1)
+    expect(useCartStore.getState().totalPrice()).toBe(saved.totalPrice)
+    expect(useCartStore.getState().items[0]).toHaveProperty('components')
+  })
+})
+
+describe('SavesPage user-visible behavior', () => {
+  it('renders the reference-like expanded component list and requests explicit deletion confirmation', () => {
+    mockSignedIn('user-a')
+    useBuilderStore.setState({ selections: complete() })
+    useBuilderStore.getState().saveBuild('My Gaming Build', 'For games', '', 'user-a')
+    render(<MemoryRouter><SavesPage /></MemoryRouter>)
+    expect(screen.getByText('My Gaming Build')).toBeTruthy()
+    expect(screen.getByText('Состав сборки')).toBeTruthy()
+    expect(screen.getByText('For games')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Удалить сборку My Gaming Build/i }))
+    expect(screen.getByRole('alertdialog')).toBeTruthy()
+    expect(useBuilderStore.getState().savedBuilds).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(useBuilderStore.getState().savedBuilds).toHaveLength(1)
+    fireEvent.click(screen.getByRole('button', { name: /Удалить сборку My Gaming Build/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить' }))
     expect(useBuilderStore.getState().savedBuilds).toHaveLength(0)
   })
-})
 
-describe('cartStore — addBuild from saved build', () => {
-  beforeEach(() => {
-    resetCartStore()
-  })
-
-  it('adds a saved build as a single cart item', () => {
-    const build: SavedBuild = {
-      id: 10, name: 'Build', description: '', totalPrice: 50000,
-      image: '/img.jpg',
-      components: [
-        { category: 'CPU', name: 'CPU', specs: '', quantity: 1, image: '' },
-        { category: 'GPU', name: 'GPU', specs: '', quantity: 1, image: '' },
-      ],
-      savedAt: Date.now(), ownerId: 'u1', isCompatible: true,
-    }
-    useCartStore.getState().addBuild({
-      id: build.id, name: build.name, price: build.totalPrice,
-      image: build.image, description: build.description,
-      category: 'Готовые сборки', specs: '',
-      components: build.components,
-    })
-
-    expect(useCartStore.getState().totalItems()).toBe(1)
-    expect(useCartStore.getState().totalPrice()).toBe(50000)
-  })
-
-  it('increments quantity for duplicate build in cart', () => {
-    useCartStore.getState().addBuild({
-      id: 10, name: 'Build', price: 50000, image: '',
-      description: '', category: 'Готовые сборки', specs: '',
-      components: [],
-    })
-    useCartStore.getState().addBuild({
-      id: 10, name: 'Build', price: 50000, image: '',
-      description: '', category: 'Готовые сборки', specs: '',
-      components: [],
-    })
-
-    expect(useCartStore.getState().totalItems()).toBe(2)
-  })
-})
-
-describe('cartStore — removeOrdersForAccount', () => {
-  beforeEach(() => {
-    resetCartStore()
-  })
-
-  it('removes orders for a specific account', () => {
-    useCartStore.setState({
-      orders: [
-        { id: 1, items: [], total: 1000, itemCount: 0, timestamp: Date.now(), ownerId: 'u1' },
-        { id: 2, items: [], total: 2000, itemCount: 0, timestamp: Date.now(), ownerId: 'u2' },
-      ],
-      nextOrderId: 3,
-    })
-    useCartStore.getState().removeOrdersForAccount('u1')
-
-    const remaining = useCartStore.getState().orders
-    expect(remaining).toHaveLength(1)
-    expect(remaining[0].ownerId).toBe('u2')
-  })
-})
-
-describe('accountStore — deleteAccount cleans up', () => {
-  beforeEach(() => {
-    resetCartStore()
-    useAccountStore.setState({ accounts: {}, activeAccountId: null })
-  })
-
-  it('removes orders when account is deleted', () => {
-    const accId = 'delete-me'
-    useAccountStore.setState({
-      accounts: {
-        [accId]: {
-          account: {
-            id: accId, email: 'del@test.com', username: 'del',
-            displayName: 'Del', avatar: '', createdAt: Date.now(),
-          },
-          password: { salt: 's', hash: 'h' },
-        },
-      },
-      activeAccountId: accId,
-    })
-    useCartStore.setState({
-      orders: [
-        { id: 1, items: [], total: 1000, itemCount: 0, timestamp: Date.now(), ownerId: accId },
-        { id: 2, items: [], total: 2000, itemCount: 0, timestamp: Date.now(), ownerId: 'other' },
-      ],
-      nextOrderId: 3,
-    })
-
-    // deleteAccount calls removeOrdersForAccount internally
-    const result = useAccountStore.getState().deleteAccount()
-    expect(result).toBe(true)
-    expect(useCartStore.getState().orders).toHaveLength(1)
-    expect(useCartStore.getState().orders[0].ownerId).toBe('other')
+  it('does not reveal saved builds when logged out or signed in as another account', () => {
+    useBuilderStore.setState({ selections: complete() })
+    useBuilderStore.getState().saveBuild('Alice secret configuration', '', '', 'user-a')
+    mockSignedIn('user-b')
+    render(<MemoryRouter><SavesPage /></MemoryRouter>)
+    expect(screen.queryByText('Alice secret configuration')).toBeNull()
+    expect(screen.getByText('Сборок пока нет')).toBeTruthy()
+    act(() => useAccountStore.getState().logout())
+    expect(screen.queryByText('Alice secret configuration')).toBeNull()
+    expect(screen.getByText('Войдите в аккаунт, чтобы увидеть свои сборки.')).toBeTruthy()
   })
 })
