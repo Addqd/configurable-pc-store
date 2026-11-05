@@ -1,9 +1,11 @@
+import { useTranslation } from 'react-i18next'
 import { useUIStore } from '../stores/uiStore'
 import { filterProducts } from '../data/mockProducts'
 import { HiMiniChevronRight } from 'react-icons/hi2'
 import { formatPrice } from '../utils/formatPrice'
 
 export function SearchDropdown() {
+  const { t } = useTranslation()
   const { searchQuery, closeSearch } = useUIStore()
   const trimmed = searchQuery.trim()
   const results = trimmed ? filterProducts(trimmed) : []
@@ -17,13 +19,13 @@ export function SearchDropdown() {
       onMouseUp={(e) => e.stopPropagation()}
     >
       <div className="px-4 mb-2 flex items-center justify-between">
-        <span className="text-sm font-medium text-text-primary">Товары</span>
+        <span className="text-sm font-medium text-text-primary">{t('header.search_results')}</span>
         <a
           href={`/catalog?q=${encodeURIComponent(searchQuery)}`}
           className="text-sm text-primary hover:underline"
           onClick={closeSearch}
         >
-          Показать все ({results.length}) <HiMiniChevronRight className="w-3.5 h-3.5 inline" />
+          {t('header.show_all', { count: results.length })} <HiMiniChevronRight className="w-3.5 h-3.5 inline" />
         </a>
       </div>
 
@@ -49,7 +51,7 @@ export function SearchDropdown() {
         ))}
         {results.length === 0 && (
           <div className="px-4 py-6 text-center text-text-muted text-sm">
-            Ничего не найдено
+            {t('header.search_empty')}
           </div>
         )}
       </div>

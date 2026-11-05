@@ -29,6 +29,18 @@ export const CATALOG_CATEGORY_MAP: Record<BuilderCategory, string> = {
   cooling: 'Охлаждение',
 }
 
+// i18n keys for builder category labels
+export const BUILDER_CATEGORY_KEYS: Record<BuilderCategory, string> = {
+  cpu: 'builder.components.cpu',
+  mobo: 'builder.components.mobo',
+  gpu: 'builder.components.gpu',
+  ram: 'builder.components.ram',
+  storage: 'builder.components.storage',
+  psu: 'builder.components.psu',
+  case: 'builder.components.case',
+  cooling: 'builder.components.cooling',
+}
+
 export interface CompatibilityCheck {
   status: 'compatible' | 'incompatible' | 'unknown'
   label: string

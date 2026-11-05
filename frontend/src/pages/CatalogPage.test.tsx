@@ -1,8 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { I18nextProvider } from 'react-i18next'
 import { Link, MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { CatalogPage } from './CatalogPage'
 import { useCartStore } from '../stores/cartStore'
+import i18n from '../i18n'
 vi.mock('../components/Header',()=>({Header:()=> <div data-testid="header"/>}))
 vi.mock('../components/Footer',()=>({Footer:()=> <div data-testid="footer"/>}))
 function LocationView(){const loc=useLocation();return <>
@@ -10,7 +12,7 @@ function LocationView(){const loc=useLocation();return <>
   <Link to="/catalog?category=components">Тестовая ссылка меню: комплектующие</Link>
 </>}
 function setup(path='/catalog'){
-  return render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/catalog" element={<><CatalogPage/><LocationView/></>}/></Routes></MemoryRouter>)
+  return render(<I18nextProvider i18n={i18n}><MemoryRouter initialEntries={[path]}><Routes><Route path="/catalog" element={<><CatalogPage/><LocationView/></>}/></Routes></MemoryRouter></I18nextProvider>)
 }
 beforeEach(()=>{cleanup();useCartStore.getState().clear()})
 describe('CatalogPage interactions',()=>{
