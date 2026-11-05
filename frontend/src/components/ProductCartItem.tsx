@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useCartStore, type RegularCartItem } from '../stores/cartStore'
 import { formatPrice } from '../utils/formatPrice'
 import { FiX } from 'react-icons/fi'
@@ -7,6 +8,7 @@ interface ProductCartItemProps {
 }
 
 export function ProductCartItem({ item }: ProductCartItemProps) {
+  const { t } = useTranslation()
   const updateQuantity = useCartStore((s) => s.updateQuantity)
   const removeItem = useCartStore((s) => s.removeItem)
 
@@ -38,19 +40,19 @@ export function ProductCartItem({ item }: ProductCartItemProps) {
             type="button"
             onClick={() => updateQuantity(item.id, item.quantity - 1)}
             disabled={item.quantity <= 1}
-            className="flex h-full w-9 items-center justify-center text-lg text-text-primary hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-40"
-            aria-label={`Уменьшить количество: ${item.name}`}
+            className="flex h-full w-9 items-center justify-center text-lg text-text-primary hover:bg-surface-3 disabled:cursor-default disabled:opacity-40"
+            aria-label={t('cart.decrease_named', { name: item.name })}
           >
             −
           </button>
-          <span className="flex h-full min-w-10 items-center justify-center bg-surface px-2 text-sm font-semibold text-text-primary" aria-label={`Количество: ${item.quantity}`}>
+          <span className="flex h-full min-w-10 items-center justify-center bg-surface px-2 text-sm font-semibold text-text-primary" aria-label={t('cart.quantity_named', { count: item.quantity })}>
             {item.quantity}
           </span>
           <button
             type="button"
             onClick={() => updateQuantity(item.id, item.quantity + 1)}
             className="flex h-full w-9 items-center justify-center text-lg text-text-primary hover:bg-surface-3"
-            aria-label={`Увеличить количество: ${item.name}`}
+            aria-label={t('cart.increase_named', { name: item.name })}
           >
             +
           </button>
@@ -62,7 +64,7 @@ export function ProductCartItem({ item }: ProductCartItemProps) {
           type="button"
           onClick={() => removeItem(item.id)}
           className="rounded p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary"
-          aria-label={`Удалить: ${item.name}`}
+          aria-label={t('cart.remove_named', { name: item.name })}
         >
           <FiX className="h-5 w-5" />
         </button>

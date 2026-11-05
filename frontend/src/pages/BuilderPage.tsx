@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
+import { catalogDisplay } from '../i18n/catalogDisplay'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { Header } from '../components/Header'
@@ -11,7 +12,7 @@ import { BuilderSidebar } from '../components/BuilderSidebar'
 import { BuilderSpecsTable } from '../components/BuilderSpecsTable'
 import { BuilderActions } from '../components/BuilderActions'
 import {
-  useBuilderStore, BUILDER_CATEGORIES, CATEGORY_LABELS, countSelected,
+  useBuilderStore, BUILDER_CATEGORIES, countSelected,
   checkBuildCompatibility, isBuildCartEligible, createBuildCartPayload,
 } from '../stores/builderStore'
 import { useCartStore } from '../stores/cartStore'
@@ -39,8 +40,8 @@ export function BuilderPage() {
   const missing = BUILDER_CATEGORIES.filter((category) => !selections[category])
   const conflicts = checkBuildCompatibility(selections).filter((check) => check.status === 'incompatible')
   const validationMessage = [
-    missing.length > 0 ? `Выберите комплектующие: ${missing.map((category) => CATEGORY_LABELS[category]).join(', ')}.` : '',
-    conflicts.length > 0 ? `Исправьте несовместимость: ${conflicts.map((check) => check.label).join(', ')}.` : '',
+    missing.length > 0 ? t('builder.select_missing', { components: missing.map((category) => t('builder.components.' + category)).join(', ') }) : '',
+    conflicts.length > 0 ? t('builder.compatibility_error', { conflicts: conflicts.map((check) => catalogDisplay(check.label)).join(', ') }) : '',
   ].filter(Boolean).join(' ')
 
   useEffect(() => { setAddedToCart(false); setCreated(false); setSaveNotice('') }, [selections])
@@ -59,7 +60,6 @@ export function BuilderPage() {
   const addBuild = useCartStore((state) => state.addBuild)
 
   const handleAddToCart = () => {
-    // Read the latest state and revalidate at the action boundary, not just at render time.
     const current = useBuilderStore.getState().selections
     const cartItems = useCartStore.getState().items
     let id = Date.now()
@@ -87,7 +87,7 @@ export function BuilderPage() {
     }
     const editing = editingBuildId === null ? undefined :
       useBuilderStore.getState().getSavedBuild(editingBuildId, activeAccountId)
-    setSaveName(editing?.name ?? 'Сборка ПК')
+    setSaveName(editing?.name ?? t('builder.save_name_placeholder'))
     setSaveDescription(editing?.description ?? '')
     setSaveError('')
     setSaveOpen(true)

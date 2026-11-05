@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+import { catalogDisplay } from '../i18n/catalogDisplay'
 import type { Product } from '../data/mockProducts'
 import { useCartStore } from '../stores/cartStore'
 import { formatPrice } from '../utils/formatPrice'
@@ -10,6 +12,7 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
+  const { t } = useTranslation()
   const addItem = useCartStore((s) => s.addItem)
   // Home cards should stay compact even though Product Details uses individual specs.
   const specs = product.shortSpecs ?? product.specs
@@ -37,13 +40,13 @@ export function ProductCard({ product }: ProductCardProps) {
         >
           <img
             src={product.image}
-            alt={product.name}
+            alt={catalogDisplay(product.name)}
             className="h-16 w-16 shrink-0 rounded-md bg-surface-3 object-contain"
           />
           <div className="min-w-0 flex-1">
             <FadeOverflowLine>
               <h3 className="text-sm font-medium text-text-primary transition-colors group-hover:text-primary">
-                {product.name}
+                {catalogDisplay(product.name)}
               </h3>
             </FadeOverflowLine>
             {summaryLines.map((spec) => (
@@ -59,8 +62,8 @@ export function ProductCard({ product }: ProductCardProps) {
         <button
           type="button"
           onClick={handleCartClick}
-          className="pc-hover-icon flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary hover:text-white dark:hover:text-[#08090C]"
-          aria-label="Добавить в корзину"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary hover:text-white dark:hover:text-[#08090C]"
+          aria-label={t('product.add_to_cart')}
         >
           <FiShoppingCart className="h-4 w-4" />
         </button>

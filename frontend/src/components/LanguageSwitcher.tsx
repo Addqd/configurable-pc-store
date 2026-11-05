@@ -1,8 +1,8 @@
 import { useRef, useEffect, useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { saveLanguage } from '../i18n'
-import rusFlag from '../../assets/rus-flag.png'
-import engFlag from '../../assets/eng-flag.png'
+import rusFlag from '../assets/rus-flag.png'
+import engFlag from '../assets/eng-flag.png'
 import { FiChevronDown } from 'react-icons/fi'
 
 type Lang = 'ru' | 'en'
@@ -17,6 +17,7 @@ export function LanguageSwitcher({ className = '' }: LanguageSwitcherProps) {
   const triggerRef = useRef<HTMLButtonElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   const firstOptionRef = useRef<HTMLButtonElement>(null)
+  const secondOptionRef = useRef<HTMLButtonElement>(null)
   const currentLang = i18nextInstance.language as Lang
 
   const options: { code: Lang; label: string; flag: string }[] = [
@@ -39,9 +40,16 @@ export function LanguageSwitcher({ className = '' }: LanguageSwitcherProps) {
         e.preventDefault()
         setOpen(false)
         triggerRef.current?.focus()
-      } else if (e.key === 'ArrowDown' && open) {
+      } else if (open && ['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(e.key)) {
+        const first = firstOptionRef.current
+        const second = secondOptionRef.current
+        if (!first || !second) return
         e.preventDefault()
-        firstOptionRef.current?.focus()
+        const current = document.activeElement
+        if (e.key === 'Home') first.focus()
+        else if (e.key === 'End') second.focus()
+        else if (e.key === 'ArrowDown') (current === first ? second : first).focus()
+        else (current === second ? first : second).focus()
       }
     },
     [open],
@@ -73,9 +81,9 @@ export function LanguageSwitcher({ className = '' }: LanguageSwitcherProps) {
       <button
         ref={triggerRef}
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => { setOpen((v) => !v); }}
         aria-expanded={open}
-        aria-haspopup="listbox"
+        aria-haspopup="menu"
         aria-label={t('lang_switcher.label')}
         className={
           'inline-flex items-center gap-1.5 h-9 px-2 rounded-md border border-border bg-surface hover:bg-surface-3 text-sm font-medium text-text-primary transition-colors ' +
@@ -83,7 +91,7 @@ export function LanguageSwitcher({ className = '' }: LanguageSwitcherProps) {
         }
       >
         <img src={current.flag} alt="" className="w-5 h-[14px] object-cover rounded-sm shrink-0" />
-        <span>{current.label}</span>
+        <span className="hidden sm:inline">{current.label}</span>
         <FiChevronDown
           className={`w-3.5 h-3.5 text-text-muted transition-transform ${open ? 'rotate-180' : ''}`}
           aria-hidden="true"
@@ -93,17 +101,17 @@ export function LanguageSwitcher({ className = '' }: LanguageSwitcherProps) {
       {open && (
         <div
           ref={panelRef}
-          role="listbox"
+          role="menu"
           aria-label={t('lang_switcher.label')}
           className="absolute right-0 top-full mt-1 w-32 bg-surface border border-border rounded-lg shadow-[0_8px_30px_var(--color-shadow-md)] py-1 z-[200] overflow-hidden"
         >
           {options.map((opt) => (
             <button
               key={opt.code}
-              role="option"
-              aria-selected={opt.code === currentLang}
+              role="menuitemradio"
+              aria-checked={opt.code === currentLang}
               onClick={() => changeLang(opt.code)}
-              ref={opt.code === options[0].code ? firstOptionRef : undefined}
+              ref={opt.code === 'ru' ? firstOptionRef : secondOptionRef}
               className={
                 'w-full flex items-center gap-2 px-3 py-2 text-sm transition-colors ' +
                 (opt.code === currentLang

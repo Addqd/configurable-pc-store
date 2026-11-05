@@ -1,3 +1,5 @@
+import { catalogDisplay } from '../i18n/catalogDisplay'
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import placeholder from '../assets/placeholder.jpg'
 import type { EnrichedProduct } from '../data/productDetails'
@@ -7,6 +9,7 @@ interface ProductGalleryProps {
 }
 
 export function ProductGallery({ product }: ProductGalleryProps) {
+  const { t } = useTranslation()
   const [active, setActive] = useState(0)
   const images = product.gallery.length > 0 ? product.gallery : [placeholder]
   const current = images[active] ?? images[0]
@@ -16,7 +19,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
       <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-surface">
         <img
           src={current}
-          alt={product.name}
+          alt={catalogDisplay(product.name)}
           className="aspect-square w-full object-contain"
           onError={(event) => { if (!event.currentTarget.src.endsWith(placeholder)) event.currentTarget.src = placeholder }}
         />
@@ -27,9 +30,9 @@ export function ProductGallery({ product }: ProductGalleryProps) {
             key={`${product.slug}-thumb-${index}`}
             type="button"
             onClick={() => setActive(index)}
-            aria-label={`Показать изображение ${index + 1} из ${images.length}`}
+            aria-label={t('product.image_show', { index: index + 1, total: images.length })}
             aria-pressed={active === index}
-            className={`pc-hover-outline h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-surface p-1 transition-colors sm:h-20 sm:w-20 ${index === active ? 'border-primary' : 'border-border hover:border-border-hover'}`}
+            className={`h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-surface p-1 transition-colors sm:h-20 sm:w-20 ${index === active ? 'border-primary' : 'border-border hover:border-border-hover'}`}
           >
             <img src={image} alt="" className="h-full w-full object-contain" onError={(event) => { if (!event.currentTarget.src.endsWith(placeholder)) event.currentTarget.src = placeholder }} />
           </button>

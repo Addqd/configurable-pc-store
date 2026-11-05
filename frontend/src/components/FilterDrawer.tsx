@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { catalogDisplay } from '../i18n/catalogDisplay'
 import { FiX, FiFilter, FiChevronDown } from 'react-icons/fi'
 import { allCatalogProducts, DEFAULT_FILTERS, SORT_OPTIONS, deriveFilterOptions, type FilterState } from '../data/catalogModel'
 export type { FilterState } from '../data/catalogModel'
@@ -38,7 +39,7 @@ export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose 
     if (!open) return
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const panel = panelRef.current
-    panel?.querySelector<HTMLButtonElement>('button[aria-label="Закрыть фильтры"]')?.focus()
+    panel?.querySelector<HTMLButtonElement>('button[data-filter-close]')?.focus()
     const handleKeyDown=(event: KeyboardEvent) => {
       if (event.key==='Escape') { event.preventDefault(); onClose(); return }
       if (event.key!=='Tab' || !panel) return
@@ -64,14 +65,14 @@ export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose 
   const checkbox = (field:'categories'|'types'|'colors'|'manufacturers', name:string,disabled=false) => <label key={name} className={`flex items-center gap-2.5 text-sm ${disabled?'cursor-not-allowed text-text-muted':'cursor-pointer text-text-primary hover:text-primary'}`}>
     <input type="checkbox" className="h-4 w-4 shrink-0 rounded accent-primary" checked={filters[field].includes(name)} disabled={disabled} onChange={()=>setGroup(field,name)}/>
     {field==='colors' && <span aria-hidden="true" className="h-4 w-4 shrink-0 rounded-full border border-border" style={{backgroundColor:dotColors[name]??'#9ca3af'}}/>}
-    <span>{name}</span>
+    <span>{catalogDisplay(name)}</span>
   </label>
   return <>
     <div className="fixed inset-x-0 bottom-0 top-[64px] z-[60] bg-black/50" onClick={onClose} aria-hidden="true" data-testid="catalog-filter-backdrop"/>
     <div ref={panelRef} role="dialog" aria-modal="true" aria-label={t('catalog.filter.title')} className="fixed left-0 top-[64px] z-[70] flex h-[calc(100dvh-64px)] w-full max-w-[420px] flex-col border-r border-border bg-surface shadow-xl md:w-[35vw] md:min-w-[300px]">
       <div className="flex shrink-0 items-center justify-between border-b border-border px-5 py-4">
         <div className="flex items-center gap-2 text-text-primary"><FiFilter className="h-5 w-5"/><h2 className="text-lg font-semibold">{t('catalog.filter.title')}</h2></div>
-        <button type="button" onClick={onClose} aria-label={t('catalog.filter.close')} className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-primary hover:bg-surface-3"><FiX className="h-5 w-5"/></button>
+        <button type="button" data-filter-close onClick={onClose} aria-label={t('catalog.filter.close')} className="flex h-8 w-8 items-center justify-center rounded-md border border-border text-text-primary hover:bg-surface-3"><FiX className="h-5 w-5"/></button>
       </div>
       <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-5 py-4">
         {section('sort',SORT_OPTIONS.map(option=><label key={option.value} className="flex cursor-pointer items-center gap-2.5 text-sm text-text-primary hover:text-primary"><input type="radio" name="catalog-sort" checked={filters.sort===option.value} onChange={()=>onFiltersChange({...filters,sort:option.value})} className="h-4 w-4 accent-primary"/>{t('catalog.sort.' + option.value)}</label>))}

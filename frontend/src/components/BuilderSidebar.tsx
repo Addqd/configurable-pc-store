@@ -1,5 +1,6 @@
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
+import { catalogDisplay } from '../i18n/catalogDisplay'
 import {
   useBuilderStore, BUILDER_CATEGORIES, countSelected, calculateBuilderPrice,
   checkBuildCompatibility, estimateComponentPower, isBuildCartEligible,
@@ -14,26 +15,26 @@ export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
   const selections = useBuilderStore((state) => state.selections)
   const checks = useMemo(() => checkBuildCompatibility(selections), [selections])
   const count = countSelected(selections)
+  const total = BUILDER_CATEGORIES.length
   const price = calculateBuilderPrice(selections)
   const power = estimateComponentPower(selections)
   const eligible = isBuildCartEligible(selections)
   const conflicts = checks.filter((check) => check.status === 'incompatible')
   const unknown = checks.filter((check) => check.status === 'unknown')
   const completelyChecked = eligible && unknown.length === 0 && checks.length >= 6
-  const total = BUILDER_CATEGORIES.length
 
   return (
     <aside className="rounded-2xl border border-border bg-surface p-5 shadow-[0_5px_24px_var(--color-shadow)] lg:sticky lg:top-24">
       <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-border pb-4">
         <h2 className="text-xl font-bold text-text-primary">{t('builder.your_build')}</h2>
-        <span className="text-xs text-text-muted">{count} из {total} компонентов</span>
+        <span className="text-xs text-text-muted">{t('builder.build_count', { count, total })}</span>
       </div>
 
       <div className="space-y-3 border-b border-border py-5">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="text-text-muted">{t('builder.compatibility')}</span>
           {conflicts.length ? (
-            <span className="inline-flex items-center gap-1.5 font-medium text-red-500"><FiAlertTriangle /> {conflicts.length} {t('common.conflict_' + (conflicts.length === 1 ? 'one' : 'other'), { count: conflicts.length })}</span>
+            <span className="inline-flex items-center gap-1.5 font-medium text-red-500"><FiAlertTriangle /> {t('common.conflicts', { count: conflicts.length })}</span>
           ) : completelyChecked ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-emerald-500"><FiCheckCircle /> {t('builder.compatible')}</span>
           ) : (
@@ -42,7 +43,7 @@ export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="text-text-muted">{t('builder.power')}</span>
-          <span className="font-medium text-text-primary">{power !== null ? `≥ ${power} Вт*` : t('builder.no_data')}</span>
+          <span className="font-medium text-text-primary">{power !== null ? `≥ ${power} ${t('common.watts')}*` : t('builder.no_data')}</span>
         </div>
         {power !== null && <p className="text-xs text-text-muted">{t('builder.power_note')}</p>}
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -51,14 +52,14 @@ export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
         </div>
         {conflicts.length > 0 && (
           <div className="space-y-1 text-xs text-red-500" role="alert">
-            {conflicts.map((check) => <p key={check.label}>{check.label}: {check.detail}</p>)}
+            {conflicts.map((check) => <p key={check.label}>{catalogDisplay(check.label)}: {catalogDisplay(check.detail)}</p>)}
           </div>
         )}
         {unknown.length > 0 && count > 0 && (
           <details className="text-xs text-text-muted">
-            <summary className="cursor-pointer hover:text-primary">Не удалось проверить: {unknown.length}</summary>
+            <summary className="cursor-pointer hover:text-primary">{t('builder.unknown_checks', { count: unknown.length })}</summary>
             <ul className="mt-2 list-disc space-y-1 pl-4">
-              {unknown.map((check) => <li key={check.label}>{check.label}: {check.detail}</li>)}
+              {unknown.map((check) => <li key={check.label}>{catalogDisplay(check.label)}: {catalogDisplay(check.detail)}</li>)}
             </ul>
           </details>
         )}
@@ -79,7 +80,7 @@ export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
             <span className="block">{t('builder.cart_validation', { left: total - count, total })}</span>
           )}
           {conflicts.length > 0 && (
-            <span className="block">Устраните несовместимость: {conflicts.map((check) => check.label).join(', ')}.</span>
+            <span className="block">{t('builder.compatibility_error', { conflicts: conflicts.map((check) => catalogDisplay(check.label)).join(', ') })}</span>
           )}
         </p>
       )}

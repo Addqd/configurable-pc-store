@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
+import { knownError } from '../i18n/format'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { FiX, FiEye, FiEyeOff } from 'react-icons/fi'
 import { z } from 'zod'
 import { useAccountStore } from '../stores/accountStore'
@@ -8,16 +9,16 @@ type Mode = 'login' | 'register'
 interface AuthModalProps { isOpen: boolean; onClose: () => void; defaultMode?: Mode }
 
 const loginSchema = z.object({
-  identifier: z.string().trim().min(1),
-  password: z.string().min(1),
+  identifier: z.string().trim().min(1, 'auth.validation_identifier'),
+  password: z.string().min(1, 'auth.validation_password'),
 })
 const registerSchema = z.object({
-  email: z.string(),
-  username: z.string().trim().min(2),
-  password: z.string().min(8),
-  confirmPassword: z.string().min(1),
+  email: z.string().email('auth.validation_email'),
+  username: z.string().trim().min(2, 'auth.validation_username_min'),
+  password: z.string().min(8, 'auth.validation_password_min'),
+  confirmPassword: z.string().min(1, 'auth.validation_confirm_required'),
 }).refine((data) => data.password === data.confirmPassword, {
-  path: ['confirmPassword'],
+  path: ['confirmPassword'], message: 'auth.validation_passwords_match',
 })
 
 type PasswordInputProps = {
@@ -47,7 +48,7 @@ function PasswordInput({ id, labelKey, value, onChange, error, autoComplete, pla
         <button
           type="button" onClick={() => setVisible((previous) => !previous)}
           className="absolute right-2.5 top-1/2 -translate-y-1/2 w-7 h-7 flex items-center justify-center text-text-muted hover:text-text-primary transition-colors"
-          aria-label={visible ? `hide: ${t(labelKey)}` : `show: ${t(labelKey)}`}
+          aria-label={visible ? t('auth.hide_password', { label: t(labelKey) }) : t('auth.show_password', { label: t(labelKey) })}
         >
           {visible ? <FiEye className="w-4 h-4" /> : <FiEyeOff className="w-4 h-4" />}
         </button>
@@ -127,7 +128,7 @@ export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalP
     setLoading(true)
     try {
       const result = await login(parsed.data.identifier, parsed.data.password)
-      if (!result.success) { setLoginError(result.error); return }
+      if (!result.success) { setLoginError(knownError(result.error)); return }
       setLoginPassword('')
       setIdentifier('')
       onClose()
@@ -143,7 +144,7 @@ export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalP
       const nextErrors: Record<string, string> = {}
       for (const issue of parsed.error.issues) {
         const field = String(issue.path[0] ?? 'form')
-        if (!nextErrors[field]) nextErrors[field] = t(issue.message)
+        if (!nextErrors[field]) nextErrors[field] = t(issue.message.startsWith('auth.') ? issue.message : 'auth.validation_check_data')
       }
       setErrors(nextErrors)
       return
@@ -152,7 +153,7 @@ export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalP
     setLoading(true)
     try {
       const result = await register(parsed.data.email, parsed.data.username, parsed.data.username, parsed.data.password)
-      if (!result.success) { setErrors({ form: result.error }); return }
+      if (!result.success) { setErrors({ form: knownError(result.error) }); return }
       setEmail(''); setUsername(''); setPassword(''); setConfirmPassword('')
       onClose()
     } catch { setErrors({ form: t('auth.register_error') }) }

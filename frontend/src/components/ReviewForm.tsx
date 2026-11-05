@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useEffect, useRef, useState } from 'react'
 import { FiX } from 'react-icons/fi'
 
@@ -13,6 +14,7 @@ interface ReviewFormProps {
 }
 
 export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
+  const { t } = useTranslation()
   const [author, setAuthor] = useState('')
   const [rating, setRating] = useState(5)
   const [text, setText] = useState('')
@@ -50,7 +52,7 @@ export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
     const name = author.trim()
     const body = text.trim()
     if (!name || !body) {
-      setError('Укажите имя и текст отзыва')
+      setError(t('reviews.text_required'))
       return
     }
     onSubmit({ author: name, rating, text: body })
@@ -65,18 +67,18 @@ export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
     >
       <div ref={modal} className="w-full max-w-md rounded-2xl bg-surface p-5 shadow-xl sm:p-6" role="dialog" aria-modal="true" aria-labelledby="review-form-title">
         <div className="mb-4 flex items-center justify-between">
-          <h3 id="review-form-title" className="text-lg font-bold text-text-primary">Оставить отзыв</h3>
-          <button type="button" onClick={onClose} className="rounded-lg p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary" aria-label="Закрыть форму">
+          <h3 id="review-form-title" className="text-lg font-bold text-text-primary">{t('product.reviews.write')}</h3>
+          <button type="button" onClick={onClose} className="rounded-lg p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary" aria-label={t('reviews.close_form')}>
             <FiX className="h-5 w-5" />
           </button>
         </div>
         <form onSubmit={submit} className="space-y-4">
           <div>
-            <label htmlFor="review-author" className="mb-1 block text-sm font-medium text-text-primary">Имя</label>
-            <input ref={nameInput} id="review-author" type="text" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder="Как вас зовут" className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-primary focus:outline-none" />
+            <label htmlFor="review-author" className="mb-1 block text-sm font-medium text-text-primary">{t('reviews.name')}</label>
+            <input ref={nameInput} id="review-author" type="text" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder={t('reviews.name_placeholder')} className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-primary focus:outline-none" />
           </div>
           <fieldset>
-            <legend className="mb-2 text-sm font-medium text-text-primary">Оценка</legend>
+            <legend className="mb-2 text-sm font-medium text-text-primary">{t('reviews.rating')}</legend>
             <div className="flex items-center gap-1.5">
               {[1, 2, 3, 4, 5].map((star) => {
                 const active = rating >= star
@@ -85,7 +87,7 @@ export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
                     key={star}
                     type="button"
                     onClick={() => setRating(star)}
-                    aria-label={`Оставить ${star} звёзд`}
+                    aria-label={t('reviews.stars_count', { count: star })}
                     aria-pressed={rating === star}
                     className={`inline-flex items-center justify-center p-0.5 transition-transform hover:scale-105 focus:outline-none ${active ? 'text-amber-400 dark:text-amber-300' : 'text-text-muted hover:text-amber-300'}`}
                   >
@@ -98,13 +100,13 @@ export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
             </div>
           </fieldset>
           <div>
-            <label htmlFor="review-text" className="mb-1 block text-sm font-medium text-text-primary">Текст отзыва</label>
-            <textarea id="review-text" value={text} onChange={(event) => setText(event.target.value)} rows={4} placeholder="Поделитесь впечатлениями" className="w-full resize-none rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-primary focus:outline-none" />
+            <label htmlFor="review-text" className="mb-1 block text-sm font-medium text-text-primary">{t('reviews.text')}</label>
+            <textarea id="review-text" value={text} onChange={(event) => setText(event.target.value)} rows={4} placeholder={t('reviews.text_placeholder')} className="w-full resize-none rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-primary focus:outline-none" />
           </div>
           {error && <p role="alert" className="text-sm text-rose-500">{error}</p>}
           <div className="flex gap-3">
-            <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-3">Отмена</button>
-            <button type="submit" className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-hover dark:text-[#08090C]">Отправить</button>
+            <button type="button" onClick={onClose} className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-medium text-text-primary transition-colors hover:bg-surface-3">{t('reviews.cancel')}</button>
+            <button type="submit" className="flex-1 rounded-xl bg-primary px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-primary-hover dark:text-[#08090C]">{t('reviews.submit')}</button>
           </div>
         </form>
       </div>

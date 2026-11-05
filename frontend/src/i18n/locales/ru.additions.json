@@ -1,0 +1,106 @@
+{
+  "builder": {
+    "compatibility_checks": {
+      "form_factor_detail_match": "{{boardForm}}: совпадает с форм-фактором корпуса"
+    },
+    "select_named": "Выбрать {{label}}",
+    "replace_named": "Заменить {{label}}",
+    "delete_named": "Удалить {{label}}",
+    "select_missing": "Выберите комплектующие: {{components}}.",
+    "unknown_checks": "Не удалось проверить: {{count}}",
+    "selected": "Выбрано"
+  },
+  "common": {
+    "items_one": "{{count}} товар",
+    "items_few": "{{count}} товара",
+    "items_many": "{{count}} товаров",
+    "items_other": "{{count}} товара",
+    "reviews_one": "{{count}} отзыв",
+    "reviews_few": "{{count}} отзыва",
+    "reviews_many": "{{count}} отзывов",
+    "reviews_other": "{{count}} отзыва",
+    "conflicts_one": "{{count}} конфликт",
+    "conflicts_few": "{{count}} конфликта",
+    "conflicts_many": "{{count}} конфликтов",
+    "conflicts_other": "{{count}} конфликта",
+    "watts": "Вт",
+    "product_labels_one": "товар",
+    "product_labels_few": "товара",
+    "product_labels_many": "товаров",
+    "product_labels_other": "товара",
+    "conflict_two": "конфликта",
+    "item_two": "товара",
+    "review_two": "отзыва"
+  },
+  "cart": {
+    "shipping": "Доставка",
+    "in_stock": "В наличии",
+    "discount_none": "− {{price}}",
+    "decrease_named": "Уменьшить количество: {{name}}",
+    "increase_named": "Увеличить количество: {{name}}",
+    "quantity_named": "Количество: {{count}}",
+    "remove_named": "Удалить: {{name}}",
+    "saved_intro": "Заказ сохранён в",
+    "saved_link": "истории ваших заказов",
+    "order_success_desc": "Ваш демо-заказ #{{id}} на {{count}} товаров на сумму {{price}} оформлен.",
+    "free_shipping_remaining": "Осталось {{price}} до бесплатной доставки",
+    "free_shipping_desc": "При заказе от 50 000 ₽",
+    "items_count": "{{count}} товаров"
+  },
+  "orders": {
+    "date_items": "от {{date}} · {{items}}",
+    "hide_build_composition": "Скрыть состав сборки",
+    "show_build_composition": "Показать состав сборки"
+  },
+  "saved_builds": {
+    "date_unknown": "Дата неизвестна",
+    "today": "Сегодня",
+    "yesterday": "Вчера",
+    "days_ago_one": "{{count}} день назад",
+    "days_ago_few": "{{count}} дня назад",
+    "days_ago_many": "{{count}} дней назад",
+    "days_ago_other": "{{count}} дней назад",
+    "delete_named": "Удалить сборку {{name}}"
+  },
+  "product": {
+    "details_label": "Подробнее: {{name}}",
+    "add_to_cart_named": "Добавить в корзину: {{name}}",
+    "rating_label": "Рейтинг {{rating}} из 5, отзывов {{count}}",
+    "no_reviews": "Нет отзывов",
+    "copy_sku": "Копировать артикул {{article}}",
+    "image_show": "Показать изображение {{index}} из {{total}}",
+    "buy_success": "Заказ оформлен — спасибо!",
+    "buy_success_desc": "Демо-заказ №{{id}}: «{{name}}» × {{count}} — {{price}}",
+    "buy_saved_intro": "Заказ сохранён в",
+    "buy_saved_link": "истории ваших заказов",
+    "buy_no_cart_change": "Корзина не изменена; оплаты не было.",
+    "buy_guest": "Гостевой демо-заказ сохранён локально без привязки к аккаунту. Корзина не изменена; оплаты не было.",
+    "link_copied": "Ссылка скопирована",
+    "reviews": {
+      "review_count_one": "{{count}} отзыв",
+      "review_count_few": "{{count}} отзыва",
+      "review_count_many": "{{count}} отзывов",
+      "review_count_other": "{{count}} отзыва",
+      "review_count_two": "{{count}} отзыва"
+    }
+  },
+  "reviews": {
+    "stars_count_one": "Оставить {{count}} звезду",
+    "stars_count_few": "Оставить {{count}} звезды",
+    "stars_count_many": "Оставить {{count}} звёзд",
+    "stars_count_other": "Оставить {{count}} звезды"
+  },
+  "account": {
+    "name_min": "Имя должно содержать минимум 2 символа",
+    "new_password_min": "Новый пароль должен содержать минимум 8 символов"
+  },
+  "auth": {
+    "show_password": "Показать: {{label}}",
+    "hide_password": "Скрыть: {{label}}",
+    "identifier_taken": "Email или имя пользователя уже заняты",
+    "invalid_credentials": "Неверный email/имя пользователя или пароль",
+    "session_changed": "Сессия изменилась. Повторите действие.",
+    "create_failed": "Не удалось создать аккаунт. Проверьте защищённый контекст браузера.",
+    "no_session": "Нет активной сессии"
+  }
+}
