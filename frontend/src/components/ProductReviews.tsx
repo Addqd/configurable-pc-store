@@ -1,3 +1,5 @@
+import { demoReviewDisplay } from '../i18n/catalogDisplay'
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { ReviewForm, type NewReview } from './ReviewForm'
 import { StarRating } from './StarRating'
@@ -14,13 +16,8 @@ interface ProductReviewsProps {
   onAddReview: (review: NewReview) => void
 }
 
-const SORT_LABELS: Record<ReviewSort, string> = {
-  newest: 'Сначала новые',
-  oldest: 'Сначала старые',
-  rating: 'По рейтингу',
-}
-
 export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview }: ProductReviewsProps) {
+  const { t } = useTranslation()
   const [openForm, setOpenForm] = useState(false)
   const sorted = [...reviews].sort((a, b) => {
     if (sort === 'newest') return b.date.localeCompare(a.date)
@@ -35,34 +32,34 @@ export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChang
           <span className="text-4xl font-bold text-text-primary">{reviewCount > 0 ? rating.toFixed(1) : '—'}</span>
           <div className="flex flex-col">
             <StarRating rating={rating} />
-            <span className="mt-1 text-xs text-text-muted">{reviewCount} отзыв{plural(reviewCount)}</span>
+            <span className="mt-1 text-xs text-text-muted">{t('product.reviews.review_count', { count: reviewCount })}</span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
             onClick={() => setOpenForm(true)}
-            className="pc-hover-outline inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary-light"
-          >Оставить отзыв</button>
-          <label className="pc-hover-outline relative inline-flex min-w-[140px] items-center justify-between overflow-hidden rounded-xl border border-border bg-surface px-3 py-2 text-sm font-medium text-text-primary">
-            <span>{SORT_LABELS[sort]}</span>
+            className="inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary-light"
+          >{t('product.reviews.write')}</button>
+          <label className="relative inline-flex min-w-[140px] items-center justify-between overflow-hidden rounded-xl border border-border bg-surface px-3 py-2 text-sm font-medium text-text-primary">
+            <span>{t('product.reviews.sort_' + sort)}</span>
             <select
               value={sort}
               onChange={(event) => onSortChange(event.target.value as ReviewSort)}
               className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
-              aria-label="Сортировка отзывов"
+              aria-label={t('product.reviews.sort_label')}
             >
-              <option value="newest">Сначала новые</option>
-              <option value="oldest">Сначала старые</option>
-              <option value="rating">По рейтингу</option>
+              <option value="newest">{t('product.reviews.sort_newest')}</option>
+              <option value="oldest">{t('product.reviews.sort_oldest')}</option>
+              <option value="rating">{t('product.reviews.sort_rating')}</option>
             </select>
           </label>
         </div>
       </div>
 
-      <p className="mb-4 text-xs text-text-muted">Отзывы в каталоге являются демонстрационными примерами.</p>
+      <p className="mb-4 text-xs text-text-muted">{t('product.reviews.note')}</p>
       {sorted.length === 0 ? (
-        <p className="py-5 text-sm text-text-muted">Отзывов пока нет. Вы можете оставить первый.</p>
+        <p className="py-5 text-sm text-text-muted">{t('product.reviews.empty')}</p>
       ) : (
         <div className="space-y-4">
           {sorted.map((review) => (
@@ -79,7 +76,7 @@ export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChang
                   <span className="hidden text-xs text-text-muted sm:block">{review.date}</span>
                 </div>
               </div>
-              <p className="mt-3 text-sm leading-relaxed text-text-secondary">{review.text}</p>
+              <p className="mt-3 text-sm leading-relaxed text-text-secondary">{demoReviewDisplay(review.text)}</p>
             </article>
           ))}
         </div>
@@ -93,10 +90,3 @@ function initials(name: string): string {
   return name.split(' ').filter(Boolean).map((word) => word[0]?.toUpperCase() ?? '').join('').slice(0, 2)
 }
 
-function plural(n: number): string {
-  const mod10 = n % 10
-  const mod100 = n % 100
-  if (mod10 === 1 && mod100 !== 11) return ''
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'а'
-  return 'ов'
-}

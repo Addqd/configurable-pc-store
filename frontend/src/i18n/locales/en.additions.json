@@ -1,0 +1,106 @@
+{
+  "builder": {
+    "compatibility_checks": {
+      "form_factor_detail_match": "{{boardForm}}"
+    },
+    "select_named": "Select {{label}}",
+    "replace_named": "Replace {{label}}",
+    "delete_named": "Remove {{label}}",
+    "select_missing": "Select components: {{components}}.",
+    "unknown_checks": "Could not verify: {{count}}",
+    "selected": "Selected"
+  },
+  "common": {
+    "items_one": "{{count}} item",
+    "items_other": "{{count}} items",
+    "reviews_one": "{{count}} review",
+    "reviews_other": "{{count}} reviews",
+    "conflicts_one": "{{count}} conflict",
+    "conflicts_other": "{{count}} conflicts",
+    "watts": "W",
+    "product_labels_one": "product",
+    "product_labels_other": "products",
+    "item_two": "items",
+    "review_two": "reviews",
+    "conflict_two": "conflicts",
+    "conflicts_few": "{{count}} conflicts",
+    "conflicts_many": "{{count}} conflicts",
+    "items_few": "{{count}} items",
+    "items_many": "{{count}} items",
+    "product_labels_few": "products",
+    "product_labels_many": "products",
+    "reviews_few": "{{count}} reviews",
+    "reviews_many": "{{count}} reviews"
+  },
+  "cart": {
+    "shipping": "Shipping",
+    "in_stock": "In stock",
+    "discount_none": "− {{price}}",
+    "decrease_named": "Decrease quantity: {{name}}",
+    "increase_named": "Increase quantity: {{name}}",
+    "quantity_named": "Quantity: {{count}}",
+    "remove_named": "Remove: {{name}}",
+    "saved_intro": "Order saved in",
+    "saved_link": "your order history",
+    "order_success_desc": "Your demo order #{{id}} for {{count}} items totaling {{price}} has been placed.",
+    "free_shipping_remaining": "{{price}} until free shipping",
+    "free_shipping_desc": "On orders of 50,000 RUB or more",
+    "items_count": "{{count}} items"
+  },
+  "orders": {
+    "date_items": "on {{date}} · {{items}}",
+    "hide_build_composition": "Hide build components",
+    "show_build_composition": "Show build components"
+  },
+  "saved_builds": {
+    "date_unknown": "Unknown date",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "days_ago_one": "{{count}} day ago",
+    "days_ago_other": "{{count}} days ago",
+    "delete_named": "Delete build {{name}}",
+    "days_ago_few": "{{count}} days ago",
+    "days_ago_many": "{{count}} days ago"
+  },
+  "product": {
+    "details_label": "View details: {{name}}",
+    "add_to_cart_named": "Add to cart: {{name}}",
+    "rating_label": "Rated {{rating}} out of 5, {{count}} reviews",
+    "no_reviews": "No reviews",
+    "copy_sku": "Copy SKU {{article}}",
+    "image_show": "Show image {{index}} of {{total}}",
+    "buy_success": "Order placed — thank you!",
+    "buy_success_desc": "Demo order #{{id}}: “{{name}}” × {{count}} — {{price}}",
+    "buy_saved_intro": "Order saved in",
+    "buy_saved_link": "your order history",
+    "buy_no_cart_change": "Your cart was not changed; no payment was made.",
+    "buy_guest": "Guest demo order saved locally without account linking. Your cart was not changed; no payment was made.",
+    "link_copied": "Link copied",
+    "reviews": {
+      "review_count_one": "{{count}} review",
+      "review_count_other": "{{count}} reviews",
+      "review_count_two": "{{count}} reviews",
+      "review_count_few": "{{count}} reviews",
+      "review_count_many": "{{count}} reviews"
+    }
+  },
+  "reviews": {
+    "stars_count_one": "Give {{count}} star",
+    "stars_count_other": "Give {{count}} stars",
+    "stars_count_few": "Give {{count}} stars",
+    "stars_count_many": "Give {{count}} stars"
+  },
+  "account": {
+    "name_min": "Name must contain at least 2 characters",
+    "new_password_min": "New password must contain at least 8 characters"
+  },
+  "auth": {
+    "show_password": "Show: {{label}}",
+    "hide_password": "Hide: {{label}}",
+    "identifier_taken": "Email or username is already taken",
+    "invalid_credentials": "Incorrect email/username or password",
+    "session_changed": "Session changed. Please try again.",
+    "create_failed": "Could not create an account. Check the browser secure context.",
+    "no_session": "No active session"
+  }
+}

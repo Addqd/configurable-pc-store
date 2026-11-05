@@ -1,6 +1,7 @@
+import { useTranslation } from 'react-i18next'
+import { catalogDisplay } from '../i18n/catalogDisplay'
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
-import { useTranslation } from 'react-i18next'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { Header } from '../components/Header'
@@ -11,7 +12,7 @@ import { BuilderSidebar } from '../components/BuilderSidebar'
 import { BuilderSpecsTable } from '../components/BuilderSpecsTable'
 import { BuilderActions } from '../components/BuilderActions'
 import {
-  useBuilderStore, BUILDER_CATEGORIES, CATEGORY_LABELS, countSelected,
+  useBuilderStore, BUILDER_CATEGORIES, countSelected,
   checkBuildCompatibility, isBuildCartEligible, createBuildCartPayload,
 } from '../stores/builderStore'
 import { useCartStore } from '../stores/cartStore'
@@ -24,7 +25,7 @@ export function BuilderPage() {
   const [addedToCart, setAddedToCart] = useState(false)
   const [created, setCreated] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
-  const [saveName, setSaveName] = useState(t('builder.save_name_placeholder'))
+  const [saveName, setSaveName] = useState('Сборка ПК')
   const [saveDescription, setSaveDescription] = useState('')
   const [saveError, setSaveError] = useState('')
   const [saveNotice, setSaveNotice] = useState('')
@@ -39,8 +40,8 @@ export function BuilderPage() {
   const missing = BUILDER_CATEGORIES.filter((category) => !selections[category])
   const conflicts = checkBuildCompatibility(selections).filter((check) => check.status === 'incompatible')
   const validationMessage = [
-    missing.length > 0 ? `Выберите комплектующие: ${missing.map((category) => CATEGORY_LABELS[category]).join(', ')}.` : '',
-    conflicts.length > 0 ? `Исправьте несовместимость: ${conflicts.map((check) => check.label).join(', ')}.` : '',
+    missing.length > 0 ? t('builder.select_missing', { components: missing.map((category) => t('builder.components.' + category)).join(', ') }) : '',
+    conflicts.length > 0 ? t('builder.compatibility_error', { conflicts: conflicts.map((check) => catalogDisplay(check.label)).join(', ') }) : '',
   ].filter(Boolean).join(' ')
 
   useEffect(() => { setAddedToCart(false); setCreated(false); setSaveNotice('') }, [selections])
@@ -74,6 +75,8 @@ export function BuilderPage() {
     if (count > 0) setConfirmAction('clear')
   }
 
+  // 'Создать сборку' confirms an assembled draft; it must not erase the user's
+  // finished selection. Account-bound persistence is reserved for TASK 007.
   const handleCreate = () => {
     if (!isBuildCartEligible(useBuilderStore.getState().selections)) return
     setCreated(true)
@@ -87,7 +90,7 @@ export function BuilderPage() {
     }
     const editing = editingBuildId === null ? undefined :
       useBuilderStore.getState().getSavedBuild(editingBuildId, activeAccountId)
-    setSaveName(editing?.name ?? 'Сборка ПК')
+    setSaveName(editing?.name ?? t('builder.save_name_placeholder'))
     setSaveDescription(editing?.description ?? '')
     setSaveError('')
     setSaveOpen(true)
@@ -97,15 +100,15 @@ export function BuilderPage() {
     event.preventDefault()
     setSaveError('')
     if (!activeAccountId) { setSaveOpen(false); openAuthModal('login'); return }
-    if (!saveName.trim()) { setSaveError(t('builder.save_error_required')); return }
-    if (saveName.trim().length > 100) { setSaveError(t('builder.save_error_maxlen')); return }
+    if (!saveName.trim()) { setSaveError('Введите название сборки.'); return }
+    if (saveName.trim().length > 100) { setSaveError('Название не должно превышать 100 символов.'); return }
     const build = saveBuild(saveName, saveDescription, placeholder, activeAccountId)
     if (!build) {
-      setSaveError(t('builder.save_error_account'))
+      setSaveError('Не удалось сохранить сборку. Проверьте комплектующие и текущий аккаунт.')
       return
     }
     setSaveOpen(false)
-    setSaveNotice(t('builder.save_success', { name: build.name }))
+    setSaveNotice(`Сборка «${build.name}» сохранена.`)
   }
 
   const confirmClear = () => {
@@ -124,9 +127,9 @@ export function BuilderPage() {
           <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(310px,366px)]">
             <section className="min-w-0 rounded-2xl border border-border bg-surface p-4 shadow-[0_5px_24px_var(--color-shadow)] sm:p-5">
               <div className="mb-4">
-                <h1 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">{t('builder.title')}</h1>
+                <h1 className="text-2xl font-bold tracking-tight text-text-primary sm:text-3xl">Собери свой ПК</h1>
                 <p className="mt-1 text-sm leading-relaxed text-text-muted">
-                  {t('builder.subtitle')}
+                  Выбирайте совместимые компоненты, проверяйте характеристики и рассчитывайте стоимость сборки в реальном времени.
                 </p>
               </div>
 
@@ -148,18 +151,18 @@ export function BuilderPage() {
               {saveNotice && (
                 <div role="status" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-primary">
                   <FiCheckCircle className="text-emerald-500" />{saveNotice}
-                  <Link to="/builds" className="font-semibold text-primary hover:underline">{t('builder.saved_builds')}</Link>
+                  <Link to="/builds" className="font-semibold text-primary hover:underline">Мои сборки</Link>
                 </div>
               )}
               {created && (
                 <div role="status" className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-primary">
-                  {t('builder.build_ready')}
+                  Сборка готова. Теперь её можно добавить в корзину.
                 </div>
               )}
               {addedToCart && (
                 <div role="status" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-primary">
-                  <FiCheckCircle className="text-emerald-500" /> {t('builder.added_to_cart')}
-                  <Link to="/cart" className="font-semibold text-primary hover:underline">{t('builder.view_cart')}</Link>
+                  <FiCheckCircle className="text-emerald-500" /> Сборка добавлена в корзину.
+                  <Link to="/cart" className="font-semibold text-primary hover:underline">Перейти в корзину</Link>
                 </div>
               )}
             </section>
@@ -175,15 +178,15 @@ export function BuilderPage() {
           <div role="alertdialog" aria-modal="true" aria-labelledby="builder-confirm-title"
             className="w-full max-w-sm rounded-xl border border-border bg-surface p-6 shadow-xl">
             <h2 id="builder-confirm-title" className="mb-2 text-lg font-bold text-text-primary">
-              {t('builder.clear_title')}
+              Очистить сборку?
             </h2>
-            <p className="mb-6 text-sm text-text-muted">{t('builder.clear_desc')}</p>
+            <p className="mb-6 text-sm text-text-muted">Все выбранные комплектующие будут удалены. Это действие нельзя отменить.</p>
             <div className="flex gap-3">
               <button type="button" autoFocus onClick={() => setConfirmAction(null)}
-                className="flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary hover:bg-surface-3">{t('builder.cancel')}</button>
+                className="flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary hover:bg-surface-3">Отмена</button>
               <button type="button" onClick={confirmClear}
                 className="flex-1 rounded-lg bg-red-600 px-3 py-2.5 text-sm font-semibold text-white hover:bg-red-700">
-                {t('builder.clear')}
+                Очистить
               </button>
             </div>
           </div>
@@ -195,25 +198,25 @@ export function BuilderPage() {
           <div role="dialog" aria-modal="true" aria-labelledby="builder-save-title"
             className="w-full max-w-md rounded-xl border border-border bg-surface p-6 shadow-xl">
             <h2 id="builder-save-title" className="mb-4 text-lg font-bold text-text-primary">
-              {editingBuildId !== null ? t('builder.save_changes') : t('builder.save_build')}
+              {editingBuildId !== null ? 'Сохранить изменения сборки' : 'Сохранить сборку'}
             </h2>
             <form onSubmit={submitSave} className="space-y-4" noValidate>
               <div>
-                <label htmlFor="build-save-name" className="mb-1.5 block text-sm font-medium text-text-primary">{t('builder.save_name_label')}</label>
+                <label htmlFor="build-save-name" className="mb-1.5 block text-sm font-medium text-text-primary">Название</label>
                 <input id="build-save-name" autoFocus value={saveName} onChange={(event) => { setSaveName(event.target.value); setSaveError('') }}
-                  maxLength={101} placeholder={t('builder.save_name_placeholder')} aria-invalid={Boolean(saveError)} aria-describedby={saveError ? "build-save-error" : undefined}
+                  maxLength={101} placeholder="Название сборки" aria-invalid={Boolean(saveError)} aria-describedby={saveError ? "build-save-error" : undefined}
                   className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary" />
                 {saveError && <p id="build-save-error" role="alert" className="mt-1 text-xs text-red-500">{saveError}</p>}
               </div>
               <div>
-                <label htmlFor="build-save-description" className="mb-1.5 block text-sm font-medium text-text-primary">{t('builder.save_desc_label')}</label>
+                <label htmlFor="build-save-description" className="mb-1.5 block text-sm font-medium text-text-primary">Описание (необязательно)</label>
                 <textarea id="build-save-description" value={saveDescription} maxLength={300}
                   onChange={(event) => setSaveDescription(event.target.value)} rows={3}
                   className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div className="flex flex-wrap justify-end gap-3">
-                <button type="button" onClick={() => setSaveOpen(false)} className="rounded-lg border border-border px-4 py-2 text-text-primary hover:bg-surface-3">{t('builder.cancel')}</button>
-                <button type="submit" className="rounded-lg bg-primary px-4 py-2 font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('builder.save')}</button>
+                <button type="button" onClick={() => setSaveOpen(false)} className="rounded-lg border border-border px-4 py-2 text-text-primary hover:bg-surface-3">Отмена</button>
+                <button type="submit" className="rounded-lg bg-primary px-4 py-2 font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">Сохранить</button>
               </div>
             </form>
           </div>

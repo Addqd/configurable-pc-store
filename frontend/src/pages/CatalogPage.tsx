@@ -1,6 +1,6 @@
+import { useTranslation } from 'react-i18next'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router'
-import { useTranslation } from 'react-i18next'
 import { FiFilter } from 'react-icons/fi'
 import { Header } from '../components/Header'
 import { BackButton } from '../components/BackButton'
@@ -9,7 +9,7 @@ import { CatalogProductCard } from '../components/CatalogProductCard'
 import { FilterDrawer } from '../components/FilterDrawer'
 import {
   allCatalogProducts, PAGE_SIZE, readFilters, writeFilters, filterCatalog,
-  clampPage, getPageNumbers, countProductLabel, type FilterState,
+  clampPage, getPageNumbers, type FilterState,
 } from '../data/catalogModel'
 
 export function CatalogPage() {
@@ -59,20 +59,20 @@ export function CatalogPage() {
     <main className="w-full flex-1 pt-[64px]">
       <div className="mx-auto max-w-[1320px] px-4 pt-4"><BackButton /></div>
       <div className="mx-auto flex max-w-[1320px] items-center justify-between px-4 py-4">
-        <button ref={openButtonRef} type="button" onClick={open} aria-haspopup="dialog" aria-expanded={filtersOpen} className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-medium text-text-primary hover:border-border-hover hover:bg-surface-3"><FiFilter className="h-4 w-4" aria-hidden="true"/>{t('catalog.filters')}</button>
-        <span className="text-sm text-text-muted">{t('catalog.found', { count: products.length, count_label: countProductLabel(products.length) })}</span>
+        <button ref={openButtonRef} type="button" onClick={open} aria-haspopup="dialog" aria-expanded={filtersOpen} className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-medium text-text-primary hover:border-border-hover hover:bg-surface-3"><FiFilter className="h-4 w-4" aria-hidden="true"/>Фильтры</button>
+        <span className="text-sm text-text-muted">Найдено {products.length} {countProductLabel(products.length)}</span>
       </div>
       <div className="mx-auto max-w-[1320px] px-4 pb-6">
         {pageProducts.length ? <>
           <div className="flex flex-wrap justify-center gap-3" data-testid="catalog-grid">
             {pageProducts.map(p=><div key={p.id} className="min-w-0 w-[calc((100%-0.75rem)/2)] sm:w-[calc((100%-1.5rem)/3)] md:w-[calc((100%-2.25rem)/4)] lg:w-[calc((100%-3rem)/5)] xl:w-[calc((100%-4.5rem)/7)]"><CatalogProductCard product={p}/></div>)}
           </div>
-          {totalPages>1 && <nav className="flex items-center justify-center gap-1 py-6" aria-label={t('catalog.pagination')}>
-            <button type="button" onClick={()=>changePage(currentPage-1)} disabled={currentPage===1} aria-label={t('catalog.prev_page')} className="flex h-9 w-9 items-center justify-center rounded-md text-text-primary hover:bg-surface-3 disabled:opacity-40">‹</button>
-            {pagination.map((page,i)=>page==='…' ? <span key={`dots-${i}`} className="flex h-9 w-9 items-center justify-center text-text-muted">…</span> : <Link key={page} to={linkTo(page)} aria-label={t('catalog.page', { page })} aria-current={page===currentPage?'page':undefined} onClick={()=>window.scrollTo({top:0,behavior:'instant'})} className={`flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium ${page===currentPage?'bg-primary text-white dark:text-[#08090C]':'text-text-primary hover:bg-surface-3'}`}>{page}</Link>)}
-            <button type="button" onClick={()=>changePage(currentPage+1)} disabled={currentPage===totalPages} aria-label={t('catalog.next_page')} className="flex h-9 w-9 items-center justify-center rounded-md text-text-primary hover:bg-surface-3 disabled:opacity-40">›</button>
+          {totalPages>1 && <nav className="flex items-center justify-center gap-1 py-6" aria-label="Пагинация">
+            <button type="button" onClick={()=>changePage(currentPage-1)} disabled={currentPage===1} aria-label="Предыдущая страница" className="flex h-9 w-9 items-center justify-center rounded-md text-text-primary hover:bg-surface-3 disabled:opacity-40">‹</button>
+            {pagination.map((page,i)=>page==='…' ? <span key={`dots-${i}`} className="flex h-9 w-9 items-center justify-center text-text-muted">…</span> : <Link key={page} to={linkTo(page)} aria-label={`Страница ${page}`} aria-current={page===currentPage?'page':undefined} onClick={()=>window.scrollTo({top:0,behavior:'instant'})} className={`flex h-9 w-9 items-center justify-center rounded-md text-sm font-medium ${page===currentPage?'bg-primary text-white dark:text-[#08090C]':'text-text-primary hover:bg-surface-3'}`}>{page}</Link>)}
+            <button type="button" onClick={()=>changePage(currentPage+1)} disabled={currentPage===totalPages} aria-label="Следующая страница" className="flex h-9 w-9 items-center justify-center rounded-md text-text-primary hover:bg-surface-3 disabled:opacity-40">›</button>
           </nav>}
-        </> : <div className="py-20 text-center" role="status"><h1 className="mb-2 text-lg font-medium text-text-primary">{t('catalog.no_results')}</h1><p className="text-sm text-text-muted">{t('catalog.no_results_desc')}</p></div>}
+        </> : <div className="py-20 text-center" role="status"><h1 className="mb-2 text-lg font-medium text-text-primary">Ничего не найдено</h1><p className="text-sm text-text-muted">Попробуйте изменить параметры фильтрации или поисковый запрос.</p></div>}
       </div>
     </main>
     <Footer />

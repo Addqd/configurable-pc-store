@@ -1,6 +1,7 @@
-import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useBuilderStore, CATEGORY_LABELS, checkBuildCompatibility, type BuilderCategory } from '../stores/builderStore'
+import { catalogDisplay } from '../i18n/catalogDisplay'
+import { useState } from 'react'
+import { useBuilderStore, checkBuildCompatibility, type BuilderCategory } from '../stores/builderStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiRefreshCw, FiTrash2, FiPlus } from 'react-icons/fi'
@@ -27,7 +28,7 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
   const issues = checkBuildCompatibility(selections).filter((check) =>
     check.status === 'incompatible' && affected[category].includes(check.label))
   const removeProduct = useBuilderStore((state) => state.removeProduct)
-  const label = CATEGORY_LABELS[category]
+  const label = t('builder.components.' + category)
 
   return (
     <>
@@ -47,42 +48,43 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
                 onError={(event) => { if (event.currentTarget.src !== placeholder) event.currentTarget.src = placeholder }}
                 className="h-14 w-16 shrink-0 rounded-md bg-surface object-contain" />
               <div className="min-w-0 flex-1">
-                <p className="break-words text-sm font-semibold text-text-primary">{product.name}</p>
-                <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">{product.specs.slice(0, 3).join(', ')}</p>
-                <p className="mt-1 text-xs text-text-muted">{t('builder.availability')}</p>
+                <p className="break-words text-sm font-semibold text-text-primary">{catalogDisplay(product.name)}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">{product.specs.slice(0, 3).map((part) => catalogDisplay(part)).join(', ')}</p>
+                <p className="mt-1 text-xs text-text-muted">Наличие не указано</p>
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
               <span className="mr-auto whitespace-nowrap text-sm font-bold text-text-primary sm:mr-1">{formatPrice(product.price)}</span>
               <button type="button" onClick={() => setShowSelector(true)}
-                aria-label={t('builder.replace', { label })}
+                aria-label={`Заменить ${label}`}
                 className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:border-primary hover:text-primary">
-                <FiRefreshCw className="h-3.5 w-3.5 text-primary" /> {t('builder.replace')}
+                <FiRefreshCw className="h-3.5 w-3.5 text-primary" /> Заменить
               </button>
               <button type="button" onClick={() => removeProduct(category)}
-                aria-label={t('builder.delete', { label })}
+                aria-label={`Удалить ${label}`}
                 className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:border-red-400 hover:text-red-500">
-                <FiTrash2 className="h-3.5 w-3.5" /> {t('builder.delete')}
+                <FiTrash2 className="h-3.5 w-3.5" /> Удалить
               </button>
             </div>
           </>
         ) : (
           <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-            <span className="text-sm text-text-muted">{t('builder.component_not_selected')}</span>
+            <span className="text-sm text-text-muted">Компонент не выбран</span>
             <button type="button" onClick={() => setShowSelector(true)}
-              aria-label={t('builder.select', { label })}
+              aria-label={`Выбрать ${label}`}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover dark:text-[#08090C]">
-              <FiPlus className="h-4 w-4" /> {t('builder.select')}
+              <FiPlus className="h-4 w-4" /> Выбрать
             </button>
           </div>
         )}
       </div>
       {issues.length > 0 && (
         <div role="alert" className="space-y-1 px-2 pt-1 text-xs text-red-500">
-          {issues.map((check) => <p key={check.label}>{check.label}: {check.detail}</p>)}
+          {issues.map((check) => <p key={check.label}>{catalogDisplay(check.label)}: {catalogDisplay(check.detail)}</p>)}
         </div>
       )}
       </div>
+      {/* The selector MUST also mount for empty rows: the original early-return made initial selection impossible. */}
       {showSelector && <BuilderProductSelector category={category} onClose={() => setShowSelector(false)} />}
     </>
   )

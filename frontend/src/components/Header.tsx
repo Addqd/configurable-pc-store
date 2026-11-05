@@ -1,3 +1,5 @@
+import { LanguageSwitcher } from './LanguageSwitcher'
+import { useTranslation } from 'react-i18next'
 import { useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useUIStore } from '../stores/uiStore'
 import { useCartStore } from '../stores/cartStore'
@@ -10,10 +12,10 @@ import { NavigationMenu } from './NavigationMenu'
 import { SearchDropdown } from './SearchDropdown'
 import { ProfileDropdown } from './ProfileDropdown'
 import { HeaderPopup } from './HeaderPopup'
-import { LanguageSwitcher } from './LanguageSwitcher'
 
 /** Each page already renders its Header; authentication is shared through stores. */
 export function Header() {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const {
     navOpen, searchOpen, profileOpen, toggleNav, openSearch, toggleProfile,
@@ -72,7 +74,7 @@ export function Header() {
           ref={navButtonRef}
           onClick={toggleNav}
           className="w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-3 transition-colors text-text-primary"
-          aria-label="Открыть меню"
+          aria-label={t('header.menu_label')}
         >
           <FiMenu className="w-5 h-5" />
         </button>
@@ -85,7 +87,7 @@ export function Header() {
             <input
               ref={searchInputRef}
               type="text"
-              placeholder="Поиск комплектующих, сборок и аксессуаров..."
+              placeholder={t('header.search_placeholder')}
               className="w-full h-10 pl-10 pr-10 bg-surface-3 border border-border rounded-lg text-sm text-text-primary placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all"
               onFocus={openSearch}
               value={searchQuery}
@@ -96,7 +98,7 @@ export function Header() {
               <button
                 onClick={() => { setSearchQuery(''); searchInputRef.current?.focus() }}
                 className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 text-text-muted hover:text-text-primary"
-                aria-label="Очистить поиск"
+                aria-label={t('header.search_clear')}
               >
                 <FiX className="w-4 h-4" />
               </button>
@@ -107,7 +109,7 @@ export function Header() {
         <Link
           to="/cart"
           className="relative w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-3 transition-colors text-text-primary"
-          aria-label="Корзина"
+          aria-label={t('header.cart_label')}
         >
           <FiShoppingCart className="w-5 h-5" />
           {totalItems > 0 && (
@@ -120,7 +122,7 @@ export function Header() {
           <button
             onClick={() => account ? toggleProfile() : openAuthModal('login')}
             className="w-10 h-10 flex items-center justify-center rounded-full hover:opacity-80 transition-opacity"
-            aria-label="Профиль"
+            aria-label={t('header.profile_label')}
           >
             <img
               ref={avatarRef}

@@ -1,3 +1,5 @@
+import { catalogDisplay } from '../i18n/catalogDisplay'
+import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import { useParams, Link } from 'react-router'
 import { Header } from '../components/Header'
@@ -22,6 +24,7 @@ export function ProductPage() {
 }
 
 function ProductDetailContent({ product }: { product: EnrichedProduct | null }) {
+  const { t } = useTranslation()
   const addItem = useCartStore((state) => state.addItem)
   const purchaseProduct = useCartStore((state) => state.purchaseProduct)
   const favorites = useCartStore((state) => state.favorites)
@@ -39,9 +42,9 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
         <Header />
         <main className="mx-auto max-w-[1320px] px-4 pb-10 pt-24 text-center">
           <div className="rounded-2xl border border-border bg-surface p-8 sm:p-12">
-            <p className="mb-2 text-sm font-medium text-primary">Товар не найден</p>
-            <h1 className="mb-4 text-2xl font-bold text-text-primary">Товар не найден</h1>
-            <p className="mb-6 text-text-secondary">Похоже, такого товара нет в каталоге.</p>
+            <p className="mb-2 text-sm font-medium text-primary">{t('product.not_found')}</p>
+            <h1 className="mb-4 text-2xl font-bold text-text-primary">{t('product.not_found')}</h1>
+            <p className="mb-6 text-text-secondary">{t('product.not_found_desc')}</p>
             <BackButton />
           </div>
         </main>
@@ -117,20 +120,14 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
         </div>
         {buySuccess && (
           <div className="mt-6 overflow-hidden rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-5" role="status">
-            <h2 className="text-lg font-bold text-text-primary">Заказ оформлен — спасибо!</h2>
+            <h2 className="text-lg font-bold text-text-primary">{t('product.buy_success')}</h2>
             <p className="mt-1 text-sm text-text-secondary">
-              Демо-заказ №{buySuccess.id}: «{buySuccess.items[0].name}» × {buySuccess.items[0].quantity} — {formatPrice(buySuccess.total)}
+              {t('product.buy_success_desc', { id: buySuccess.id, name: catalogDisplay(buySuccess.items[0].name), count: buySuccess.items[0].quantity, price: formatPrice(buySuccess.total) })}
             </p>
-            <p className="mt-2 text-sm text-text-muted">
-              {buySuccess.ownerId ? (
-                <>Заказ сохранён в <Link to="/account/orders" className="text-primary hover:underline">истории ваших заказов</Link>. Корзина не изменена; оплаты не было.</>
-              ) : (
-                <>Гостевой демо-заказ сохранён локально без привязки к аккаунту. Корзина не изменена; оплаты не было.</>
-              )}
-            </p>
+            <p className="mt-2 text-sm text-text-muted">Заказ сохранён в демонстрационной истории. Корзина не изменена; оплаты не было.</p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Link to="/cart" className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">Перейти в корзину</Link>
-              <button type="button" onClick={() => setBuySuccess(null)} className="text-sm font-medium text-text-muted hover:text-text-primary">Продолжить покупки</button>
+              <Link to="/cart" className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('builder.view_cart')}</Link>
+              <button type="button" onClick={() => setBuySuccess(null)} className="text-sm font-medium text-text-muted hover:text-text-primary">{t('common.continue_shopping')}</button>
             </div>
           </div>
         )}
@@ -145,7 +142,7 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
       </main>
       <Footer />
       {shareCopied && (
-        <div role="status" className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-xl bg-text-primary px-4 py-2 text-sm font-medium text-surface shadow-lg">Ссылка скопирована</div>
+        <div role="status" className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-xl bg-text-primary px-4 py-2 text-sm font-medium text-surface shadow-lg">{t('product.link_copied')}</div>
       )}
     </div>
   )
