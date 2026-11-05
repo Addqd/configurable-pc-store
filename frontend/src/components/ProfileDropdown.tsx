@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useUIStore } from '../stores/uiStore'
 import { useThemeStore } from '../stores/themeStore'
 import { useAccountStore } from '../stores/accountStore'
@@ -10,14 +11,15 @@ type User = { name: string; email: string; avatar: string }
 interface ProfileDropdownProps { user?: User | null; onLogout?: () => void }
 
 export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
+  const { t } = useTranslation()
   const closeProfile = useUIStore((s) => s.closeProfile)
   const { isDark, toggle } = useThemeStore()
   const defaultLogout = useAccountStore((s) => s.logout)
   const avatarUrl = user?.avatar || placeholder
   const MENU_ITEMS = [
-    { label: 'Личный кабинет', icon: FiUser, to: '/account' },
-    { label: 'Мои заказы', icon: FiFileText, to: '/account/orders' },
-    { label: 'Настройки', icon: FiSettings, to: '/account' },
+    { labelKey: 'account.title', icon: FiUser, to: '/account' },
+    { labelKey: 'orders.title', icon: FiFileText, to: '/account/orders' },
+    { labelKey: 'account.settings', icon: FiSettings, to: '/account' },
   ]
   return (
     <div
@@ -42,28 +44,28 @@ export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
       <Link
         to="/account" onClick={closeProfile}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors"
-      ><FiUser className="w-5 h-5 text-text-muted" /><span>Личный кабинет</span></Link>
+      ><FiUser className="w-5 h-5 text-text-muted" /><span>{t(MENU_ITEMS[0].labelKey)}</span></Link>
       <Link
         to="/builds" onClick={closeProfile}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors"
-      ><FiBox className="w-5 h-5 text-text-muted" /><span>Мои сборки</span></Link>
+      ><FiBox className="w-5 h-5 text-text-muted" /><span>{t('saved_builds.title')}</span></Link>
       {MENU_ITEMS.slice(1).map((item) => (
         <Link
-          key={item.label} to={item.to} onClick={closeProfile}
+          key={item.labelKey} to={item.to} onClick={closeProfile}
           className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors"
-        ><item.icon className="w-5 h-5 text-text-muted"/><span>{item.label}</span></Link>
+        ><item.icon className="w-5 h-5 text-text-muted"/><span>{t(item.labelKey)}</span></Link>
       ))}
       <div className="px-4 py-2 border-t border-border">
         <button
           type="button"
           className="w-full flex items-center justify-between px-1 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors rounded-lg"
           onClick={toggle}
-          aria-label="Переключить тёмную тему"
+          aria-label={t('theme.toggle')}
           aria-pressed={isDark}
         >
           <span className="flex items-center gap-3">
             {isDark ? <HiMiniSun className="w-5 h-5 text-text-muted" /> : <HiMiniMoon className="w-5 h-5 text-text-muted" />}
-            Тёмная тема
+            {t('theme.label')}
           </span>
           <span aria-hidden="true" className={`relative inline-block w-9 h-5 shrink-0 overflow-hidden rounded-full transition-colors ${isDark ? 'bg-primary' : 'bg-surface-3 border border-border'}`}>
             <span className={`absolute left-0.5 top-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isDark ? 'translate-x-4' : 'translate-x-0'}`} />
@@ -75,7 +77,7 @@ export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
           type="button"
           className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-muted hover:bg-surface-3 hover:text-primary transition-colors"
           onClick={() => { closeProfile(); (onLogout ?? defaultLogout)() }}
-        ><FiLogOut className="w-5 h-5" /><span>Выйти из аккаунта</span></button>
+        ><FiLogOut className="w-5 h-5" /><span>{t('account.logout')}</span></button>
       </div>
     </div>
   )

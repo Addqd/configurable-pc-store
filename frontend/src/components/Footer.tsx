@@ -1,64 +1,65 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { FiShoppingCart, FiPhone, FiFileText } from 'react-icons/fi'
 import { HiMiniCube, HiMiniChevronRight } from 'react-icons/hi2'
 import { SiTelegram, SiVk, SiYoutube, SiGmail } from 'react-icons/si'
 import logo from '../assets/home/logo-pc-builder.png'
 
 interface FooterLink {
-  label: string
+  labelKey: string
   href: string
 }
 
 interface FooterColumn {
-  title: string
+  titleKey: string
   icon: React.ComponentType<{ className?: string }>
   links: FooterLink[]
 }
 
-// Use HiMiniCube for Shop, FiShoppingCart for Customers, FiPhone for Contacts, FiFileText for Documents
 const COLUMNS: FooterColumn[] = [
   {
-    title: 'Магазин',
+    titleKey: 'footer.shop',
     icon: HiMiniCube,
     links: [
-      { label: 'Каталог товаров', href: '/catalog' },
-      { label: 'Готовые сборки', href: '/catalog?category=prebuilt' },
-      { label: 'Конфигуратор ПК', href: '/builder' },
-      { label: 'О нас', href: '#about' },
+      { labelKey: 'footer.catalog', href: '/catalog' },
+      { labelKey: 'footer.prebuilts', href: '/catalog?category=prebuilt' },
+      { labelKey: 'footer.configurator', href: '/builder' },
+      { labelKey: 'footer.about_link', href: '#about' },
     ],
   },
   {
-    title: 'Покупателям',
+    titleKey: 'footer.customers',
     icon: FiShoppingCart,
     links: [
-      { label: 'Доставка и оплата', href: '#delivery' },
-      { label: 'Гарантия и возврат', href: '#warranty' },
-      { label: 'Частые вопросы (FAQ)', href: '#faq' },
+      { labelKey: 'footer.delivery', href: '#delivery' },
+      { labelKey: 'footer.warranty', href: '#warranty' },
+      { labelKey: 'footer.faq', href: '#faq' },
     ],
   },
   {
-    title: 'Контакты',
+    titleKey: 'footer.contacts',
     icon: FiPhone,
     links: [
-      { label: 'Электронная почта', href: 'mailto:info@pcbuilder.example' },
-      { label: 'Телефон', href: 'tel:+78001234567' },
-      { label: 'Telegram', href: 'https://t.example/pcbuilder' },
-      { label: 'Форма обратной связи', href: '#contact-form' },
+      { labelKey: 'footer.email', href: 'mailto:info@pcbuilder.example' },
+      { labelKey: 'footer.phone', href: 'tel:+78001234567' },
+      { labelKey: 'footer.telegram', href: 'https://t.example/pcbuilder' },
+      { labelKey: 'footer.contact_form', href: '#contact-form' },
     ],
   },
   {
-    title: 'Документы',
+    titleKey: 'footer.documents',
     icon: FiFileText,
     links: [
-      { label: 'Политика конфиденциальности (раздел в разработке)', href: '#privacy' },
-      { label: 'Пользовательское соглашение (раздел в разработке)', href: '#terms' },
-      { label: 'Публичная оферта (раздел в разработке)', href: '#offer' },
-      { label: 'Обработка персональных данных (раздел в разработке)', href: '#personal-data' },
+      { labelKey: 'footer.privacy', href: '#privacy' },
+      { labelKey: 'footer.terms', href: '#terms' },
+      { labelKey: 'footer.offer', href: '#offer' },
+      { labelKey: 'footer.personal_data', href: '#personal-data' },
     ],
   },
 ]
 
 export function Footer() {
+  const { t } = useTranslation()
   const [showToast, setShowToast] = useState(false)
 
   const handleContactClick = (href: string) => {
@@ -71,28 +72,27 @@ export function Footer() {
     <footer className="mt-12 pb-8">
       <div className="max-w-[1320px] mx-auto px-4">
         <div className="bg-surface rounded-2xl border border-border shadow-sm p-8">
-          {/* The only design change to the footer: vertical separators between columns on desktop. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8 mb-8">
             {COLUMNS.map((col, index) => (
-              <div key={col.title} className={index < COLUMNS.length - 1 ? 'pc-footer-divider' : ''}>
+              <div key={col.titleKey} className={index < COLUMNS.length - 1 ? 'pc-footer-divider' : ''}>
                 <div className="flex items-center gap-2 mb-4">
                   <col.icon className="w-5 h-5 text-primary" />
-                  <h3 className="text-base font-bold text-text-primary">{col.title}</h3>
+                  <h3 className="text-base font-bold text-text-primary">{t(col.titleKey)}</h3>
                 </div>
                 <ul className="space-y-3">
                   {col.links.map((link) => (
-                    <li key={link.label}>
+                    <li key={link.labelKey}>
                       <a
                         href={link.href}
                         onClick={(e) => {
-                          if (col.title === 'Контакты' && !(link.href.startsWith('mailto:') || link.href.startsWith('tel:') || link.href.startsWith('http'))) {
+                          if (col.titleKey === 'footer.contacts' && !(link.href.startsWith('mailto:') || link.href.startsWith('tel:') || link.href.startsWith('http'))) {
                             e.preventDefault()
                             handleContactClick(link.href)
                           }
                         }}
                         className="inline-flex items-center gap-2 text-sm text-text-secondary hover:text-primary transition-colors group"
                       >
-                        {link.label}
+                        {t(link.labelKey)}
                         <HiMiniChevronRight className="w-3.5 h-3.5 text-text-muted group-hover:text-primary transition-colors opacity-0 group-hover:opacity-100" />
                       </a>
                     </li>
@@ -107,11 +107,11 @@ export function Footer() {
             <div className="flex items-center gap-4">
               <img src={logo} alt="PC Builder" className="h-8 w-auto" />
               <span className="text-sm text-text-secondary hidden sm:inline">
-                Комплектующие. Сборки. Конфигуратор.
+                {t('footer.tagline')}
               </span>
             </div>
             <span className="text-sm text-text-muted">
-              © 2026 PC Builder. Все права защищены.
+              {t('footer.copyright')}
             </span>
             <div className="flex items-center gap-3">
               <a href="https://t.example/pcbuilder" className="w-9 h-9 flex items-center justify-center rounded-lg bg-surface-3 hover:bg-primary-light text-text-muted hover:text-primary transition-colors" aria-label="Telegram">
@@ -131,7 +131,7 @@ export function Footer() {
         </div>
         {showToast && (
           <div className="fixed bottom-4 right-4 bg-surface border border-border rounded-lg shadow-lg px-4 py-3 text-sm text-text-secondary z-50 animate-in fade-in slide-in-from-bottom-2">
-            Форма обратной связи будет доступна на следующем этапе.
+            {t('footer.contact_notif')}
           </div>
         )}
       </div>

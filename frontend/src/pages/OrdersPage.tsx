@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 import { Header } from '../components/Header'
 import { Footer } from '../components/Footer'
@@ -77,6 +78,61 @@ function PurchasedItem({ item }: { item: OrderItem }) {
   )
 }
 
+function OrdersContent() {
+  const { t } = useTranslation()
+  const account = useAccountStore(selectActiveAccount)
+  const orders = useCartStore((state) => state.orders)
+  const openAuthModal = useUIStore((state) => state.openAuthModal)
+  const [expandedId, setExpandedId] = useState<number | null | undefined>(undefined)
+
+  if (!account) {
+    return (
+      <main className="min-h-screen bg-surface-2 pt-24 px-4">
+        <div className="mx-auto w-full max-w-[1120px]">
+          <BackButton className="mb-5" />
+          <div className="max-w-md mx-auto w-full h-fit rounded-2xl border border-border bg-surface p-8 text-center">
+          <h1 className="text-2xl font-bold text-text-primary mb-2">{t('orders.login_title')}</h1>
+          <p className="text-text-muted mb-6">{t('orders.login_desc')}</p>
+          <button type="button" onClick={() => openAuthModal('login')}
+            className="rounded-lg bg-primary text-white dark:text-[#08090C] px-6 py-2.5 text-sm font-semibold hover:bg-primary-hover">{t('orders.login_btn')}</button>
+          </div>
+        </div>
+      </main>
+    )
+  }
+
+  const accountOrders = orders.filter((order) => order.ownerId === account.id)
+    .sort((a, b) => b.timestamp - a.timestamp || b.id - a.id)
+  const openOrder = expandedId === undefined ? accountOrders[0]?.id : expandedId
+
+  return (
+    <main className="min-h-screen bg-surface-2 pt-24 px-4 pb-12">
+      <div className="max-w-[1120px] mx-auto">
+        <BackButton className="mb-5" />
+        <div className="flex flex-wrap items-center gap-4 mb-6">
+          <h1 className="text-3xl font-bold text-text-primary">{t('orders.title')}</h1>
+          <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm text-text-muted">Всего заказов: {accountOrders.length}</span>
+        </div>
+        {accountOrders.length === 0 ? (
+          <div className="rounded-xl border border-border bg-surface px-6 py-12 text-center">
+            <FiShoppingCart className="w-14 h-14 text-text-muted mx-auto mb-4" />
+            <h2 className="text-xl font-bold text-text-primary mb-2">{t('orders.empty_title')}</h2>
+            <p className="text-text-muted mb-6">{t('orders.empty_desc')}</p>
+            <Link to="/catalog" className="inline-flex rounded-lg bg-primary text-white dark:text-[#08090C] px-5 py-2.5 font-medium hover:bg-primary-hover">Перейти в каталог</Link>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {accountOrders.map((order) => (
+              <OrderCard key={order.id} order={order} isExpanded={openOrder === order.id}
+                onToggle={() => setExpandedId(openOrder === order.id ? null : order.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+    </main>
+  )
+}
+
 function OrderCard({ order, isExpanded, onToggle }: { order: Order; isExpanded: boolean; onToggle: () => void }) {
   return (
     <article className="rounded-xl border border-border bg-surface p-3 sm:p-4 shadow-[0_5px_24px_var(--color-shadow)]">
@@ -111,64 +167,7 @@ function OrderCard({ order, isExpanded, onToggle }: { order: Order; isExpanded: 
   )
 }
 
-function OrdersContent() {
-  const account = useAccountStore(selectActiveAccount)
-  const orders = useCartStore((state) => state.orders)
-  const openAuthModal = useUIStore((state) => state.openAuthModal)
-  const [expandedId, setExpandedId] = useState<number | null | undefined>(undefined)
-
-  if (!account) {
-    return (
-      <main className="min-h-screen bg-surface-2 pt-24 px-4">
-        <div className="mx-auto w-full max-w-[1120px]">
-          <BackButton className="mb-5" />
-          <div className="max-w-md mx-auto w-full h-fit rounded-2xl border border-border bg-surface p-8 text-center">
-          <h1 className="text-2xl font-bold text-text-primary mb-2">Мои заказы</h1>
-          <p className="text-text-muted mb-6">Войдите в аккаунт, чтобы увидеть историю заказов.</p>
-          <button type="button" onClick={() => openAuthModal('login')}
-            className="rounded-lg bg-primary text-white dark:text-[#08090C] px-6 py-2.5 text-sm font-semibold hover:bg-primary-hover">Войти</button>
-          </div>
-        </div>
-      </main>
-    )
-  }
-
-  const accountOrders = orders.filter((order) => order.ownerId === account.id)
-    .sort((a, b) => b.timestamp - a.timestamp || b.id - a.id)
-  const openOrder = expandedId === undefined ? accountOrders[0]?.id : expandedId
-
-  return (
-    <main className="min-h-screen bg-surface-2 pt-24 px-4 pb-12">
-      <div className="max-w-[1120px] mx-auto">
-        <BackButton className="mb-5" />
-        <div className="flex flex-wrap items-center gap-4 mb-6">
-          <h1 className="text-3xl font-bold text-text-primary">Мои заказы</h1>
-          <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm text-text-muted">Всего заказов: {accountOrders.length}</span>
-        </div>
-        {accountOrders.length === 0 ? (
-          <div className="rounded-xl border border-border bg-surface px-6 py-12 text-center">
-            <FiShoppingCart className="w-14 h-14 text-text-muted mx-auto mb-4" />
-            <h2 className="text-xl font-bold text-text-primary mb-2">Заказов пока нет</h2>
-            <p className="text-text-muted mb-6">После покупки товары появятся здесь.</p>
-            <Link to="/catalog" className="inline-flex rounded-lg bg-primary text-white dark:text-[#08090C] px-5 py-2.5 font-medium hover:bg-primary-hover">Перейти в каталог</Link>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {accountOrders.map((order) => (
-              <OrderCard
-                key={order.id} order={order} isExpanded={openOrder === order.id}
-                onToggle={() => setExpandedId(openOrder === order.id ? null : order.id)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-    </main>
-  )
-}
-
 export function OrdersPage() {
-  // Do not carry another account's expansion state into this account's history.
   const accountId = useAccountStore((state) => state.activeAccountId)
   return <div className="min-h-screen bg-surface-2"><Header /><OrdersContent key={accountId ?? 'guest'} /><Footer /></div>
 }

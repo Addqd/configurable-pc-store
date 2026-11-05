@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next'
+
 interface StarRatingProps {
   rating: number
   count?: number
@@ -6,10 +8,11 @@ interface StarRatingProps {
 const MAX_STARS = 5
 
 export function StarRating({ rating, count }: StarRatingProps) {
+  const { t } = useTranslation()
   const safeRating = Math.max(0, Math.min(MAX_STARS, rating))
 
   return (
-    <div className="flex items-center gap-2" aria-label={`Рейтинг ${safeRating.toFixed(1)} из ${MAX_STARS}`}>
+    <div className="flex items-center gap-2" aria-label={`${safeRating.toFixed(1)} / ${MAX_STARS}`}>
       <div className="flex items-center gap-1">
         {Array.from({ length: MAX_STARS }, (_, index) => {
           const fill = Math.max(0, Math.min(1, safeRating - index)) * 100
@@ -17,7 +20,7 @@ export function StarRating({ rating, count }: StarRatingProps) {
         })}
       </div>
       {typeof count === 'number' && (
-        <span className="text-sm text-text-muted">{count} {pluralizeReviews(count)}</span>
+        <span className="text-sm text-text-muted">{count} {pluralizeReviews(count, t)}</span>
       )}
     </div>
   )
@@ -42,10 +45,10 @@ function StarIcon({ className, fill }: { className?: string; fill: string }) {
   )
 }
 
-function pluralizeReviews(count: number): string {
+function pluralizeReviews(count: number, t: (key: string, opts?: Record<string, unknown>) => string): string {
   const mod10 = count % 10
   const mod100 = count % 100
-  if (mod10 === 1 && mod100 !== 11) return 'отзыв'
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return 'отзыва'
-  return 'отзывов'
+  if (mod10 === 1 && mod100 !== 11) return t('common.review_one', { count })
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 10 || mod100 >= 20)) return t('common.review_two', { count })
+  return t('common.review_other', { count })
 }

@@ -15,7 +15,7 @@ describe('BackButton', () => {
         </Routes>
       </MemoryRouter>,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
+    fireEvent.click(screen.getByRole('button', { name: /Назад|common\.back/ }))
     expect(screen.getByText('Предыдущая страница с сохранённым поиском')).toBeTruthy()
   })
 
@@ -27,7 +27,7 @@ describe('BackButton', () => {
         </Routes>
       </MemoryRouter>,
     )
-    fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
-    expect(screen.getByRole('button', { name: 'Назад' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Назад|common\.back/ }))
+    expect(screen.getByRole('button', { name: /Назад|common\.back/ })).toBeTruthy()
   })
 })

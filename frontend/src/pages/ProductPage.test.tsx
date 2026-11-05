@@ -1,19 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen, cleanup } from '@testing-library/react'
+import { I18nextProvider } from 'react-i18next'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { ProductPage } from './ProductPage'
 import { useCartStore } from '../stores/cartStore'
+import i18n from '../i18n'
 
 vi.mock('../components/Header', () => ({ Header: () => <div data-testid="header" /> }))
 vi.mock('../components/Footer', () => ({ Footer: () => <div data-testid="footer" /> }))
 
 function renderProduct(path = '/products/gpu-rtx-4070-super') {
   return render(
+    <I18nextProvider i18n={i18n}>
     <MemoryRouter initialEntries={[path]}>
       <Routes>
         <Route path="/products/:slug" element={<ProductPage />} />
       </Routes>
-    </MemoryRouter>,
+    </MemoryRouter>
+    </I18nextProvider>,
   )
 }
 

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { Header } from '../components/Header'
 import { PromotionalBanner } from '../components/PromotionalBanner'
 import { ProductSection } from '../components/ProductSection'
@@ -9,6 +10,7 @@ import configuratorBg from '../assets/home/home-hero-configurator-bg.png'
 import { HiMiniCube, HiMiniCpuChip, HiMiniCubeTransparent } from 'react-icons/hi2'
 
 export function HomePage() {
+  const { t } = useTranslation()
   const prebuilts = mockProducts.filter((p) => p.category === 'Готовые сборки')
   const gpus = mockProducts.filter((p) => p.category === 'Видеокарты')
   const cpus = mockProducts.filter((p) => p.category === 'Процессоры')
@@ -26,12 +28,12 @@ export function HomePage() {
               backgroundImage={catalogBg}
               title={
                 <>
-                  Открыть весь{' '}
-                  <span className="text-primary">каталог товаров</span>
+                  {t('home.catalog_cta').split(' ').slice(0, -1).join(' ')}{' '}
+                  <span className="text-primary">{t('home.catalog_cta').split(' ').slice(-1)[0]}</span>
                 </>
               }
-              description="Тысячи комплектующих, готовые сборки, периферия и аксессуары от ведущих брендов. Найди всё для своего ПК в одном месте."
-              ctaText="Перейти в каталог"
+              description={t('home.catalog_description')}
+              ctaText={t('home.catalog_button')}
               ctaHref="/catalog"
             />
           </div>
@@ -42,12 +44,12 @@ export function HomePage() {
               backgroundImage={configuratorBg}
               title={
                 <>
-                  Собери{' '}
-                  <span className="text-primary">свой ПК</span>
+                  {t('home.builder_cta').split(' ').slice(0, -1).join(' ')}{' '}
+                  <span className="text-primary">{t('home.builder_cta').split(' ').slice(-1)[0]}</span>
                 </>
               }
-              description="2D-конфигуратор поможет подобрать совместимые комплектующие и рассчитать стоимость сборки."
-              ctaText="Перейти к конфигуратору"
+              description={t('home.builder_description')}
+              ctaText={t('home.builder_button')}
               ctaHref="/builder"
               paddingY="min-[1100px]:py-4"
             />
@@ -55,28 +57,28 @@ export function HomePage() {
 
           {/* Product Sections */}
           <ProductSection
-            title="Готовые сборки"
+            titleKey="home.categories.prebuilt"
             icon={HiMiniCube}
             products={prebuilts}
             catalogUrl="/catalog?category=prebuilt"
           />
 
           <ProductSection
-            title="Видеокарты"
+            titleKey="home.categories.gpu"
             icon={HiMiniCpuChip}
             products={gpus}
             catalogUrl="/catalog?category=gpu"
           />
 
           <ProductSection
-            title="Процессоры"
+            titleKey="home.categories.cpu"
             icon={HiMiniCpuChip}
             products={cpus}
             catalogUrl="/catalog?category=cpu"
           />
 
           <ProductSection
-            title="Материнские платы"
+            titleKey="home.categories.mobo"
             icon={HiMiniCubeTransparent}
             products={mobos}
             catalogUrl="/catalog?category=mobo"

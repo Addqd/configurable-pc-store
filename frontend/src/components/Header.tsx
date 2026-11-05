@@ -10,6 +10,7 @@ import { NavigationMenu } from './NavigationMenu'
 import { SearchDropdown } from './SearchDropdown'
 import { ProfileDropdown } from './ProfileDropdown'
 import { HeaderPopup } from './HeaderPopup'
+import { LanguageSwitcher } from './LanguageSwitcher'
 
 /** Each page already renders its Header; authentication is shared through stores. */
 export function Header() {
@@ -102,6 +103,7 @@ export function Header() {
             )}
           </div>
         </div>
+        <LanguageSwitcher />
         <Link
           to="/cart"
           className="relative w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-3 transition-colors text-text-primary"

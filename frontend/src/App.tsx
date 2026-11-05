@@ -1,6 +1,7 @@
 import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { useThemeStore } from './stores/themeStore'
 import { useAccountStore } from './stores/accountStore'
 import { useCartStore } from './stores/cartStore'
@@ -18,6 +19,23 @@ import { NotFound } from './pages/NotFound'
 import { AuthModal } from './components/AuthModal'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 300_000, retry: 1 } } })
+
+function LangUpdater() {
+  const { i18n } = useTranslation()
+  useEffect(() => {
+    const update = () => {
+      const lang = i18n.language || 'ru'
+      document.documentElement.lang = lang
+      document.title = lang === 'en'
+        ? 'PC Builder — Components, Prebuilts & Configurator'
+        : 'PC Builder — Комплектующие, Сборки и Конфигуратор'
+    }
+    update()
+    i18n.on('languageChanged', update)
+    return () => { i18n.off('languageChanged', update) }
+  }, [i18n])
+  return null
+}
 
 function AppStateEffects() {
   const isDark = useThemeStore((s) => s.isDark)
@@ -57,6 +75,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <AppStateEffects />
+        <LangUpdater />
         {/* The existing pages own their Header. Do not add a second global Header. */}
         <Routes>
           <Route path="/" element={<HomePage />} />
