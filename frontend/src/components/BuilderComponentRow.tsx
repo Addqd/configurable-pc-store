@@ -1,6 +1,6 @@
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
-import { useState } from 'react'
 import { useBuilderStore, checkBuildCompatibility, type BuilderCategory } from '../stores/builderStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
@@ -50,30 +50,30 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
               <div className="min-w-0 flex-1">
                 <p className="break-words text-sm font-semibold text-text-primary">{catalogDisplay(product.name)}</p>
                 <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">{product.specs.slice(0, 3).map((part) => catalogDisplay(part)).join(', ')}</p>
-                <p className="mt-1 text-xs text-text-muted">Наличие не указано</p>
+                <p className="mt-1 text-xs text-text-muted">{t('builder.availability')}</p>
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
               <span className="mr-auto whitespace-nowrap text-sm font-bold text-text-primary sm:mr-1">{formatPrice(product.price)}</span>
               <button type="button" onClick={() => setShowSelector(true)}
-                aria-label={`Заменить ${label}`}
+                aria-label={t('builder.replace_named', { label })}
                 className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:border-primary hover:text-primary">
-                <FiRefreshCw className="h-3.5 w-3.5 text-primary" /> Заменить
+                <FiRefreshCw className="h-3.5 w-3.5 text-primary" /> {t('builder.replace')}
               </button>
               <button type="button" onClick={() => removeProduct(category)}
-                aria-label={`Удалить ${label}`}
+                aria-label={t('builder.delete_named', { label })}
                 className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-border bg-surface px-3 py-2 text-xs font-medium text-text-primary transition-colors hover:border-red-400 hover:text-red-500">
-                <FiTrash2 className="h-3.5 w-3.5" /> Удалить
+                <FiTrash2 className="h-3.5 w-3.5" /> {t('builder.delete')}
               </button>
             </div>
           </>
         ) : (
           <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
-            <span className="text-sm text-text-muted">Компонент не выбран</span>
+            <span className="text-sm text-text-muted">{t('builder.component_not_selected')}</span>
             <button type="button" onClick={() => setShowSelector(true)}
-              aria-label={`Выбрать ${label}`}
+              aria-label={t('builder.select_named', { label })}
               className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover dark:text-[#08090C]">
-              <FiPlus className="h-4 w-4" /> Выбрать
+              <FiPlus className="h-4 w-4" /> {t('builder.select')}
             </button>
           </div>
         )}
@@ -84,7 +84,6 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
         </div>
       )}
       </div>
-      {/* The selector MUST also mount for empty rows: the original early-return made initial selection impossible. */}
       {showSelector && <BuilderProductSelector category={category} onClose={() => setShowSelector(false)} />}
     </>
   )

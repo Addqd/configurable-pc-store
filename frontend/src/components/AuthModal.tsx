@@ -43,7 +43,7 @@ function PasswordInput({ id, labelKey, value, onChange, error, autoComplete, pla
           onChange={(event) => onChange(event.target.value)}
           aria-invalid={Boolean(error)} aria-describedby={error ? `${id}-error` : undefined}
           className={`w-full h-11 px-3 pr-10 rounded-lg border text-sm text-text-primary bg-surface placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary transition-all ${error ? 'border-red-500' : 'border-border'}`}
-          placeholder={placeholder ?? 'auth.validation_password'}
+          placeholder={placeholder ?? t('auth.login_placeholder')}
         />
         <button
           type="button" onClick={() => setVisible((previous) => !previous)}
@@ -116,7 +116,6 @@ export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalP
     setLoginPassword('')
     setPassword('')
     setConfirmPassword('')
-    // The input itself is re-created when the active form changes.
     requestAnimationFrame(() => firstInputRef.current?.focus())
   }
 

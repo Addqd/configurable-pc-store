@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { BuilderPage } from './BuilderPage'
 import { useBuilderStore, emptyBuilderSelections, getProductsForCategory, type BuilderSelections } from '../stores/builderStore'
@@ -57,13 +57,14 @@ describe('BuilderPage — TASK 007 save integration', () => {
     const button = screen.getByRole('button', { name: /Сохранить сборку/i }) as HTMLButtonElement
     expect(button.disabled).toBe(false)
     fireEvent.click(button)
-    expect(screen.getByRole('dialog')).toBeTruthy()
+    const dialog = screen.getByRole('dialog')
+    const submit = within(dialog).getByRole('button', { name: 'Сохранить сборку' })
     const name = screen.getByLabelText('Название') as HTMLInputElement
     fireEvent.change(name, { target: { value: '   ' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    fireEvent.click(submit)
     expect(screen.getByRole('alert').textContent).toContain('Введите название')
     fireEvent.change(name, { target: { value: 'My Saved Build' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    fireEvent.click(submit)
     expect(screen.queryByRole('dialog')).toBeNull()
     expect(useBuilderStore.getState().savedBuilds[0].name).toBe('My Saved Build')
     expect(useBuilderStore.getState().savedBuilds[0].ownerId).toBe('me')
@@ -79,7 +80,7 @@ describe('BuilderPage — TASK 007 save integration', () => {
     fireEvent.click(screen.getByRole('button', { name: /Сохранить сборку/i }))
     expect((screen.getByLabelText('Название') as HTMLInputElement).value).toBe('Old name')
     fireEvent.change(screen.getByLabelText('Название'), { target: { value: 'Updated name' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Сохранить сборку' }))
     expect(useBuilderStore.getState().savedBuilds).toHaveLength(1)
     expect(useBuilderStore.getState().savedBuilds[0].id).toBe(first.id)
     expect(useBuilderStore.getState().savedBuilds[0].name).toBe('Updated name')

@@ -1,7 +1,7 @@
-import { catalogDisplay } from '../i18n/catalogDisplay'
-import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useParams, Link } from 'react-router'
+import { catalogDisplay } from '../i18n/catalogDisplay'
 import { Header } from '../components/Header'
 import { BackButton } from '../components/BackButton'
 import { Footer } from '../components/Footer'
@@ -88,7 +88,6 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
 
   const addReview = (review: { author: string; rating: number; text: string }) => {
     const accountId = useAccountStore.getState().activeAccountId
-    // Preserve anonymous reviews as anonymous. Only authenticated reviews belong to an account.
     const nextReview: Review = {
       ...review,
       id: Math.max(Date.now(), ...userReviews.map((item) => item.id)) + 1,
@@ -124,7 +123,13 @@ function ProductDetailContent({ product }: { product: EnrichedProduct | null }) 
             <p className="mt-1 text-sm text-text-secondary">
               {t('product.buy_success_desc', { id: buySuccess.id, name: catalogDisplay(buySuccess.items[0].name), count: buySuccess.items[0].quantity, price: formatPrice(buySuccess.total) })}
             </p>
-            <p className="mt-2 text-sm text-text-muted">Заказ сохранён в демонстрационной истории. Корзина не изменена; оплаты не было.</p>
+            <p className="mt-2 text-sm text-text-muted">
+              {buySuccess.ownerId ? (
+                <>{t('product.buy_saved_intro')}{' '}<Link to="/account/orders" className="text-primary hover:underline">{t('product.buy_saved_link')}</Link>.{' '}{t('product.buy_no_cart_change')}</>
+              ) : (
+                t('product.buy_guest')
+              )}
+            </p>
             <div className="mt-3 flex flex-wrap items-center gap-3">
               <Link to="/cart" className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('builder.view_cart')}</Link>
               <button type="button" onClick={() => setBuySuccess(null)} className="text-sm font-medium text-text-muted hover:text-text-primary">{t('common.continue_shopping')}</button>

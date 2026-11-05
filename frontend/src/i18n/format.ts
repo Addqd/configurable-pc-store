@@ -5,11 +5,11 @@ export function localeDate(timestamp: number): string {
 }
 
 export function relativeSavedDate(timestamp: number): string {
-  if (!Number.isFinite(timestamp)) return i18n.t('saves.date_unknown')
+  if (!Number.isFinite(timestamp)) return i18n.t('saved_builds.date_unknown')
   const days = Math.floor((Date.now() - timestamp) / 86400000)
-  if (days === 0) return i18n.t('saves.today')
-  if (days === 1) return i18n.t('saves.yesterday')
-  if (days >= 2 && days <= 6) return i18n.t('saves.days_ago', { count: days })
+  if (days === 0) return i18n.t('saved_builds.today')
+  if (days === 1) return i18n.t('saved_builds.yesterday')
+  if (days >= 2 && days <= 6) return i18n.t('saved_builds.days_ago', { count: days })
   return localeDate(timestamp)
 }
 

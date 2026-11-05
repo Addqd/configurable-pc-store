@@ -12,17 +12,18 @@ vi.mock('../components/Footer', () => ({ Footer: () => <div data-testid="footer"
 function renderProduct(path = '/products/gpu-rtx-4070-super') {
   return render(
     <I18nextProvider i18n={i18n}>
-    <MemoryRouter initialEntries={[path]}>
-      <Routes>
-        <Route path="/products/:slug" element={<ProductPage />} />
-      </Routes>
-    </MemoryRouter>
+      <MemoryRouter initialEntries={[path]}>
+        <Routes>
+          <Route path="/products/:slug" element={<ProductPage />} />
+        </Routes>
+      </MemoryRouter>
     </I18nextProvider>,
   )
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   cleanup()
+  await i18n.changeLanguage('ru')
   localStorage.clear()
   useCartStore.setState({ items: [], orders: [], favorites: [], nextOrderId: 1 })
 })
@@ -34,7 +35,6 @@ describe('ProductPage TASK 003', () => {
     expect(screen.getAllByRole('button', { name: /Показать изображение/ })).toHaveLength(1)
     expect(screen.getByTestId('footer')).toBeTruthy()
   })
-
 
   it('shows the dynamic Back button on the product page', () => {
     renderProduct()
@@ -74,7 +74,7 @@ describe('ProductPage TASK 003', () => {
     const { unmount } = renderProduct()
     fireEvent.click(screen.getByRole('button', { name: 'Оставить отзыв' }))
     fireEvent.change(screen.getByPlaceholderText('Как вас зовут'), { target: { value: 'Покупатель' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Оставить 1 звёзд' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Оставить 1 звезду' }))
     fireEvent.change(screen.getByPlaceholderText('Поделитесь впечатлениями'), { target: { value: 'Проверка отзывов' } })
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
     expect(screen.getAllByText('4 отзыва').length).toBeGreaterThan(0)
