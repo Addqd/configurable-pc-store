@@ -11,7 +11,7 @@ from app.db.session import get_db_session
 from app.models import User
 
 bearer_scheme = HTTPBearer(auto_error=False)
-DBSessionDep = Annotated[Session, Depends(get_db_session)]
+DBSessionDep = Annotated[Session, Depends(get_db_session, scope="function")]
 
 
 def _get_current_user_from_token(token: str, db: Session) -> User:

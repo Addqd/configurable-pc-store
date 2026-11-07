@@ -58,7 +58,7 @@ def get_filter_options(
     types: str | None = None,
     manufacturers: str | None = None,
     colors: str | None = None,
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> FilterOptionsOut:
     return svc.get_filter_options(
         db,
@@ -73,7 +73,7 @@ def get_filter_options(
 def search_suggestions(
     q: str = Query(min_length=1, max_length=120),
     limit: int = Query(default=8, ge=1, le=20),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> list[SearchSuggestionOut]:
     return svc.search_suggestions(db, q, limit)
 
@@ -90,7 +90,7 @@ def list_products(
     colors: str | None = None,
     sale: bool = False,
     sort: str = Query(default="newest", pattern=SORT),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> PaginatedProductsOut:
     sale_only = sale or category == "sale"
     cat = (
@@ -113,7 +113,10 @@ def list_products(
 
 
 @router.get("/products/{slug}", response_model=ProductDetailOut)
-def get_product(slug: str, db: Session = Depends(get_db_session)) -> ProductDetailOut:
+def get_product(
+    slug: str,
+    db: Session = Depends(get_db_session, scope="function"),
+) -> ProductDetailOut:
     value = svc.get_product_by_slug(db, slug)
     if value is None:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -121,7 +124,10 @@ def get_product(slug: str, db: Session = Depends(get_db_session)) -> ProductDeta
 
 
 @router.get("/products/{product_id}/images")
-def get_product_images(product_id: int, db: Session = Depends(get_db_session)) -> dict:
+def get_product_images(
+    product_id: int,
+    db: Session = Depends(get_db_session, scope="function"),
+) -> dict:
     from app.models import Product
 
     product = db.get(Product, product_id)
@@ -136,17 +142,22 @@ def get_product_images(product_id: int, db: Session = Depends(get_db_session)) -
 
 
 @router.get("/categories", response_model=list[CategoryOut])
-def list_categories(db: Session = Depends(get_db_session)) -> list[CategoryOut]:
+def list_categories(
+    db: Session = Depends(get_db_session, scope="function"),
+) -> list[CategoryOut]:
     return svc.get_categories(db)
 
 
 @router.get("/categories/{category_slug}/types", response_model=list[ProductTypeOut])
 def list_types(
-    category_slug: str, db: Session = Depends(get_db_session)
+    category_slug: str,
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> list[ProductTypeOut]:
     return svc.get_types_by_category(db, category_slug)
 
 
 @router.get("/manufacturers", response_model=list[ManufacturerOut])
-def list_manufacturers(db: Session = Depends(get_db_session)) -> list[ManufacturerOut]:
+def list_manufacturers(
+    db: Session = Depends(get_db_session, scope="function"),
+) -> list[ManufacturerOut]:
     return svc.get_manufacturers(db)

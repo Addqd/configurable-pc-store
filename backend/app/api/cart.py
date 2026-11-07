@@ -112,7 +112,7 @@ def _order_to_out(order: Order) -> OrderOut:
 @router.get("", response_model=CartOut)
 def get_cart(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> CartOut:
     return _cart_to_out(svc.get_cart(db, current_user), db)
 
@@ -121,7 +121,7 @@ def get_cart(
 def add_product(
     body: CartAddProductRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> CartOut:
     try:
         svc.add_product_to_cart(db, current_user, body.product_id, body.quantity)
@@ -135,7 +135,7 @@ def add_product(
 def add_build(
     body: CartAddBuildRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> CartOut:
     try:
         svc.add_build_to_cart(db, current_user, body.saved_build_id, body.quantity)
@@ -150,7 +150,7 @@ def update_quantity(
     item_id: int,
     body: CartUpdateQuantityRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> CartOut:
     try:
         svc.update_cart_quantity(db, item_id, current_user, body.quantity)
@@ -166,7 +166,7 @@ def update_quantity(
 def remove_item(
     item_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> CartOut:
     try:
         svc.remove_cart_item(db, item_id, current_user)
@@ -179,7 +179,7 @@ def remove_item(
 @router.post("/checkout", response_model=CheckoutResponse)
 def checkout(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> CheckoutResponse:
     try:
         order = svc.checkout_demo(db, current_user)
@@ -192,6 +192,6 @@ def checkout(
 @router.get("/orders", response_model=list[OrderOut])
 def get_orders(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> list[OrderOut]:
     return [_order_to_out(order) for order in svc.get_user_orders(db, current_user)]

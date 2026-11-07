@@ -46,7 +46,7 @@ def _review(r: Review) -> ReviewOut:
 @router.get("/favorites", response_model=FavoriteListOut)
 def get_favorites(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> FavoriteListOut:
     favorites = svc.get_favorites(db, current_user)
     return FavoriteListOut(
@@ -58,7 +58,7 @@ def get_favorites(
 def add_favorite(
     product_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> FavoriteOut:
     try:
         return _favorite(svc.add_favorite(db, current_user, product_id))
@@ -70,7 +70,7 @@ def add_favorite(
 def remove_favorite(
     product_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> None:
     svc.remove_favorite(db, current_user, product_id)
 
@@ -79,7 +79,7 @@ def remove_favorite(
 def is_favorited(
     product_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> dict:
     return {"is_favorited": svc.is_favorite(db, current_user, product_id)}
 
@@ -89,7 +89,7 @@ def get_product_reviews(
     product_id: int,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=50),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> PaginatedReviewsOut:
     if db.get(Product, product_id) is None:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -97,8 +97,8 @@ def get_product_reviews(
     return PaginatedReviewsOut(
         items=[_review(r) for r in result["reviews"]],
         total=result["total"],
-        page=page,
-        page_size=page_size,
+        page=result["page"],
+        page_size=result["page_size"],
         total_pages=result["total_pages"],
         average_rating=result["average_rating"],
     )
@@ -111,7 +111,7 @@ def create_review(
     product_id: int,
     body: ReviewCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> ReviewOut:
     if db.get(Product, product_id) is None:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -140,7 +140,7 @@ def create_review(
 def get_my_review(
     product_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> ReviewOut | None:
     review = svc.get_user_review(db, current_user, product_id)
     return _review(review) if review else None
@@ -151,7 +151,7 @@ def update_review(
     product_id: int,
     body: ReviewUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> ReviewOut:
     review = svc.get_user_review(db, current_user, product_id)
     if review is None:
@@ -166,7 +166,7 @@ def update_review(
 def delete_review(
     product_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> None:
     review = svc.get_user_review(db, current_user, product_id)
     if review is None:
@@ -177,7 +177,7 @@ def delete_review(
 @router.get("/profile")
 def get_profile(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> dict:
     result = {
         "id": current_user.id,

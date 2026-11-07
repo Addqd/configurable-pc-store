@@ -71,7 +71,10 @@ def _user_out(user: User) -> UserOut:
 
 
 @router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
-def register(body: RegisterRequest, db: Session = Depends(get_db_session)) -> UserOut:
+def register(
+    body: RegisterRequest,
+    db: Session = Depends(get_db_session, scope="function"),
+) -> UserOut:
     try:
         user = auth_svc.register_user(
             db, body.email, body.username, body.password, body.display_name
@@ -83,7 +86,9 @@ def register(body: RegisterRequest, db: Session = Depends(get_db_session)) -> Us
 
 @router.post("/login", response_model=TokenResponse)
 def login(
-    body: LoginRequest, response: Response, db: Session = Depends(get_db_session)
+    body: LoginRequest,
+    response: Response,
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> TokenResponse:
     try:
         user = auth_svc.authenticate(db, body.email_or_username, body.password)
@@ -102,7 +107,7 @@ def refresh(
     refresh_token: str | None = Cookie(None),
     csrf_cookie: str | None = Cookie(None, alias="csrf_token"),
     x_csrf_token: str | None = Header(None, alias="X-CSRF-Token"),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> TokenResponse:
     if not refresh_token or not validate_csrf(refresh_token, csrf_cookie, x_csrf_token):
         raise HTTPException(status_code=403, detail="CSRF validation failed")
@@ -135,7 +140,7 @@ def logout(
     refresh_token: str | None = Cookie(None),
     csrf_cookie: str | None = Cookie(None, alias="csrf_token"),
     x_csrf_token: str | None = Header(None, alias="X-CSRF-Token"),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> dict[str, str]:
     if not refresh_token or not validate_csrf(refresh_token, csrf_cookie, x_csrf_token):
         raise HTTPException(status_code=403, detail="CSRF validation failed")
@@ -161,7 +166,7 @@ def get_me(current_user: User = Depends(get_current_user)) -> UserOut:
 def update_profile(
     body: ProfileUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> UserOut:
     fields = body.model_fields_set
     if "display_name" in fields:
@@ -203,7 +208,7 @@ def update_profile(
 def change_password(
     body: PasswordChange,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> dict[str, str]:
     try:
         auth_svc.change_password(db, current_user, body.old_password, body.new_password)
@@ -215,6 +220,6 @@ def change_password(
 @router.delete("", status_code=204)
 def delete_account(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> None:
     auth_svc.delete_user(db, current_user)

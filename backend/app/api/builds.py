@@ -55,7 +55,7 @@ def _owned(db: Session, user: User, build_id: int) -> SavedBuild:
 @router.get("", response_model=list[SavedBuildOut])
 def list_builds(
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> list[SavedBuildOut]:
     return [_serialize(build) for build in svc.list_builds(db, current_user.id)]
 
@@ -64,7 +64,7 @@ def list_builds(
 def create_build(
     body: SavedBuildCreate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> SavedBuildOut:
     try:
         build = svc.create_build(
@@ -83,7 +83,7 @@ def create_build(
 def get_build(
     build_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> SavedBuildOut:
     return _serialize(_owned(db, current_user, build_id))
 
@@ -93,7 +93,7 @@ def update_build(
     build_id: int,
     body: SavedBuildUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> SavedBuildOut:
     try:
         build = svc.update_build(
@@ -112,7 +112,7 @@ def update_build_items(
     build_id: int,
     body: BuildUpdateItemsRequest,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> SavedBuildOut:
     try:
         build = svc.update_build(
@@ -129,7 +129,7 @@ def update_build_items(
 def delete_build(
     build_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> None:
     svc.delete_build(db, _owned(db, current_user, build_id))
 
@@ -138,7 +138,7 @@ def delete_build(
 def check_compatibility(
     build_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> BuildCompatibilityOut:
     build = _owned(db, current_user, build_id)
     result = compatibility_svc.check_build_compatibility(db, build)
@@ -162,7 +162,7 @@ def check_compatibility(
 def calculate_total(
     build_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
+    db: Session = Depends(get_db_session, scope="function"),
 ) -> BuildTotalOut:
     _owned(db, current_user, build_id)
     return BuildTotalOut(**svc.calculate_build_total(db, build_id))

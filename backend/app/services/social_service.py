@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
@@ -127,12 +129,19 @@ def get_user_review(db: Session, user: User, product_id: int) -> Review | None:
 def update_review(
     db: Session, review: Review, rating: int | None = None, body: str | None = None
 ) -> Review:
-    if rating is not None:
+    changed = False
+    if rating is not None and rating != review.rating:
         review.rating = rating
+        changed = True
     if body is not None:
-        if not body.strip():
+        cleaned = body.strip()
+        if not cleaned:
             raise ValueError("Review body must not be empty")
-        review.body = body.strip()
+        if cleaned != review.body:
+            review.body = cleaned
+            changed = True
+    if changed:
+        review.updated_at = datetime.now(UTC)
     db.flush()
     db.refresh(review)
     return review
