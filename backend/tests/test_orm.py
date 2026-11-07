@@ -8,7 +8,7 @@ from collections.abc import Iterator
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import CheckConstraint, func, inspect, select
+from sqlalchemy import CheckConstraint, inspect, select
 from sqlalchemy.orm import Session, configure_mappers
 
 from app.db.base import Base
@@ -30,6 +30,7 @@ from app.models import (
     SavedBuildItem,
     User,
 )
+from scripts.seed import parse_catalog
 
 EXPECTED_MODELS = (
     User,
@@ -101,8 +102,14 @@ def test_models_match_database_tables(db_session: Session) -> None:
         assert expected_checks.issubset(existing_checks), table.name
 
 
-def test_product_count(db_session: Session) -> None:
-    assert db_session.scalar(select(func.count()).select_from(Product)) == 51
+def test_seeded_catalog_products_exist(db_session: Session) -> None:
+    # Other products can be added without invalidating the demo seed test.
+    expected_slugs = {str(row["slug"]) for row in parse_catalog()}
+    assert expected_slugs
+    actual_slugs = set(
+        db_session.scalars(select(Product.slug).where(Product.slug.in_(expected_slugs)))
+    )
+    assert actual_slugs == expected_slugs
 
 
 def test_get_product_by_slug(db_session: Session) -> None:

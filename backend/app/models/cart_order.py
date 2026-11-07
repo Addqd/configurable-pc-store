@@ -73,7 +73,11 @@ class CartItem(Base):
     saved_build_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("saved_builds.id", ondelete="SET NULL")
     )
-    build_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Python None must become SQL NULL (not JSON null), as required by
+    # ck_cart_items_kind_payload for regular catalog products.
+    build_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
     quantity: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -160,7 +164,10 @@ class OrderItem(Base):
     specs_snapshot: Mapped[list[Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
-    components_snapshot: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB)
+    # Regular catalog products have no component snapshot. SQL NULL is required.
+    components_snapshot: Mapped[list[dict[str, Any]] | None] = mapped_column(
+        JSONB(none_as_null=True)
+    )
 
     __table_args__ = (
         CheckConstraint("unit_price >= 0", name="ck_order_items_price_nonnegative"),
