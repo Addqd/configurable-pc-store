@@ -1,10 +1,11 @@
-"""Saved builds API: CRUD, compatibility, pricing."""
+"""Owner-scoped saved PC builds endpoints."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUserDep, get_current_user
+from app.api.deps import get_current_user
 from app.db.session import get_db_session
+from app.models import SavedBuild, User
 from app.schemas.build import (
     BuildCompatibilityOut,
     BuildItemOut,
@@ -15,308 +16,153 @@ from app.schemas.build import (
     SavedBuildOut,
     SavedBuildUpdate,
 )
-from app.services import build_service as build_svc
-from app.services import compatibility as compat_svc
+from app.services import build_service as svc
+from app.services import compatibility as compatibility_svc
 
 router = APIRouter(prefix="/api/v1/builds", tags=["builds"])
 
 
-@router.get("", response_model=list[SavedBuildOut], summary="List user's builds")
+def _serialize(build: SavedBuild) -> SavedBuildOut:
+    return SavedBuildOut(
+        id=build.id,
+        user_id=build.user_id,
+        name=build.name,
+        description=build.description,
+        image_url=build.image_url,
+        version=build.version,
+        created_at=build.created_at,
+        updated_at=build.updated_at,
+        items=[
+            BuildItemOut(
+                slot=item.slot,
+                product_id=item.product_id,
+                product_name=item.product.name if item.product else "",
+                product_slug=item.product.slug if item.product else "",
+                price=item.product.price if item.product else 0,
+            )
+            for item in build.items
+        ],
+    )
+
+
+def _owned(db: Session, user: User, build_id: int) -> SavedBuild:
+    found = svc.get_build(db, build_id, user.id)
+    if found is None:
+        raise HTTPException(status_code=404, detail="Build not found")
+    return found
+
+
+@router.get("", response_model=list[SavedBuildOut])
 def list_builds(
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> list[SavedBuildOut]:
-    """List all saved builds for the current user."""
-    builds = build_svc.list_builds(db, current_user.id)
-    return [
-        SavedBuildOut(
-            id=b.id,
-            user_id=b.user_id,
-            name=b.name,
-            description=b.description,
-            image_url=b.image_url,
-            version=b.version,
-            created_at=b.created_at,
-            updated_at=b.updated_at,
-            items=[
-                BuildItemOut(
-                    slot=bi.slot,
-                    product_id=bi.product_id,
-                    product_name=bi.product.name if bi.product else "",
-                    product_slug=bi.product.slug if bi.product else "",
-                    price=float(bi.product.price)
-                    if bi.product and bi.product.price
-                    else 0.0,
-                )
-                for bi in b.items
-            ],
-        )
-        for b in builds
-    ]
+    return [_serialize(build) for build in svc.list_builds(db, current_user.id)]
 
 
-@router.post("", response_model=SavedBuildOut, summary="Create a build")
+@router.post("", response_model=SavedBuildOut, status_code=201)
 def create_build(
     body: SavedBuildCreate,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> SavedBuildOut:
-    """Create a new saved build with optional items."""
-    # Validate slots are unique
-    slot_set = set()
-    for item in body.items:
-        if item.slot in slot_set:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Duplicate slot: {item.slot}",
-            )
-        slot_set.add(item.slot)
-
-    build = build_svc.create_build(
-        db,
-        user=current_user,
-        name=body.name,
-        description=body.description or "",
-        items=[{"slot": i.slot, "product_id": i.product_id} for i in body.items],
-    )
-
-    return SavedBuildOut(
-        id=build.id,
-        user_id=build.user_id,
-        name=build.name,
-        description=build.description,
-        image_url=build.image_url,
-        version=build.version,
-        created_at=build.created_at,
-        updated_at=build.updated_at,
-        items=[
-            BuildItemOut(
-                slot=bi.slot,
-                product_id=bi.product_id,
-                product_name=bi.product.name if bi.product else "",
-                product_slug=bi.product.slug if bi.product else "",
-                price=float(bi.product.price)
-                if bi.product and bi.product.price
-                else 0.0,
-            )
-            for bi in build.items
-        ],
-    )
+    try:
+        build = svc.create_build(
+            db,
+            current_user,
+            body.name,
+            body.description,
+            [i.model_dump() for i in body.items],
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _serialize(build)
 
 
-@router.get("/{build_id}", response_model=SavedBuildOut, summary="Get a build")
+@router.get("/{build_id}", response_model=SavedBuildOut)
 def get_build(
     build_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> SavedBuildOut:
-    """Get a specific build by ID (ownership enforced)."""
-    build = build_svc.get_build(db, build_id, current_user.id)
-    if build is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Build not found",
-        )
-
-    return SavedBuildOut(
-        id=build.id,
-        user_id=build.user_id,
-        name=build.name,
-        description=build.description,
-        image_url=build.image_url,
-        version=build.version,
-        created_at=build.created_at,
-        updated_at=build.updated_at,
-        items=[
-            BuildItemOut(
-                slot=bi.slot,
-                product_id=bi.product_id,
-                product_name=bi.product.name if bi.product else "",
-                product_slug=bi.product.slug if bi.product else "",
-                price=float(bi.product.price)
-                if bi.product and bi.product.price
-                else 0.0,
-            )
-            for bi in build.items
-        ],
-    )
+    return _serialize(_owned(db, current_user, build_id))
 
 
-@router.put("/{build_id}", response_model=SavedBuildOut, summary="Update a build")
+@router.put("/{build_id}", response_model=SavedBuildOut)
 def update_build(
     build_id: int,
     body: SavedBuildUpdate,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> SavedBuildOut:
-    """Update build name and/or description."""
-    build = build_svc.get_build(db, build_id, current_user.id)
-    if build is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Build not found",
+    try:
+        build = svc.update_build(
+            db,
+            _owned(db, current_user, build_id),
+            name=body.name,
+            description=body.description,
         )
-
-    updated = build_svc.update_build(
-        db,
-        build,
-        name=body.name,
-        description=body.description,
-    )
-
-    return SavedBuildOut(
-        id=updated.id,
-        user_id=updated.user_id,
-        name=updated.name,
-        description=updated.description,
-        image_url=updated.image_url,
-        version=updated.version,
-        created_at=updated.created_at,
-        updated_at=updated.updated_at,
-        items=[
-            BuildItemOut(
-                slot=bi.slot,
-                product_id=bi.product_id,
-                product_name=bi.product.name if bi.product else "",
-                product_slug=bi.product.slug if bi.product else "",
-                price=float(bi.product.price)
-                if bi.product and bi.product.price
-                else 0.0,
-            )
-            for bi in updated.items
-        ],
-    )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _serialize(build)
 
 
-@router.post(
-    "/{build_id}/items", response_model=SavedBuildOut, summary="Update build items"
-)
+@router.post("/{build_id}/items", response_model=SavedBuildOut)
 def update_build_items(
     build_id: int,
     body: BuildUpdateItemsRequest,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> SavedBuildOut:
-    """Replace all items in a build."""
-    build = build_svc.get_build(db, build_id, current_user.id)
-    if build is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Build not found",
+    try:
+        build = svc.update_build(
+            db,
+            _owned(db, current_user, build_id),
+            items=[i.model_dump() for i in body.items],
         )
-
-    # Validate unique slots
-    slot_set = set()
-    for item in body.items:
-        if item.slot in slot_set:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Duplicate slot: {item.slot}",
-            )
-        slot_set.add(item.slot)
-
-    updated = build_svc.update_build(
-        db,
-        build,
-        items=[{"slot": i.slot, "product_id": i.product_id} for i in body.items],
-    )
-
-    return SavedBuildOut(
-        id=updated.id,
-        user_id=updated.user_id,
-        name=updated.name,
-        description=updated.description,
-        image_url=updated.image_url,
-        version=updated.version,
-        created_at=updated.created_at,
-        updated_at=updated.updated_at,
-        items=[
-            BuildItemOut(
-                slot=bi.slot,
-                product_id=bi.product_id,
-                product_name=bi.product.name if bi.product else "",
-                product_slug=bi.product.slug if bi.product else "",
-                price=float(bi.product.price)
-                if bi.product and bi.product.price
-                else 0.0,
-            )
-            for bi in updated.items
-        ],
-    )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return _serialize(build)
 
 
-@router.delete(
-    "/{build_id}", status_code=status.HTTP_204_NO_CONTENT, summary="Delete a build"
-)
+@router.delete("/{build_id}", status_code=204)
 def delete_build(
     build_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> None:
-    """Delete a saved build (ownership enforced)."""
-    build = build_svc.get_build(db, build_id, current_user.id)
-    if build is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Build not found",
-        )
-    build_svc.delete_build(db, build)
+    svc.delete_build(db, _owned(db, current_user, build_id))
 
 
-@router.get(
-    "/{build_id}/compatibility",
-    response_model=BuildCompatibilityOut,
-    summary="Check build compatibility",
-)
+@router.get("/{build_id}/compatibility", response_model=BuildCompatibilityOut)
 def check_compatibility(
     build_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> BuildCompatibilityOut:
-    """Check compatibility of all items in a build."""
-    build = build_svc.get_build(db, build_id, current_user.id)
-    if build is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Build not found",
-        )
-
-    result = compat_svc.check_build_compatibility(db, build)
+    build = _owned(db, current_user, build_id)
+    result = compatibility_svc.check_build_compatibility(db, build)
     return BuildCompatibilityOut(
-        build_id=build_id,
+        build_id=build.id,
         overall_status=result.status,
         items=[
             CompatibilityStatus(
-                product_id=r.product_id,
-                product_name="",
-                slot=r.slot,
-                status=r.status,
-                message=r.message,
+                product_id=item.product_id,
+                product_name=item.product_name,
+                slot=item.slot,
+                status=item.status,
+                message=item.message,
             )
-            for r in (result.items or [])
+            for item in result.items or []
         ],
     )
 
 
-@router.get(
-    "/{build_id}/total", response_model=BuildTotalOut, summary="Calculate build total"
-)
+@router.get("/{build_id}/total", response_model=BuildTotalOut)
 def calculate_total(
     build_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> BuildTotalOut:
-    """Calculate total price for a build."""
-    build = build_svc.get_build(db, build_id, current_user.id)
-    if build is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Build not found",
-        )
-
-    total = build_svc.calculate_build_total(db, build_id)
-    return BuildTotalOut(
-        build_id=build_id,
-        total_price=total["total_price"],
-        item_count=total["item_count"],
-    )
+    _owned(db, current_user, build_id)
+    return BuildTotalOut(**svc.calculate_build_total(db, build_id))

@@ -1,8 +1,9 @@
-"""Configuration for the existing local PostgreSQL database."""
+"""Validated application settings; no embedded authentication secrets."""
 
 from pathlib import Path
+from typing import Literal
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -11,9 +12,7 @@ _ROOT_DIR = Path(__file__).resolve().parents[3]
 
 class AppSettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=_ROOT_DIR / ".env",
-        env_file_encoding="utf-8",
-        extra="ignore",
+        env_file=_ROOT_DIR / ".env", env_file_encoding="utf-8", extra="ignore"
     )
 
     postgres_db: str
@@ -22,21 +21,24 @@ class AppSettings(BaseSettings):
     postgres_host: str = "127.0.0.1"
     postgres_port: int = 55432
 
-    # JWT settings
-    jwt_secret_key: str = "change-me-in-production"
-    jwt_algorithm: str = "HS256"
-    access_token_minutes: int = 15
-    refresh_token_days: int = 7
-
-    # CSRF / cookie settings
-    csrf_secret: str = "change-me-csrf-too"
+    # Authentication is disabled until a private, sufficiently long key is set.
+    # No publicly known key is ever used as a fallback.
+    jwt_secret_key: SecretStr | None = None
+    jwt_algorithm: Literal["HS256"] = "HS256"
+    access_token_minutes: int = Field(default=15, ge=1, le=60)
+    refresh_token_days: int = Field(default=7, ge=1, le=30)
     cookie_domain: str | None = None
-    cookie_secure: bool = False  # True behind TLS in production
-    cookie_samesite: str = "lax"
+    cookie_secure: bool = False  # Set True when using HTTPS.
+    cookie_samesite: Literal["lax", "strict", "none"] = "lax"
+
+    @model_validator(mode="after")
+    def validate_cookie_security(self) -> AppSettings:
+        if self.cookie_samesite == "none" and not self.cookie_secure:
+            raise ValueError("SameSite=None requires COOKIE_SECURE=true")
+        return self
 
     @property
     def database_url(self) -> URL:
-        """Build a safe SQLAlchemy URL (including passwords with reserved characters)."""
         return URL.create(
             drivername="postgresql+psycopg",
             username=self.postgres_user,

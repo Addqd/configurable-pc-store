@@ -1,157 +1,72 @@
-"""Tests for Favorites and Reviews API."""
+"""Favorite semantics and review purchase/uniqueness authorization."""
 
-from collections.abc import Iterator
-
-import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy.orm import Session
-
-from app.db.session import SessionLocal
-from app.main import app
-
-# ── Fixtures ─────────────────────────────────────────────────────────────────
 
 
-@pytest.fixture()
-def db_session() -> Iterator[Session]:
-    session = SessionLocal()
-    yield session
-    session.close()
-
-
-@pytest.fixture()
-def client() -> Iterator[TestClient]:
-    with TestClient(app) as test_client:
-        yield test_client
-
-
-@pytest.fixture()
-def authed_client(client: TestClient, db_session: Session) -> tuple[TestClient, str]:
-    """Register a user and return (client, access_token)."""
-    client.post(
-        "/api/v1/auth/register",
-        json={
-            "email": "socialuser@example.com",
-            "username": "socialtestuser",
-            "password": "strongpassword123",
-            "display_name": "Social Test User",
-        },
+def test_favorite_delete_is_idempotent(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    pid = sample_products["gpu"].id
+    path = f"/api/v1/favorites/{pid}"
+    headers = registered_user["headers"]
+    assert api_client.delete(path, headers=headers).status_code == 204
+    assert (
+        api_client.get(path + "/is_favorited", headers=headers).json()["is_favorited"]
+        is False
     )
-    login = client.post(
-        "/api/v1/auth/login",
-        json={
-            "email_or_username": "socialuser@example.com",
-            "password": "strongpassword123",
-        },
+    assert api_client.post(path, headers=headers).status_code == 200
+    assert api_client.post(path, headers=headers).status_code == 200
+    assert (
+        api_client.get(path + "/is_favorited", headers=headers).json()["is_favorited"]
+        is True
     )
-    return client, login.json()["access_token"]
-
-
-# ── Favorites Tests ──────────────────────────────────────────────────────────
-
-
-def test_toggle_favorite(authed_client: tuple):
-    """Toggling a favorite adds/removes it."""
-    client, token = authed_client
-
-    # Add favorite
-    response = client.post(
-        "/favorites/7",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert response.status_code == 200
-
-    # Remove favorite (toggle)
-    response = client.post(
-        "/favorites/7",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    assert response.status_code == 200
-
-
-def test_get_favorites(authed_client: tuple):
-    """GET /favorites returns user's favorites."""
-    client, token = authed_client
-
-    # Add a favorite
-    client.post(
-        "/favorites/7",
-        headers={"Authorization": f"Bearer {token}"},
+    assert api_client.delete(path, headers=headers).status_code == 204
+    assert api_client.delete(path, headers=headers).status_code == 204
+    assert (
+        api_client.get(path + "/is_favorited", headers=headers).json()["is_favorited"]
+        is False
     )
 
-    response = client.get(
-        "/favorites",
-        headers={"Authorization": f"Bearer {token}"},
+
+def test_review_requires_individual_completed_purchase(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    pid = sample_products["cpu"].id
+    path = f"/api/v1/products/{pid}/reviews"
+    headers = registered_user["headers"]
+    no_purchase = api_client.post(
+        path, headers=headers, json={"rating": 4, "body": "Nice"}
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert "items" in data
-    assert "total" in data
-
-
-def test_remove_favorite(authed_client: tuple):
-    """DELETE /favorites/{id} removes a favorite."""
-    client, token = authed_client
-
-    # Add then remove
-    client.post(
-        "/favorites/7",
-        headers={"Authorization": f"Bearer {token}"},
+    assert no_purchase.status_code == 403
+    api_client.post(
+        "/api/v1/cart/products",
+        headers=headers,
+        json={"product_id": pid, "quantity": 1},
     )
-    response = client.delete(
-        "/favorites/7",
-        headers={"Authorization": f"Bearer {token}"},
+    checkout = api_client.post("/api/v1/cart/checkout", headers=headers, json={})
+    assert checkout.status_code == 200, checkout.text
+    reviewed = api_client.post(
+        path, headers=headers, json={"rating": 5, "body": "Great"}
     )
-    assert response.status_code == 204
-
-
-def test_is_favorited(authed_client: tuple):
-    """GET /favorites/{id}/is_favorited returns boolean."""
-    client, token = authed_client
-    response = client.get(
-        "/favorites/7/is_favorited",
-        headers={"Authorization": f"Bearer {token}"},
+    assert reviewed.status_code == 201, reviewed.text
+    assert (
+        api_client.post(
+            path, headers=headers, json={"rating": 4, "body": "Again"}
+        ).status_code
+        == 409
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert "is_favorited" in data
+    assert api_client.get(path).json()["total"] == 1
+    assert api_client.delete(path, headers=headers).status_code == 204
+    assert api_client.get(path).json()["total"] == 0
 
 
-# ── Reviews Tests ────────────────────────────────────────────────────────────
-
-
-def test_get_product_reviews(client: TestClient):
-    """GET /products/{id}/reviews returns reviews."""
-    response = client.get("/products/7/reviews")
-    assert response.status_code == 200
-    data = response.json()
-    assert "items" in data
-    assert "total" in data
-    assert "average_rating" in data
-
-
-def test_get_reviews_pagination(client: TestClient):
-    """Reviews pagination works."""
-    response = client.get("/products/7/reviews?page=1&page_size=10")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["page"] == 1
-
-
-# ── Profile Tests ────────────────────────────────────────────────────────────
-
-
-def test_profile_counters(authed_client: tuple):
-    """GET /profile returns counters."""
-    client, token = authed_client
-    response = client.get(
-        "/profile",
-        headers={"Authorization": f"Bearer {token}"},
+def test_private_endpoints_require_auth(api_client: TestClient, sample_products: dict):
+    pid = sample_products["cpu"].id
+    assert api_client.get("/api/v1/favorites").status_code == 401
+    assert api_client.get("/api/v1/profile").status_code == 401
+    assert (
+        api_client.post(
+            f"/api/v1/products/{pid}/reviews", json={"rating": 5, "body": "Fake"}
+        ).status_code
+        == 401
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert "id" in data
-    assert "email" in data
-    assert "order_count" in data
-    assert "review_count" in data
-    assert "favorite_count" in data

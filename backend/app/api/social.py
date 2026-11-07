@@ -1,10 +1,12 @@
-"""Favorites and reviews API."""
+"""Versioned, owner-scoped favorites, purchase-gated reviews, and profile."""
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUserDep, get_current_user
+from app.api.deps import get_current_user
 from app.db.session import get_db_session
+from app.models import Product, Review, User
 from app.schemas.social import (
     FavoriteListOut,
     FavoriteOut,
@@ -13,294 +15,171 @@ from app.schemas.social import (
     ReviewOut,
     ReviewUpdate,
 )
-from app.services import social_service as social_svc
+from app.services import social_service as svc
 
-router = APIRouter(tags=["social"])
-
-
-# ── Favorites ────────────────────────────────────────────────────────────────
+router = APIRouter(prefix="/api/v1", tags=["social"])
 
 
-@router.get(
-    "/favorites",
-    response_model=FavoriteListOut,
-    summary="Get user's favorites",
-)
-def get_favorites(
-    current_user: CurrentUserDep = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
-) -> FavoriteListOut:
-    """Get all favorited products for the current user."""
-    favorites = social_svc.get_favorites(db, current_user)
-    return FavoriteListOut(
-        items=[
-            FavoriteOut(
-                user_id=fav.user_id,
-                product_id=fav.product_id,
-                product_slug=fav.product.slug if fav.product else "",
-                product_name=fav.product.name if fav.product else "",
-                created_at=fav.created_at,
-            )
-            for fav in favorites
-        ],
-        total=len(favorites),
-    )
-
-
-@router.post(
-    "/favorites/{product_id}",
-    response_model=FavoriteOut,
-    summary="Toggle favorite",
-)
-def toggle_favorite(
-    product_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
-) -> FavoriteOut:
-    """Toggle a product as favorite (add if absent, remove if present)."""
-    fav = social_svc.toggle_favorite(db, current_user, product_id)
+def _favorite(fav) -> FavoriteOut:
     return FavoriteOut(
         user_id=fav.user_id,
         product_id=fav.product_id,
-        product_slug=fav.product.slug
-        if fav.product and fav.product.id == product_id
-        else "",
-        product_name=fav.product.name
-        if fav.product and fav.product.id == product_id
-        else "",
+        product_slug=fav.product.slug if fav.product else "",
+        product_name=fav.product.name if fav.product else "",
         created_at=fav.created_at,
     )
 
 
-@router.delete(
-    "/favorites/{product_id}",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Remove favorite",
-)
+def _review(r: Review) -> ReviewOut:
+    return ReviewOut(
+        id=r.id,
+        user_id=r.user_id,
+        product_id=r.product_id,
+        rating=r.rating,
+        body=r.body,
+        created_at=r.created_at,
+        updated_at=r.updated_at,
+        reviewer_name=r.user.display_name if r.user else "Anonymous",
+    )
+
+
+@router.get("/favorites", response_model=FavoriteListOut)
+def get_favorites(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> FavoriteListOut:
+    favorites = svc.get_favorites(db, current_user)
+    return FavoriteListOut(
+        items=[_favorite(fav) for fav in favorites], total=len(favorites)
+    )
+
+
+@router.post("/favorites/{product_id}", response_model=FavoriteOut)
+def add_favorite(
+    product_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> FavoriteOut:
+    try:
+        return _favorite(svc.add_favorite(db, current_user, product_id))
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Product not found") from None
+
+
+@router.delete("/favorites/{product_id}", status_code=204)
 def remove_favorite(
     product_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> None:
-    """Remove a product from favorites."""
-    social_svc.toggle_favorite(db, current_user, product_id)
+    svc.remove_favorite(db, current_user, product_id)
 
 
-@router.get(
-    "/favorites/{product_id}/is_favorited",
-    summary="Check if favorited",
-)
+@router.get("/favorites/{product_id}/is_favorited")
 def is_favorited(
     product_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """Check if a product is in user's favorites."""
-    return {"is_favorited": social_svc.is_favorite(db, current_user, product_id)}
+    return {"is_favorited": svc.is_favorite(db, current_user, product_id)}
 
 
-# ── Reviews ──────────────────────────────────────────────────────────────────
-
-
-@router.get(
-    "/products/{product_id}/reviews",
-    response_model=PaginatedReviewsOut,
-    summary="Get product reviews",
-)
+@router.get("/products/{product_id}/reviews", response_model=PaginatedReviewsOut)
 def get_product_reviews(
     product_id: int,
-    page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=50),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=50),
     db: Session = Depends(get_db_session),
 ) -> PaginatedReviewsOut:
-    """Get paginated reviews for a product (public)."""
-
-    # Verify product exists
-    from app.models import Product
-
-    if not db.get(Product, product_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
-        )
-
-    result = social_svc.get_product_reviews(db, product_id, page, page_size)
-
+    if db.get(Product, product_id) is None:
+        raise HTTPException(status_code=404, detail="Product not found")
+    result = svc.get_product_reviews(db, product_id, page, page_size)
     return PaginatedReviewsOut(
-        items=[
-            ReviewOut(
-                id=r.id,
-                user_id=r.user_id,
-                product_id=r.product_id,
-                rating=r.rating,
-                body=r.body,
-                created_at=r.created_at,
-                updated_at=r.updated_at,
-                reviewer_name=r.user.display_name if r.user else "Anonymous",
-            )
-            for r in result["reviews"]
-        ],
+        items=[_review(r) for r in result["reviews"]],
         total=result["total"],
-        page=result["page"],
-        page_size=result["page_size"],
+        page=page,
+        page_size=page_size,
         total_pages=result["total_pages"],
         average_rating=result["average_rating"],
     )
 
 
 @router.post(
-    "/products/{product_id}/reviews",
-    response_model=ReviewOut,
-    status_code=status.HTTP_201_CREATED,
-    summary="Create a review",
+    "/products/{product_id}/reviews", response_model=ReviewOut, status_code=201
 )
 def create_review(
     product_id: int,
     body: ReviewCreate,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> ReviewOut:
-    """Create a review for a product (requires prior purchase)."""
-    from app.models import Product
-
-    if not db.get(Product, product_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Product not found"
-        )
-
-    # Check if user already has a review
-    existing = social_svc.get_user_review(db, current_user, product_id)
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="You already reviewed this product",
-        )
-
+    if db.get(Product, product_id) is None:
+        raise HTTPException(status_code=404, detail="Product not found")
     try:
-        review = social_svc.create_review(
-            db, current_user, product_id, body.rating, body.body
+        return _review(
+            svc.create_review(db, current_user, product_id, body.rating, body.body)
         )
-    except Exception:
-        # The DB trigger may reject if no purchase exists
+    except ValueError as exc:
+        message = str(exc)
+        code = (
+            409
+            if "already" in message.lower()
+            else 403
+            if "purchase" in message.lower()
+            else 422
+        )
+        raise HTTPException(status_code=code, detail=message) from exc
+    except IntegrityError:
+        # DB trigger or UNIQUE guard. Never report arbitrary SQL failures as success.
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="A completed purchase of this product is required to review it",
-        )
-
-    return ReviewOut(
-        id=review.id,
-        user_id=review.user_id,
-        product_id=review.product_id,
-        rating=review.rating,
-        body=review.body,
-        created_at=review.created_at,
-        updated_at=review.updated_at,
-        reviewer_name=current_user.display_name,
-    )
+            status_code=409, detail="Review not allowed or already exists"
+        ) from None
 
 
-@router.get(
-    "/products/{product_id}/reviews/my",
-    response_model=ReviewOut | None,
-    summary="Get my review for a product",
-)
+@router.get("/products/{product_id}/reviews/my", response_model=ReviewOut | None)
 def get_my_review(
     product_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> ReviewOut | None:
-    """Get the current user's review for a product, if any."""
-    review = social_svc.get_user_review(db, current_user, product_id)
-    if review is None:
-        return None
-    return ReviewOut(
-        id=review.id,
-        user_id=review.user_id,
-        product_id=review.product_id,
-        rating=review.rating,
-        body=review.body,
-        created_at=review.created_at,
-        updated_at=review.updated_at,
-        reviewer_name=current_user.display_name,
-    )
+    review = svc.get_user_review(db, current_user, product_id)
+    return _review(review) if review else None
 
 
-@router.patch(
-    "/products/{product_id}/reviews",
-    response_model=ReviewOut,
-    summary="Update my review",
-)
+@router.patch("/products/{product_id}/reviews", response_model=ReviewOut)
 def update_review(
     product_id: int,
     body: ReviewUpdate,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> ReviewOut:
-    """Update the current user's review for a product."""
-    review = social_svc.get_user_review(db, current_user, product_id)
+    review = svc.get_user_review(db, current_user, product_id)
     if review is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review not found",
-        )
-    if review.user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Not your review",
-        )
-
-    updated = social_svc.update_review(
-        db,
-        review,
-        rating=body.rating,
-        body=body.body,
-    )
-
-    return ReviewOut(
-        id=updated.id,
-        user_id=updated.user_id,
-        product_id=updated.product_id,
-        rating=updated.rating,
-        body=updated.body,
-        created_at=updated.created_at,
-        updated_at=updated.updated_at,
-        reviewer_name=current_user.display_name,
-    )
+        raise HTTPException(status_code=404, detail="Review not found")
+    try:
+        return _review(svc.update_review(db, review, body.rating, body.body))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.delete(
-    "/products/{product_id}/reviews",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete my review",
-)
+@router.delete("/products/{product_id}/reviews", status_code=204)
 def delete_review(
     product_id: int,
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> None:
-    """Delete the current user's review for a product."""
-    review = social_svc.get_user_review(db, current_user, product_id)
+    review = svc.get_user_review(db, current_user, product_id)
     if review is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Review not found",
-        )
-    social_svc.delete_review(db, review)
+        raise HTTPException(status_code=404, detail="Review not found")
+    svc.delete_review(db, review)
 
 
-# ── Profile ──────────────────────────────────────────────────────────────────
-
-
-@router.get(
-    "/profile",
-    summary="User profile with counters",
-)
+@router.get("/profile")
 def get_profile(
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> dict:
-    """Get user profile with order and review counters."""
-    stats = social_svc.get_profile_stats(db, current_user)
-    return {
+    result = {
         "id": current_user.id,
         "email": current_user.email,
         "username": current_user.username,
@@ -312,5 +191,6 @@ def get_profile(
         "updated_at": current_user.updated_at.isoformat()
         if current_user.updated_at
         else None,
-        **stats,
     }
+    result.update(svc.get_profile_stats(db, current_user))
+    return result

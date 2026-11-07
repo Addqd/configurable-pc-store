@@ -1,16 +1,20 @@
-"""Authentication API: register, login, refresh, logout, profile."""
+"""Authentication API with short-lived Bearer access and one-use HttpOnly refresh."""
 
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Body, Cookie, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Response, status
+from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.api.deps import CurrentUserDep, get_current_user
+from app.api.deps import get_current_user
 from app.core.security import (
     create_access_token,
     create_refresh_token,
     decode_token,
     get_settings,
+    make_csrf_token,
+    validate_csrf,
 )
 from app.db.session import get_db_session
 from app.models import User
@@ -27,281 +31,190 @@ from app.services import auth_service as auth_svc
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
-def _cookie_name(token_type: str) -> str:
-    return f"{token_type}_token"
-
-
-def _set_cookie(
-    response: Response,
-    token: str,
-    token_type: str,
-) -> None:
-    """Set an HttpOnly cookie with the refresh token."""
+def _set_cookies(response: Response, refresh_token: str) -> None:
     settings = get_settings()
+    common = {
+        "secure": settings.cookie_secure,
+        "samesite": settings.cookie_samesite,
+        "domain": settings.cookie_domain,
+        "path": "/",
+        "max_age": settings.refresh_token_days * 86400,
+    }
+    response.set_cookie("refresh_token", refresh_token, httponly=True, **common)
     response.set_cookie(
-        key=_cookie_name(token_type),
-        value=token,
-        httponly=True,
-        secure=settings.cookie_secure,
-        samesite=settings.cookie_samesite or "lax",
-        domain=settings.cookie_domain,
-        max_age=settings.refresh_token_days * 86400,
-        path="/",
+        "csrf_token", make_csrf_token(refresh_token), httponly=False, **common
     )
 
 
-def _clear_cookie(response: Response, token_type: str) -> None:
-    """Clear a refresh token cookie."""
-    response.delete_cookie(
-        key=_cookie_name(token_type),
-        path="/",
-    )
-
-
-# ── Register ─────────────────────────────────────────────────────────────────
-
-
-@router.post(
-    "/register",
-    response_model=UserOut,
-    status_code=status.HTTP_201_CREATED,
-    summary="Register a new user",
-)
-def register(
-    body: RegisterRequest,
-    db: Session = Depends(get_db_session),
-) -> UserOut:
-    """Register a new user account."""
-    try:
-        user = auth_svc.register_user(
-            db,
-            email=body.email,
-            username=body.username,
-            password=body.password,
-            display_name=body.display_name,
+def _clear_cookies(response: Response) -> None:
+    settings = get_settings()
+    for name in ("refresh_token", "csrf_token"):
+        response.delete_cookie(
+            name,
+            path="/",
+            domain=settings.cookie_domain,
+            secure=settings.cookie_secure,
+            samesite=settings.cookie_samesite,
         )
-    except ValueError as e:
-        detail = str(e)
-        if "Email" in detail or "email" in detail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"field": "email", "message": detail},
-            )
-        if "Username" in detail or "username" in detail:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={"field": "username", "message": detail},
-            )
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
+
+def _user_out(user: User) -> UserOut:
     return UserOut(
         id=user.id,
         email=user.email,
         username=user.username,
         display_name=user.display_name,
         avatar_url=user.avatar_url,
+        created_at=user.created_at.isoformat() if user.created_at else None,
+        updated_at=user.updated_at.isoformat() if user.updated_at else None,
     )
 
 
-# ── Login ────────────────────────────────────────────────────────────────────
+@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def register(body: RegisterRequest, db: Session = Depends(get_db_session)) -> UserOut:
+    try:
+        user = auth_svc.register_user(
+            db, body.email, body.username, body.password, body.display_name
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return _user_out(user)
 
 
-@router.post(
-    "/login",
-    response_model=TokenResponse,
-    summary="Login and get tokens",
-)
+@router.post("/login", response_model=TokenResponse)
 def login(
-    body: LoginRequest,
-    response: Response,
-    db: Session = Depends(get_db_session),
+    body: LoginRequest, response: Response, db: Session = Depends(get_db_session)
 ) -> TokenResponse:
-    """Authenticate and return JWT tokens."""
     try:
         user = auth_svc.authenticate(db, body.email_or_username, body.password)
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid credentials",
-        )
-
-    access_token = create_access_token(str(user.id))
-    refresh_token = create_refresh_token(str(user.id))
-
-    # Store refresh session
-    expires_at = datetime.now(UTC) + timedelta(days=get_settings().refresh_token_days)
-    auth_svc.create_auth_session(db, user, refresh_token, expires_at)
-
-    _set_cookie(response, refresh_token, "refresh")
-
-    return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+        raise HTTPException(status_code=401, detail="Invalid credentials") from None
+    refresh = create_refresh_token(str(user.id))
+    expires = datetime.now(UTC) + timedelta(days=get_settings().refresh_token_days)
+    auth_svc.create_auth_session(db, user, refresh, expires)
+    _set_cookies(response, refresh)
+    return TokenResponse(access_token=create_access_token(str(user.id)))
 
 
-# ── Refresh ──────────────────────────────────────────────────────────────────
-
-
-@router.post(
-    "/refresh",
-    response_model=TokenResponse,
-    summary="Refresh access token",
-)
+@router.post("/refresh", response_model=TokenResponse)
 def refresh(
     response: Response,
-    refresh_token: str = Cookie(..., alias="refresh_token"),
+    refresh_token: str | None = Cookie(None),
+    csrf_cookie: str | None = Cookie(None, alias="csrf_token"),
+    x_csrf_token: str | None = Header(None, alias="X-CSRF-Token"),
     db: Session = Depends(get_db_session),
 ) -> TokenResponse:
-    """Rotate refresh token and return a new access token."""
+    if not refresh_token or not validate_csrf(refresh_token, csrf_cookie, x_csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
     payload = decode_token(refresh_token)
-    if payload is None or payload.get("type") != "refresh":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired refresh token",
-        )
-
-    user_id = payload.get("sub")
-    if user_id is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token payload",
-        )
-
-    user = db.get(User, int(user_id))
+    if not payload or payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    try:
+        uid = int(payload["sub"])
+    except KeyError, ValueError, TypeError:
+        raise HTTPException(status_code=401, detail="Invalid refresh token") from None
+    user = db.get(User, uid)
     if user is None:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    new_refresh = create_refresh_token(str(uid))
+    expires = datetime.now(UTC) + timedelta(days=get_settings().refresh_token_days)
+    try:
+        auth_svc.rotate_refresh_token(db, user, refresh_token, new_refresh, expires)
+    except ValueError:
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-        )
-
-    new_access = create_access_token(str(user.id))
-    new_refresh = create_refresh_token(str(user.id))
-
-    # Rotate: revoke old, store new
-    expires_at = datetime.now(UTC) + timedelta(days=get_settings().refresh_token_days)
-    auth_svc.rotate_refresh_token(db, user, refresh_token, new_refresh, expires_at)
-
-    _clear_cookie(response, "refresh")
-    _set_cookie(response, new_refresh, "refresh")
-
-    return TokenResponse(access_token=new_access, refresh_token=new_refresh)
+            status_code=401, detail="Refresh session expired or revoked"
+        ) from None
+    _set_cookies(response, new_refresh)
+    return TokenResponse(access_token=create_access_token(str(uid)))
 
 
-# ── Logout ───────────────────────────────────────────────────────────────────
-
-
-@router.post(
-    "/logout",
-    summary="Logout and revoke refresh token",
-)
+@router.post("/logout")
 def logout(
     response: Response,
-    current_user: CurrentUserDep = Depends(get_current_user),
-    refresh_token: str = Cookie(..., alias="refresh_token"),
+    current_user: User = Depends(get_current_user),
+    refresh_token: str | None = Cookie(None),
+    csrf_cookie: str | None = Cookie(None, alias="csrf_token"),
+    x_csrf_token: str | None = Header(None, alias="X-CSRF-Token"),
     db: Session = Depends(get_db_session),
-) -> dict:
-    """Revoke the current refresh token."""
+) -> dict[str, str]:
+    if not refresh_token or not validate_csrf(refresh_token, csrf_cookie, x_csrf_token):
+        raise HTTPException(status_code=403, detail="CSRF validation failed")
+    # A mismatched identity cannot revoke someone else's session.
+    payload = decode_token(refresh_token)
+    if (
+        not payload
+        or payload.get("type") != "refresh"
+        or payload.get("sub") != str(current_user.id)
+    ):
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
     auth_svc.revoke_session(db, current_user.id, refresh_token)
-    _clear_cookie(response, "refresh")
+    _clear_cookies(response)
     return {"detail": "Logged out"}
 
 
-# ── Current User ─────────────────────────────────────────────────────────────
+@router.get("/me", response_model=UserOut)
+def get_me(current_user: User = Depends(get_current_user)) -> UserOut:
+    return _user_out(current_user)
 
 
-@router.get(
-    "/me",
-    response_model=UserOut,
-    summary="Current authenticated user",
-)
-def get_me(
-    current_user: CurrentUserDep = Depends(get_current_user),
-) -> UserOut:
-    """Get the current user's profile."""
-    return UserOut(
-        id=current_user.id,
-        email=current_user.email,
-        username=current_user.username,
-        display_name=current_user.display_name,
-        avatar_url=current_user.avatar_url,
-        created_at=current_user.created_at.isoformat()
-        if current_user.created_at
-        else None,
-        updated_at=current_user.updated_at.isoformat()
-        if current_user.updated_at
-        else None,
-    )
-
-
-# ── Update Profile ───────────────────────────────────────────────────────────
-
-
-@router.patch(
-    "/profile",
-    response_model=UserOut,
-    summary="Update profile",
-)
+@router.patch("/profile", response_model=UserOut)
 def update_profile(
-    body: ProfileUpdate = Body(),
-    current_user: CurrentUserDep = Depends(get_current_user),
+    body: ProfileUpdate,
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> UserOut:
-    """Update display_name or avatar_url."""
-    if body.display_name is not None:
+    fields = body.model_fields_set
+    if "display_name" in fields:
+        if not body.display_name or not body.display_name.strip():
+            raise HTTPException(status_code=422, detail="Display name cannot be empty")
         current_user.display_name = body.display_name.strip()
-    if body.avatar_url is not None:
+    if "avatar_url" in fields:
         current_user.avatar_url = body.avatar_url
-    db.flush()
-    db.refresh(current_user)
-
-    return UserOut(
-        id=current_user.id,
-        email=current_user.email,
-        username=current_user.username,
-        display_name=current_user.display_name,
-        avatar_url=current_user.avatar_url,
-    )
-
-
-# ── Change Password ──────────────────────────────────────────────────────────
-
-
-@router.patch(
-    "/password",
-    summary="Change password",
-)
-def change_password(
-    body: PasswordChange = Body(),
-    current_user: CurrentUserDep = Depends(get_current_user),
-    db: Session = Depends(get_db_session),
-) -> dict:
-    """Change the current user's password."""
-    old_pw = body.old_password
-    new_pw = body.new_password
-    if not old_pw or not new_pw:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="old_password and new_password are required",
-        )
+    if "email" in fields and body.email:
+        mail = body.email.strip().lower()
+        if db.scalar(
+            select(User.id).where(
+                func.lower(User.email) == mail, User.id != current_user.id
+            )
+        ):
+            raise HTTPException(status_code=409, detail="Email already in use")
+        current_user.email = mail
+    if "username" in fields and body.username:
+        username = body.username.strip()
+        if db.scalar(
+            select(User.id).where(
+                func.lower(User.username) == username.lower(),
+                User.id != current_user.id,
+            )
+        ):
+            raise HTTPException(status_code=409, detail="Username already in use")
+        current_user.username = username
     try:
-        auth_svc.change_password(db, current_user, old_pw, new_pw)
-    except ValueError as e:
+        db.flush()
+    except IntegrityError:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e),
-        )
-    return {"detail": "Password changed"}
+            status_code=409, detail="Email or username already in use"
+        ) from None
+    db.refresh(current_user)
+    return _user_out(current_user)
 
 
-# ── Delete Account ───────────────────────────────────────────────────────────
+@router.patch("/password")
+def change_password(
+    body: PasswordChange,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session),
+) -> dict[str, str]:
+    try:
+        auth_svc.change_password(db, current_user, body.old_password, body.new_password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"detail": "Password changed; refresh sessions revoked"}
 
 
-@router.delete(
-    "",
-    status_code=status.HTTP_204_NO_CONTENT,
-    summary="Delete own account",
-)
+@router.delete("", status_code=204)
 def delete_account(
-    current_user: CurrentUserDep = Depends(get_current_user),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session),
 ) -> None:
-    """Delete the current user's account."""
     auth_svc.delete_user(db, current_user)

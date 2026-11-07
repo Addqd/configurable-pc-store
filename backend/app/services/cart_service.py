@@ -1,12 +1,13 @@
-"""Cart and demo checkout service."""
+"""Transactional, user-scoped cart and demonstration purchases."""
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session, selectinload
 
 from app.models import (
     Cart,
@@ -18,190 +19,173 @@ from app.models import (
     SavedBuildItem,
     User,
 )
+from app.services.catalog import _images
+from app.services.compatibility import check_selections
 
 
 def get_or_create_cart(db: Session, user: User) -> Cart:
-    """Get or create a cart for the user."""
-    cart = db.execute(select(Cart).where(Cart.user_id == user.id)).scalar_one_or_none()
-
+    # On-conflict prevents two concurrent requests from creating duplicate carts.
+    db.execute(
+        insert(Cart)
+        .values(user_id=user.id)
+        .on_conflict_do_nothing(index_elements=["user_id"])
+    )
+    cart = db.scalar(select(Cart).where(Cart.user_id == user.id).with_for_update())
     if cart is None:
-        cart = Cart(user_id=user.id)
-        db.add(cart)
-        db.flush()
-        db.refresh(cart)
-
+        raise RuntimeError("Unable to create cart")
     return cart
 
 
 def get_cart(db: Session, user: User) -> Cart | None:
-    """Get the user's cart."""
-    return db.execute(select(Cart).where(Cart.user_id == user.id)).scalar_one_or_none()
+    return db.scalar(
+        select(Cart).where(Cart.user_id == user.id).options(selectinload(Cart.items))
+    )
 
 
-def _product_price(db: Session, product_id: int) -> Decimal | None:
-    """Get current price for a product."""
-    row = db.execute(
-        select(Product.price).where(
-            Product.id == product_id, Product.is_active.is_(True)
+def _product(db: Session, product_id: int, quantity: int = 1) -> Product:
+    p = db.get(Product, product_id)
+    if p is None or not p.is_active:
+        raise ValueError("Product is unavailable")
+    if p.stock_quantity < quantity:
+        raise ValueError("Insufficient product stock")
+    return p
+
+
+def _build_snapshot(db: Session, selections: dict[str, int], quantity: int) -> dict:
+    compatibility = check_selections(db, selections)
+    if not compatibility.is_compatible:
+        raise ValueError(
+            "Build is incomplete, incompatible or not technically verified"
         )
-    ).scalar_one_or_none()
-    return row
-
-
-def _is_product_active(db: Session, product_id: int) -> bool:
-    """Check if a product exists and is active."""
-    return (
-        db.execute(
-            select(Product.id).where(
-                Product.id == product_id, Product.is_active.is_(True)
-            )
-        ).scalar_one_or_none()
-        is not None
-    )
-
-
-def _is_build_active(db: Session, build_id: int) -> bool:
-    """Check if a build exists."""
-    return (
-        db.execute(
-            select(SavedBuild.id).where(SavedBuild.id == build_id)
-        ).scalar_one_or_none()
-        is not None
-    )
+    components = []
+    total = Decimal("0.00")
+    for slot, product_id in sorted(selections.items()):
+        p = _product(db, product_id, quantity)
+        components.append(
+            {
+                "slot": slot,
+                "product_id": p.id,
+                "product_name": p.name,
+                "price": str(p.price),
+            }
+        )
+        total += p.price
+    return {"components": components, "total_price": str(total)}
 
 
 def add_product_to_cart(
-    db: Session,
-    user: User,
-    product_id: int,
-    quantity: int = 1,
+    db: Session, user: User, product_id: int, quantity: int = 1
 ) -> CartItem:
-    """Add a product to the cart."""
     cart = get_or_create_cart(db, user)
-
-    # Check product is active
-    if not _is_product_active(db, product_id):
-        raise ValueError(f"Product {product_id} is not available")
-
-    # Check if product already in cart
-    existing = db.execute(
+    existing = db.scalar(
         select(CartItem).where(
             CartItem.cart_id == cart.id,
             CartItem.kind == "product",
             CartItem.product_id == product_id,
         )
-    ).scalar_one_or_none()
-
-    if existing:
-        existing.quantity += quantity
-        existing.updated_at = datetime.now(UTC)
-        db.flush()
-        db.refresh(existing)
-        return existing
-
-    price = _product_price(db, product_id)
-    if price is None:
-        raise ValueError(f"Product {product_id} price not found")
-
-    item = CartItem(
-        cart_id=cart.id,
-        kind="product",
-        product_id=product_id,
-        quantity=quantity,
     )
-    db.add(item)
+    new_qty = quantity + (existing.quantity if existing else 0)
+    _product(db, product_id, new_qty)
+    if existing:
+        existing.quantity = new_qty
+        item = existing
+    else:
+        item = CartItem(
+            cart_id=cart.id,
+            kind="product",
+            product_id=product_id,
+            quantity=quantity,
+            build_snapshot=None,
+        )
+        db.add(item)
+    item.updated_at = datetime.now(UTC)
     db.flush()
     db.refresh(item)
     return item
 
 
 def add_build_to_cart(
-    db: Session,
-    user: User,
-    saved_build_id: int,
-    quantity: int = 1,
+    db: Session, user: User, saved_build_id: int, quantity: int = 1
 ) -> CartItem:
-    """Add a saved build to the cart as a custom_build item."""
-    cart = get_or_create_cart(db, user)
-
-    # Verify build ownership
-    build = db.execute(
+    build = db.scalar(
         select(SavedBuild).where(
             SavedBuild.id == saved_build_id, SavedBuild.user_id == user.id
         )
-    ).scalar_one_or_none()
-
-    if not build:
-        raise ValueError(f"Build {saved_build_id} not found or not owned by user")
-
-    # Build snapshot
-    items = db.execute(
-        select(SavedBuildItem, Product.name, Product.price)
-        .join(Product, SavedBuildItem.product_id == Product.id)
-        .where(SavedBuildItem.build_id == saved_build_id)
-    ).all()
-
-    snapshot: list[dict] = []
-    total_price = Decimal(0)
-    for build_item, product_name, product_price in items:
-        snapshot.append(
-            {
-                "slot": build_item.slot,
-                "product_id": build_item.product_id,
-                "product_name": product_name,
-                "price": float(product_price),
-            }
-        )
-        total_price += product_price
-
-    # Check if this build already in cart
-    existing = db.execute(
+    )
+    if build is None:
+        raise ValueError("Build not found")
+    cart = get_or_create_cart(db, user)
+    existing = db.scalar(
         select(CartItem).where(
             CartItem.cart_id == cart.id,
             CartItem.kind == "custom_build",
             CartItem.saved_build_id == saved_build_id,
         )
-    ).scalar_one_or_none()
-
-    if existing:
-        existing.quantity += quantity
-        existing.updated_at = datetime.now(UTC)
-        db.flush()
-        db.refresh(existing)
-        return existing
-
-    item = CartItem(
-        cart_id=cart.id,
-        kind="custom_build",
-        saved_build_id=saved_build_id,
-        build_snapshot={"components": snapshot, "total_price": float(total_price)},
-        quantity=quantity,
     )
-    db.add(item)
+    new_qty = quantity + (existing.quantity if existing else 0)
+    selections = {
+        x.slot: x.product_id
+        for x in db.scalars(
+            select(SavedBuildItem).where(SavedBuildItem.build_id == build.id)
+        ).all()
+    }
+    snapshot = _build_snapshot(db, selections, new_qty)
+    if existing:
+        existing.quantity = new_qty
+        existing.build_snapshot = snapshot
+        item = existing
+    else:
+        item = CartItem(
+            cart_id=cart.id,
+            kind="custom_build",
+            saved_build_id=build.id,
+            build_snapshot=snapshot,
+            quantity=quantity,
+        )
+        db.add(item)
+    item.updated_at = datetime.now(UTC)
     db.flush()
     db.refresh(item)
     return item
 
 
+def _owned_item(db: Session, cart_item_id: int, user: User) -> CartItem:
+    # Lock the containing cart before mutation, serializing checkout/add/delete.
+    cart_id = db.scalar(
+        select(CartItem.cart_id)
+        .join(Cart, Cart.id == CartItem.cart_id)
+        .where(CartItem.id == cart_item_id, Cart.user_id == user.id)
+    )
+    if cart_id is None:
+        raise ValueError("Cart item not found")
+    locked = db.scalar(
+        select(Cart.id)
+        .where(Cart.id == cart_id, Cart.user_id == user.id)
+        .with_for_update()
+    )
+    if locked is None:
+        raise ValueError("Cart item not found")
+    item = db.scalar(
+        select(CartItem)
+        .where(CartItem.id == cart_item_id, CartItem.cart_id == locked)
+        .with_for_update()
+    )
+    if item is None:
+        raise ValueError("Cart item not found")
+    return item
+
+
 def update_cart_quantity(
-    db: Session,
-    cart_item_id: int,
-    user: User,
-    quantity: int,
+    db: Session, cart_item_id: int, user: User, quantity: int
 ) -> CartItem:
-    """Update quantity of a cart item."""
-    item = db.execute(
-        select(CartItem).where(CartItem.id == cart_item_id)
-    ).scalar_one_or_none()
-
-    if not item:
-        raise ValueError(f"Cart item {cart_item_id} not found")
-
-    cart = db.execute(select(Cart).where(Cart.id == item.cart_id)).scalar_one_or_none()
-
-    if cart and cart.user_id != user.id:
-        raise ValueError("Cart item does not belong to this user")
-
+    item = _owned_item(db, cart_item_id, user)
+    if item.kind == "product" and item.product_id is not None:
+        _product(db, item.product_id, quantity)
+    elif item.kind == "custom_build":
+        selections = _selections(item.build_snapshot)
+        item.build_snapshot = _build_snapshot(db, selections, quantity)
+    else:
+        raise ValueError("Invalid cart item")
     item.quantity = quantity
     item.updated_at = datetime.now(UTC)
     db.flush()
@@ -210,115 +194,99 @@ def update_cart_quantity(
 
 
 def remove_cart_item(db: Session, cart_item_id: int, user: User) -> None:
-    """Remove a cart item."""
-    item = db.execute(
-        select(CartItem).where(CartItem.id == cart_item_id)
-    ).scalar_one_or_none()
-
-    if not item:
-        raise ValueError(f"Cart item {cart_item_id} not found")
-
-    cart = db.execute(select(Cart).where(Cart.id == item.cart_id)).scalar_one_or_none()
-
-    if cart and cart.user_id != user.id:
-        raise ValueError("Cart item does not belong to this user")
-
-    db.delete(item)
+    db.delete(_owned_item(db, cart_item_id, user))
     db.flush()
 
 
 def get_cart_with_prices(db: Session, user: User) -> Cart | None:
-    """Get cart with current prices."""
-    cart = get_cart(db, user)
-    if cart is None:
-        return None
-    return cart
+    return get_cart(db, user)
+
+
+def _selections(snapshot: dict | None) -> dict[str, int]:
+    if not isinstance(snapshot, dict) or not isinstance(
+        snapshot.get("components"), list
+    ):
+        raise TypeError("Invalid build snapshot")
+    components = snapshot["components"]
+    if any(
+        not isinstance(row, dict) or "slot" not in row or "product_id" not in row
+        for row in components
+    ):
+        raise ValueError("Invalid build snapshot")
+    result = {str(row["slot"]): int(row["product_id"]) for row in components}
+    if len(result) != len(components):
+        raise ValueError("Duplicate build slots")
+    return result
 
 
 def checkout_demo(db: Session, user: User) -> Order:
-    """Process a demo checkout. Creates an Order with snapshots."""
-    cart = get_cart(db, user)
+    # Lock the cart row for the entire transaction. A second request will see
+    # an emptied cart after this transaction commits, not create another order.
+    cart = db.scalar(select(Cart).where(Cart.user_id == user.id).with_for_update())
     if cart is None:
         raise ValueError("No cart found")
-
-    items = (
-        db.execute(select(CartItem).where(CartItem.cart_id == cart.id)).scalars().all()
-    )
-
+    items = db.scalars(
+        select(CartItem)
+        .where(CartItem.cart_id == cart.id)
+        .order_by(CartItem.id)
+        .with_for_update()
+    ).all()
     if not items:
         raise ValueError("Cart is empty")
 
-    # Calculate total from current prices
-    total = Decimal(0)
+    snapshots: list[dict] = []
+    total = Decimal("0.00")
     item_count = 0
-    order_items: list[OrderItem] = []
-
     for item in items:
         if item.kind == "product" and item.product_id is not None:
-            # Fetch current price and product info for snapshot
-            product = db.get(Product, item.product_id)
-            if product is None or not product.is_active:
-                continue
-
-            unit_price = product.price
-            snapshot = OrderItem(
-                order_id=0,  # Will be set after insert
-                kind="product",
-                product_id=item.product_id,
-                sku_snapshot=product.sku,
-                name_snapshot=product.name,
-                image_url_snapshot=None,
-                unit_price=unit_price,
-                quantity=item.quantity,
-                specs_snapshot=product.spec_lines or [],
-                components_snapshot=None,
+            product = _product(db, item.product_id, item.quantity)
+            _list, cover = _images(product)
+            snapshots.append(
+                {
+                    "kind": "product",
+                    "product_id": product.id,
+                    "saved_build_id": None,
+                    "sku_snapshot": product.sku,
+                    "name_snapshot": product.name,
+                    "image_url_snapshot": cover,
+                    "unit_price": product.price,
+                    "quantity": item.quantity,
+                    "specs_snapshot": list(product.spec_lines or []),
+                    "components_snapshot": None,
+                }
             )
-            order_items.append(snapshot)
-            total += unit_price * item.quantity
-            item_count += item.quantity
+            total += product.price * item.quantity
+        elif item.kind == "custom_build":
+            selections = _selections(item.build_snapshot)
+            refreshed = _build_snapshot(db, selections, item.quantity)
+            price = Decimal(refreshed["total_price"])
+            # Cart belongs to this user. Snapshot is immutable even when the
+            # saved build was later edited or removed.
+            build = (
+                db.get(SavedBuild, item.saved_build_id) if item.saved_build_id else None
+            )
+            if build is not None and build.user_id != user.id:
+                raise ValueError("Build does not belong to this user")
+            snapshots.append(
+                {
+                    "kind": "custom_build",
+                    "product_id": None,
+                    "saved_build_id": build.id if build else None,
+                    "sku_snapshot": None,
+                    "name_snapshot": f"Сборка: {build.name}" if build else "Сборка ПК",
+                    "image_url_snapshot": None,
+                    "unit_price": price,
+                    "quantity": item.quantity,
+                    "specs_snapshot": [],
+                    "components_snapshot": refreshed["components"],
+                }
+            )
+            total += price * item.quantity
+        else:
+            # Fail the entire transaction instead of silently removing bad items.
+            raise ValueError("Cart contains an invalid or unavailable item")
+        item_count += item.quantity
 
-        elif item.kind == "custom_build" and item.saved_build_id is not None:
-            build = db.execute(
-                select(SavedBuild).where(SavedBuild.id == item.saved_build_id)
-            ).scalar_one_or_none()
-
-            if build:
-                build_items = db.execute(
-                    select(SavedBuildItem, Product.name, Product.price)
-                    .join(Product, SavedBuildItem.product_id == Product.id)
-                    .where(SavedBuildItem.build_id == build.id)
-                ).all()
-
-                components = []
-                build_total = Decimal(0)
-                for bi, pname, pprice in build_items:
-                    components.append(
-                        {
-                            "slot": bi.slot,
-                            "product_id": bi.product_id,
-                            "product_name": pname,
-                            "price": float(pprice),
-                        }
-                    )
-                    build_total += pprice
-
-                # Use a representative name for the build
-                build_name = f"Сборка: {build.name}"
-                snapshot = OrderItem(
-                    order_id=0,
-                    kind="custom_build",
-                    saved_build_id=item.saved_build_id,
-                    name_snapshot=build_name,
-                    unit_price=build_total,
-                    quantity=item.quantity,
-                    specs_snapshot=[],
-                    components_snapshot=components,
-                )
-                order_items.append(snapshot)
-                total += build_total * item.quantity
-                item_count += 1
-
-    # Create order
     order = Order(
         user_id=user.id,
         status="completed_demo",
@@ -327,23 +295,21 @@ def checkout_demo(db: Session, user: User) -> Order:
     )
     db.add(order)
     db.flush()
-
-    # Update order_id in items and insert
-    for oi in order_items:
-        oi.order_id = order.id
-        db.add(oi)
-
-    # Clear cart items
-    db.execute(CartItem.__table__.delete().where(CartItem.cart_id == cart.id))
-
+    for snapshot in snapshots:
+        db.add(OrderItem(order_id=order.id, **snapshot))
+    db.flush()
+    db.execute(delete(CartItem).where(CartItem.cart_id == cart.id))
     db.flush()
     db.refresh(order)
-
     return order
 
 
 def get_user_orders(db: Session, user: User) -> list[Order]:
-    """Get all orders for a user."""
-    return db.scalars(
-        select(Order).where(Order.user_id == user.id).order_by(Order.created_at.desc())
-    ).all()
+    return list(
+        db.scalars(
+            select(Order)
+            .where(Order.user_id == user.id)
+            .options(selectinload(Order.items))
+            .order_by(Order.created_at.desc(), Order.id.desc())
+        ).all()
+    )

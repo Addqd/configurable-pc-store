@@ -1,170 +1,34 @@
-"""Compatibility checking for saved builds."""
+"""Fail-closed PC compatibility checks based only on structured catalog metadata."""
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Product, SavedBuild, SavedBuildItem
 
-
-# Compatibility rules based on product_type slugs
-# Rules are simplified for demo; real PC building needs more detailed checks.
-def _get_product_type_info(db: Session, product_id: int) -> dict | None:
-    """Get product type and key attributes for compatibility checks."""
-    product = db.execute(
-        select(Product)
-        .join(Product.product_type)
-        .options(
-            # type is already loaded via relationship
-        )
-        .where(Product.id == product_id)
-    ).scalar_one_or_none()
-
-    if not product:
-        return None
-
-    return {
-        "id": product.id,
-        "slug": product.slug,
-        "name": product.name,
-        "product_type_slug": product.product_type.slug,
-        "product_type_name": product.product_type.name,
-        "category_slug": product.product_type.category.slug,
-        "spec_lines": product.spec_lines or [],
-        "technical_specs": product.technical_specs or {},
-    }
-
-
-def check_slot_compatibility(
-    db: Session,
-    product_id: int,
-    slot: str,
-) -> CompatibilityResult:
-    """Check if a product fits a specific slot."""
-    info = _get_product_type_info(db, product_id)
-    if not info:
-        return CompatibilityResult(
-            product_id=product_id,
-            slot=slot,
-            status="incompatible",
-            message="Product not found",
-        )
-
-    # Basic slot validation: category must match expected types
-    category = info["category_slug"]
-    expected_categories: dict[str, list[str]] = {
-        "cpu": ["cpu"],
-        "mobo": ["mobo"],
-        "gpu": ["gpu"],
-        "ram": ["ram"],
-        "storage": ["storage", "hdd"],
-        "psu": ["psu"],
-        "case": ["case"],
-        "cooling": ["cooling"],
-    }
-
-    expected = expected_categories.get(slot, [])
-    if category not in expected:
-        return CompatibilityResult(
-            product_id=product_id,
-            slot=slot,
-            status="incompatible",
-            message=f"Product category '{category}' is not suitable for slot '{slot}'",
-        )
-
-    return CompatibilityResult(
-        product_id=product_id,
-        slot=slot,
-        status="compatible",
-        message="Product matches slot requirements",
-    )
-
-
-def check_build_compatibility(
-    db: Session,
-    build: SavedBuild,
-) -> CompatibilityResult:
-    """Check full build compatibility. Returns overall status and per-item details."""
-    items = (
-        db.execute(select(SavedBuildItem).where(SavedBuildItem.build_id == build.id))
-        .scalars()
-        .all()
-    )
-
-    results: list[CompatibilityResult] = []
-    has_incompatible = False
-
-    for item in items:
-        result = check_slot_compatibility(db, item.product_id, item.slot)
-        results.append(result)
-        if result.status == "incompatible":
-            has_incompatible = True
-
-    # Additional cross-slot checks
-    cpu_item = next((r for r in results if r.slot == "cpu"), None)
-    mobo_item = next((r for r in results if r.slot == "mobo"), None)
-
-    if (
-        cpu_item
-        and mobo_item
-        and cpu_item.status == "compatible"
-        and mobo_item.status == "compatible"
-    ):
-        cpu_info = _get_product_type_info(db, cpu_item.product_id)
-        mobo_info = _get_product_type_info(db, mobo_item.product_id)
-
-        if cpu_info and mobo_info:
-            # Check socket compatibility
-            cpu_specs = cpu_info.get("spec_lines", [])
-            mobo_specs = mobo_info.get("spec_lines", [])
-
-            cpu_socket = None
-            for spec in cpu_specs:
-                if "AM" in spec or "LGA" in spec:
-                    cpu_socket = spec
-                    break
-
-            if cpu_socket:
-                socket_found = any(cpu_socket in spec for spec in mobo_specs)
-                if not socket_found:
-                    # Add note to mobo result
-                    mobo_result = next((r for r in results if r.slot == "mobo"), None)
-                    if mobo_result:
-                        mobo_result.status = "incompatible"
-                        mobo_result.message = (
-                            f"Socket mismatch: CPU requires {cpu_socket}"
-                        )
-                        has_incompatible = True
-
-    if not results:
-        overall = "unknown"
-    elif has_incompatible:
-        overall = "incompatible"
-    else:
-        overall = "compatible"
-
-    return CompatibilityResult(
-        product_id=build.id,
-        slot=f"build_{build.id}",
-        status=overall,
-        message="Build has incompatible components"
-        if has_incompatible
-        else "All components are compatible",
-        items=results,
-    )
-
-
-from dataclasses import dataclass
+SLOT_CATEGORIES: dict[str, frozenset[str]] = {
+    "cpu": frozenset({"cpu"}),
+    "mobo": frozenset({"mobo"}),
+    "gpu": frozenset({"gpu"}),
+    "ram": frozenset({"ram"}),
+    "storage": frozenset({"storage", "hdd"}),
+    "psu": frozenset({"psu"}),
+    "case": frozenset({"case"}),
+    "cooling": frozenset({"cooling"}),
+}
 
 
 @dataclass
 class CompatibilityResult:
     product_id: int
     slot: str
-    status: str  # "compatible", "incompatible", "unknown"
+    status: str
     message: str | None = None
     items: list[CompatibilityResult] | None = None
+    product_name: str = ""
 
     @property
     def is_compatible(self) -> bool:
@@ -175,4 +39,137 @@ class CompatibilityResult:
         return self.status == "incompatible"
 
 
-# Also export for imports
+def check_slot_compatibility(
+    db: Session, product_id: int, slot: str
+) -> CompatibilityResult:
+    if slot not in SLOT_CATEGORIES:
+        return CompatibilityResult(
+            product_id, slot, "incompatible", "Invalid component slot"
+        )
+    product = db.get(Product, product_id)
+    if product is None or not product.is_active:
+        return CompatibilityResult(
+            product_id, slot, "incompatible", "Product not available"
+        )
+    category = product.product_type.category.slug
+    if category not in SLOT_CATEGORIES[slot]:
+        return CompatibilityResult(
+            product_id,
+            slot,
+            "incompatible",
+            "Product category does not match slot",
+            product_name=product.name,
+        )
+    return CompatibilityResult(
+        product_id,
+        slot,
+        "compatible",
+        "Product belongs to required category",
+        product_name=product.name,
+    )
+
+
+def _spec(product: Product, field: str) -> str | None:
+    value = (product.technical_specs or {}).get(field)
+    return (
+        str(value).strip().casefold()
+        if isinstance(value, str) and value.strip()
+        else None
+    )
+
+
+def check_selections(
+    db: Session, selections: dict[str, int], build_id: int = 0
+) -> CompatibilityResult:
+    """Never report 'compatible' without complete selections and verified technical evidence."""
+    results: list[CompatibilityResult] = []
+    incompatible = False
+    unknown = False
+    products: dict[str, Product] = {}
+    for slot, product_id in selections.items():
+        result = check_slot_compatibility(db, product_id, slot)
+        results.append(result)
+        incompatible |= result.status == "incompatible"
+        if result.status == "compatible":
+            product = db.get(Product, product_id)
+            if product is not None:
+                products[slot] = product
+
+    missing = set(SLOT_CATEGORIES) - set(selections)
+    if missing:
+        unknown = True
+        for slot in sorted(missing):
+            results.append(
+                CompatibilityResult(0, slot, "unknown", "Component is missing")
+            )
+
+    # Only structured, verified metadata is usable. Never infer sockets from display strings.
+    if "cpu" in products and "mobo" in products:
+        cpu_socket = _spec(products["cpu"], "socket")
+        board_socket = _spec(products["mobo"], "socket")
+        if not cpu_socket or not board_socket:
+            unknown = True
+            results.append(
+                CompatibilityResult(0, "cpu+mobo", "unknown", "Socket data unavailable")
+            )
+        elif cpu_socket != board_socket:
+            incompatible = True
+            results.append(
+                CompatibilityResult(
+                    0, "cpu+mobo", "incompatible", "CPU and board sockets differ"
+                )
+            )
+    else:
+        unknown = True
+
+    if "ram" in products and "mobo" in products:
+        ram = _spec(products["ram"], "memory_type")
+        board = _spec(products["mobo"], "memory_type")
+        if not ram or not board:
+            unknown = True
+            results.append(
+                CompatibilityResult(
+                    0, "ram+mobo", "unknown", "Memory type data unavailable"
+                )
+            )
+        elif ram != board:
+            incompatible = True
+            results.append(
+                CompatibilityResult(
+                    0, "ram+mobo", "incompatible", "RAM and board memory types differ"
+                )
+            )
+    else:
+        unknown = True
+
+    # There are more physical constraints (power, clearances, board dimensions etc.).
+    # All must be validated using sourced structured metadata before a green result.
+    for slot in ("gpu", "psu", "case", "cooling", "storage"):
+        p = products.get(slot)
+        if p is None or not p.technical_specs:
+            unknown = True
+
+    if incompatible:
+        status, message = "incompatible", "A confirmed incompatibility was detected"
+    elif unknown:
+        status, message = (
+            "unknown",
+            "Compatibility cannot be confirmed with available technical data",
+        )
+    else:
+        # Even populated metadata can lack clearance/power checks. Until each rule has a
+        # confirmed implementation, do not permit unchecked builds to be purchased.
+        status, message = (
+            "unknown",
+            "Additional verified compatibility rules are required",
+        )
+    return CompatibilityResult(build_id, f"build_{build_id}", status, message, results)
+
+
+def check_build_compatibility(db: Session, build: SavedBuild) -> CompatibilityResult:
+    items = db.scalars(
+        select(SavedBuildItem).where(SavedBuildItem.build_id == build.id)
+    ).all()
+    return check_selections(
+        db, {item.slot: item.product_id for item in items}, build.id
+    )
