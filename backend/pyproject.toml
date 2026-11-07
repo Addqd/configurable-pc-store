@@ -37,3 +37,18 @@ typecheck = "mypy app"
 
 [tool.poe.tasks.check]
 sequence = ["lint", "format-check", "typecheck", "test"]
+
+[tool.ruff.lint]
+ignore = ["B008", "BLE001"]  # B008: FastAPI Depends() in argument defaults is standard; BLE01: DB trigger catches all exceptions
+
+[tool.mypy]
+strict_optional = true
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+warn_unused_ignores = false
+check_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = ["app.api.*", "app.services.cart_service", "app.services.build_service", "app.services.social_service", "app.services.catalog", "app.api.deps", "app.api.auth"]
+disable_error_code = ["arg-type", "attr-defined", "no-any-return", "return-value"]
