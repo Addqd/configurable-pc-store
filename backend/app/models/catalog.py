@@ -24,6 +24,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -98,13 +99,19 @@ class Product(Base):
     color: Mapped[str | None] = mapped_column(String(80))
     graphics_chip_brand: Mapped[str | None] = mapped_column(String(40))
     spec_lines: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+        MutableList.as_mutable(JSONB),
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
     )
     short_specs: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
+        MutableList.as_mutable(JSONB),
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
     )
     technical_specs: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'{}'::jsonb")
+        MutableDict.as_mutable(JSONB),
+        nullable=False,
+        server_default=text("'{}'::jsonb"),
     )
     on_sale: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")

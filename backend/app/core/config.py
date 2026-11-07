@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL
 
@@ -17,7 +18,7 @@ class AppSettings(BaseSettings):
 
     postgres_db: str
     postgres_user: str
-    postgres_password: str
+    postgres_password: SecretStr
     postgres_host: str = "127.0.0.1"
     postgres_port: int = 55432
 
@@ -27,7 +28,7 @@ class AppSettings(BaseSettings):
         return URL.create(
             drivername="postgresql+psycopg",
             username=self.postgres_user,
-            password=self.postgres_password,
+            password=self.postgres_password.get_secret_value(),
             host=self.postgres_host,
             port=self.postgres_port,
             database=self.postgres_db,

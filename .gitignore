@@ -1,5 +1,9 @@
-# Never commit per-task agent state
-.agent/TASK.md
+# Never commit per-task agent state (including nested backend task logs)
+**/.agent/TASK.md
+
+# Root-level local backup archive (contains a copy of .venv and historical test files)
+/backend.rar
+/docs/references/pcbuilder.rar
 
 # Secrets / local configuration
 .env
