@@ -22,6 +22,18 @@ class AppSettings(BaseSettings):
     postgres_host: str = "127.0.0.1"
     postgres_port: int = 55432
 
+    # JWT settings
+    jwt_secret_key: str = "change-me-in-production"
+    jwt_algorithm: str = "HS256"
+    access_token_minutes: int = 15
+    refresh_token_days: int = 7
+
+    # CSRF / cookie settings
+    csrf_secret: str = "change-me-csrf-too"
+    cookie_domain: str | None = None
+    cookie_secure: bool = False  # True behind TLS in production
+    cookie_samesite: str = "lax"
+
     @property
     def database_url(self) -> URL:
         """Build a safe SQLAlchemy URL (including passwords with reserved characters)."""
