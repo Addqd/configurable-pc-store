@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { catalogDisplay } from '../i18n/catalogDisplay'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { Header } from '../components/Header'
@@ -12,39 +12,48 @@ import { BuilderSidebar } from '../components/BuilderSidebar'
 import { BuilderSpecsTable } from '../components/BuilderSpecsTable'
 import { BuilderActions } from '../components/BuilderActions'
 import {
-  useBuilderStore, BUILDER_CATEGORIES, countSelected,
-  checkBuildCompatibility, isBuildCartEligible, createBuildCartPayload,
+  useBuilderStore, BUILDER_CATEGORIES, countSelected, type BuilderSelections,
 } from '../stores/builderStore'
-import { useCartStore } from '../stores/cartStore'
-import placeholder from '../assets/placeholder.jpg'
+import { createBuildApiV1BuildsPost, updateBuildApiV1BuildsBuildIdPut, addBuildApiV1CartBuildsPost, useGetBuildApiV1BuildsBuildIdGet, checkCurrentCompatibilityApiV1BuildsCompatibilityPost } from '../api/generated/client'
 import { FiCheckCircle } from 'react-icons/fi'
+import { checkTouchesComponent, compatibilityMessage } from '../data/compatibilityMessages'
 
 export function BuilderPage() {
   const { t } = useTranslation()
   const [confirmAction, setConfirmAction] = useState<'clear' | null>(null)
-  const [addedToCart, setAddedToCart] = useState(false)
-  const [created, setCreated] = useState(false)
+  const [addedToCartFor, setAddedToCartFor] = useState<BuilderSelections | null>(null)
+  const [createdFor, setCreatedFor] = useState<BuilderSelections | null>(null)
   const [saveOpen, setSaveOpen] = useState(false)
   const [saveName, setSaveName] = useState(t('builder.save_name_placeholder'))
   const [saveDescription, setSaveDescription] = useState('')
   const [saveError, setSaveError] = useState('')
-  const [saveNotice, setSaveNotice] = useState('')
+  const [savedNotice, setSavedNotice] = useState<{ selections: BuilderSelections; message: string } | null>(null)
   const openAuthModal = useUIStore((state) => state.openAuthModal)
   const activeAccountId = useAccountStore((state) => state.activeAccountId)
   const editingBuildId = useBuilderStore((state) => state.editingBuildId)
-  const saveBuild = useBuilderStore((state) => state.saveBuild)
   const selections = useBuilderStore((state) => state.selections)
+  const addedToCart = addedToCartFor === selections
+  const created = createdFor === selections
+  const saveNotice = savedNotice?.selections === selections ? savedNotice.message : ''
   const clearAll = useBuilderStore((state) => state.clearAll)
   const count = countSelected(selections)
-  const canCreate = isBuildCartEligible(selections)
+  const client = useQueryClient()
+  const saved = useGetBuildApiV1BuildsBuildIdGet(editingBuildId ?? 0, { query: { enabled: !!activeAccountId && editingBuildId !== null, retry: false } })
+  const matchesSaved = !!saved.data && (saved.data.items ?? []).length === count && BUILDER_CATEGORIES.every(slot =>
+    (selections[slot]?.id ?? null) === ((saved.data?.items ?? []).find(item => item.slot === slot)?.product_id ?? null))
+  const items = BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
+  const compatibility = useQuery({ queryKey: ['current-compatibility', items], enabled: count > 0, retry: false,
+    queryFn: ({ signal }) => checkCurrentCompatibilityApiV1BuildsCompatibilityPost({ items }, { signal }) })
+  const status = compatibility.isSuccess && !compatibility.isFetching ? compatibility.data.overall_status : 'unknown'
+  const diagnostics = compatibility.isSuccess && !compatibility.isFetching ? compatibility.data.items.filter(item => item.status !== 'compatible') : []
+  const relevant = diagnostics.filter(item => status === 'incompatible' ? item.status === 'incompatible' : item.status === 'unknown')
+  const messages = [...new Set(relevant.map(item => compatibilityMessage(item, t)))]
+  const canCreate = count > 0
   const missing = BUILDER_CATEGORIES.filter((category) => !selections[category])
-  const conflicts = checkBuildCompatibility(selections).filter((check) => check.status === 'incompatible')
   const validationMessage = [
     missing.length > 0 ? t('builder.select_missing', { components: missing.map((category) => t('builder.components.' + category)).join(', ') }) : '',
-    conflicts.length > 0 ? t('builder.compatibility_error', { conflicts: conflicts.map((check) => catalogDisplay(check.label)).join(', ') }) : '',
   ].filter(Boolean).join(' ')
 
-  useEffect(() => { setAddedToCart(false); setCreated(false); setSaveNotice('') }, [selections])
   useEffect(() => {
     if (!confirmAction) return
     const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setConfirmAction(null) }
@@ -57,17 +66,17 @@ export function BuilderPage() {
     document.addEventListener('keydown', onEscape)
     return () => document.removeEventListener('keydown', onEscape)
   }, [saveOpen])
-  const addBuild = useCartStore((state) => state.addBuild)
+  const addBuild = useMutation({ mutationFn: (id: number) => addBuildApiV1CartBuildsPost({ saved_build_id: id, quantity: 1 }), onSuccess: () => client.invalidateQueries() })
+  const saveMutation = useMutation({ mutationFn: async ({ name, description }: { name: string; description: string }) => {
+    const items = BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
+    if (editingBuildId === null) return createBuildApiV1BuildsPost({ name, description, items })
+    return updateBuildApiV1BuildsBuildIdPut(editingBuildId, { name, description, items })
+  }, onSettled: () => client.invalidateQueries() })
 
-  const handleAddToCart = () => {
-    const current = useBuilderStore.getState().selections
-    const cartItems = useCartStore.getState().items
-    let id = Date.now()
-    while (cartItems.some((item) => item.id === id)) id += 1
-    const payload = createBuildCartPayload(current, id, placeholder)
-    if (!payload) return
-    addBuild(payload)
-    setAddedToCart(true)
+  const handleAddToCart = async () => {
+    if (editingBuildId === null || status !== 'compatible' || !matchesSaved) return
+    try { await addBuild.mutateAsync(editingBuildId); setAddedToCartFor(selections) }
+    catch { setSaveError(t('common.load_error')) }
   }
 
   const requestClear = () => {
@@ -75,43 +84,42 @@ export function BuilderPage() {
   }
 
   const handleCreate = () => {
-    if (!isBuildCartEligible(useBuilderStore.getState().selections)) return
-    setCreated(true)
+    if (status !== 'compatible') return
+    setCreatedFor(selections)
   }
 
   const requestSave = () => {
-    if (!isBuildCartEligible(useBuilderStore.getState().selections)) return
+    if (!canCreate) return
     if (!activeAccountId) {
       openAuthModal('login')
       return
     }
-    const editing = editingBuildId === null ? undefined :
-      useBuilderStore.getState().getSavedBuild(editingBuildId, activeAccountId)
+    const editing = saved.data
     setSaveName(editing?.name ?? t('builder.save_name_placeholder'))
     setSaveDescription(editing?.description ?? '')
     setSaveError('')
     setSaveOpen(true)
   }
 
-  const submitSave = (event: FormEvent<HTMLFormElement>) => {
+  const submitSave = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setSaveError('')
     if (!activeAccountId) { setSaveOpen(false); openAuthModal('login'); return }
     if (!saveName.trim()) { setSaveError(t('builder.save_error_required')); return }
     if (saveName.trim().length > 100) { setSaveError(t('builder.save_error_maxlen')); return }
-    const build = saveBuild(saveName, saveDescription, placeholder, activeAccountId)
-    if (!build) {
-      setSaveError(t('builder.save_error_account'))
-      return
-    }
-    setSaveOpen(false)
-    setSaveNotice(t('builder.save_success', { name: build.name }))
+    try {
+      const build = await saveMutation.mutateAsync({ name: saveName.trim(), description: saveDescription.trim() })
+      if (useAccountStore.getState().activeAccountId !== activeAccountId) return
+      useBuilderStore.setState({ editingBuildId: build.id })
+      setSaveOpen(false)
+      setSavedNotice({ selections, message: t('builder.save_success', { name: saveName.trim() }) })
+    } catch { setSaveError(t('builder.save_error_account')) }
   }
 
   const confirmClear = () => {
     clearAll()
-    setAddedToCart(false)
-    setCreated(false)
+    setAddedToCartFor(null)
+    setCreatedFor(null)
     setConfirmAction(null)
   }
 
@@ -131,7 +139,7 @@ export function BuilderPage() {
               </div>
 
               <div className="space-y-2">
-                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} />)}
+                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} conflicts={[...new Set(diagnostics.filter(item => item.status === 'incompatible' && checkTouchesComponent(item.slot, category)).map(item => compatibilityMessage(item, t)))]} />)}
               </div>
 
               <div className="mt-3"><BuilderSpecsTable /></div>
@@ -141,7 +149,8 @@ export function BuilderPage() {
                   onClear={requestClear}
                   onSave={requestSave}
                   hasSelections={count > 0 || editingBuildId !== null}
-                  canCreate={canCreate}
+                  canCreate={status === 'compatible'}
+                  canSave={canCreate}
                   validationMessage={validationMessage}
                 />
               </div>
@@ -163,7 +172,7 @@ export function BuilderPage() {
                 </div>
               )}
             </section>
-            <BuilderSidebar onAddToCart={handleAddToCart} />
+            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={compatibility.isSuccess} loading={compatibility.isFetching} error={compatibility.isError} messages={messages} />
           </div>
         </div>
       </main>
@@ -213,7 +222,7 @@ export function BuilderPage() {
               </div>
               <div className="flex flex-wrap justify-end gap-3">
                 <button type="button" onClick={() => setSaveOpen(false)} className="rounded-lg border border-border px-4 py-2 text-text-primary hover:bg-surface-3">{t('builder.cancel')}</button>
-                <button type="submit" className="rounded-lg bg-primary px-4 py-2 font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('builder.save')}</button>
+                <button type="submit" disabled={saveMutation.isPending} className="rounded-lg bg-primary px-4 py-2 font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('builder.save')}</button>
               </div>
             </form>
           </div>

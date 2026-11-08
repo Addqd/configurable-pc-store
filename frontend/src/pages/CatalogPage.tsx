@@ -8,9 +8,10 @@ import { Footer } from '../components/Footer'
 import { CatalogProductCard } from '../components/CatalogProductCard'
 import { FilterDrawer } from '../components/FilterDrawer'
 import {
-  allCatalogProducts, PAGE_SIZE, readFilters, writeFilters, filterCatalog,
-  clampPage, getPageNumbers, type FilterState,
+  readFilters, writeFilters, getPageNumbers, type FilterState,
 } from '../data/catalogModel'
+import { useGetFilterOptionsApiV1ProductsFiltersGet, useListProductsApiV1ProductsGet } from '../api/generated/client'
+import { catalogParams, productFromSummary } from '../api/catalogAdapter'
 
 export function CatalogPage() {
   const { t } = useTranslation()
@@ -20,10 +21,18 @@ export function CatalogPage() {
   const query=searchParams.get('q') || ''
   const [draft,setDraft]=useState<FilterState>(()=>readFilters(searchParams))
   const openButtonRef=useRef<HTMLButtonElement>(null)
-  const products=useMemo(()=>filterCatalog(allCatalogProducts,applied,query),[applied,query])
-  const totalPages=Math.max(1,Math.ceil(products.length/PAGE_SIZE))
-  const currentPage=clampPage(searchParams.get('page'),products.length)
-  const pageProducts=products.slice((currentPage-1)*PAGE_SIZE,currentPage*PAGE_SIZE)
+  const allOptions = useGetFilterOptionsApiV1ProductsFiltersGet()
+  const rawPage = Number(searchParams.get('page') || 1)
+  const requestedPage = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1
+  const params = allOptions.data ? catalogParams(applied, query, requestedPage, allOptions.data) : undefined
+  const products = useListProductsApiV1ProductsGet(params, { query: { enabled: !!params } })
+  const draftParams = allOptions.data ? catalogParams(draft, '', 1, allOptions.data) : undefined
+  const filteredOptions = useGetFilterOptionsApiV1ProductsFiltersGet(draftParams && {
+    categories: draftParams.categories, types: draftParams.types,
+  }, { query: { enabled: filtersOpen && !!draftParams } })
+  const totalPages = products.data?.total_pages ?? 1
+  const currentPage = Math.min(requestedPage, totalPages)
+  const pageProducts = products.data?.items.map(productFromSummary) ?? []
   const pagination=getPageNumbers(currentPage,totalPages)
 
   // Header/hamburger links may change the catalog URL while the drawer is open.
@@ -34,12 +43,12 @@ export function CatalogPage() {
   },[searchParams])
   useEffect(()=>{
     const raw=searchParams.get('page')
-    if(raw && raw!==String(currentPage)){
+    if(products.data && raw && raw!==String(currentPage)){
       const fixed=new URLSearchParams(searchParams)
       if(currentPage===1) fixed.delete('page'); else fixed.set('page',String(currentPage))
       setSearchParams(fixed,{replace:true})
     }
-  },[currentPage,searchParams,setSearchParams])
+  },[currentPage,searchParams,setSearchParams,products.data])
 
   const open=()=>{setDraft(readFilters(searchParams));setFiltersOpen(true)}
   const close=useCallback(()=>{setFiltersOpen(false);openButtonRef.current?.focus()},[])
@@ -60,10 +69,10 @@ export function CatalogPage() {
       <div className="mx-auto max-w-[1320px] px-4 pt-4"><BackButton /></div>
       <div className="mx-auto flex max-w-[1320px] items-center justify-between px-4 py-4">
         <button ref={openButtonRef} type="button" onClick={open} aria-haspopup="dialog" aria-expanded={filtersOpen} className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-medium text-text-primary hover:border-border-hover hover:bg-surface-3"><FiFilter className="h-4 w-4" aria-hidden="true"/>{t('catalog.filters')}</button>
-        <span className="text-sm text-text-muted">{t('catalog.found', { count: products.length, count_label: t('common.product_labels', { count: products.length }) })}</span>
+        {products.data && <span className="text-sm text-text-muted">{t('catalog.found', { count: products.data.total, count_label: t('common.product_labels', { count: products.data.total }) })}</span>}
       </div>
       <div className="mx-auto max-w-[1320px] px-4 pb-6">
-        {pageProducts.length ? <>
+        {products.isError || allOptions.isError ? <div role="alert" className="py-20 text-center text-text-muted">{t('common.load_error')}</div> : products.isLoading || allOptions.isLoading ? <div role="status" className="py-20 text-center text-text-muted">{t('common.loading')}</div> : pageProducts.length ? <>
           <div className="flex flex-wrap justify-center gap-3" data-testid="catalog-grid">
             {pageProducts.map(p=><div key={p.id} className="min-w-0 w-[calc((100%-0.75rem)/2)] sm:w-[calc((100%-1.5rem)/3)] md:w-[calc((100%-2.25rem)/4)] lg:w-[calc((100%-3rem)/5)] xl:w-[calc((100%-4.5rem)/7)]"><CatalogProductCard product={p}/></div>)}
           </div>
@@ -76,6 +85,6 @@ export function CatalogPage() {
       </div>
     </main>
     <Footer />
-    <FilterDrawer open={filtersOpen} filters={draft} onFiltersChange={setDraft} onApply={apply} onClose={close}/>
+    <FilterDrawer open={filtersOpen} filters={draft} onFiltersChange={setDraft} onApply={apply} onClose={close} options={filteredOptions.data ?? allOptions.data}/>
   </div>
 }

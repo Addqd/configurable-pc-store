@@ -96,9 +96,11 @@ def login(
         raise HTTPException(status_code=401, detail="Invalid credentials") from None
     refresh = create_refresh_token(str(user.id))
     expires = datetime.now(UTC) + timedelta(days=get_settings().refresh_token_days)
-    auth_svc.create_auth_session(db, user, refresh, expires)
+    session = auth_svc.create_auth_session(db, user, refresh, expires)
     _set_cookies(response, refresh)
-    return TokenResponse(access_token=create_access_token(str(user.id)))
+    return TokenResponse(
+        access_token=create_access_token(str(user.id), str(session.id))
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -124,13 +126,15 @@ def refresh(
     new_refresh = create_refresh_token(str(uid))
     expires = datetime.now(UTC) + timedelta(days=get_settings().refresh_token_days)
     try:
-        auth_svc.rotate_refresh_token(db, user, refresh_token, new_refresh, expires)
+        session = auth_svc.rotate_refresh_token(
+            db, user, refresh_token, new_refresh, expires
+        )
     except ValueError:
         raise HTTPException(
             status_code=401, detail="Refresh session expired or revoked"
         ) from None
     _set_cookies(response, new_refresh)
-    return TokenResponse(access_token=create_access_token(str(uid)))
+    return TokenResponse(access_token=create_access_token(str(uid), str(session.id)))
 
 
 @router.post("/logout")

@@ -107,12 +107,13 @@
     "category_empty": "No products yet"
   },
   "product": {
+    "out_of_stock": "Out of stock",
     "not_found": "Product not found",
     "not_found_desc": "It seems this product is not in the catalog.",
     "spec": "SKU",
     "price": "Price",
-    "in_stock": "In stock (demo)",
-    "availability_note": "Availability and prices are shown for demonstration purposes",
+    "in_stock": "In stock",
+    "availability_note": "Availability and price are checked at checkout",
     "quantity": "Quantity",
     "add_to_cart": "Add to cart",
     "buy_now": "Buy now",
@@ -144,7 +145,7 @@
   "cart": {
     "title": "Shopping Cart",
     "empty_title": "Cart is empty",
-    "empty_desc": "Add products from the catalog or load a demo set for testing.",
+    "empty_desc": "Add products from the catalog.",
     "go_catalog": "Go to catalog",
     "load_demo": "Load demo",
     "summary": "Your order",
@@ -182,7 +183,8 @@
     "add_to_cart": "Add build to cart",
     "cart_validation": "Select all components: {{left}} of {{total}} remaining.",
     "compatibility_error": "Fix incompatibility: {{conflicts}}.",
-    "partial_check": "Some checks unavailable. Adding does not guarantee full compatibility.",
+    "resolve_conflicts": "Resolve the listed incompatibilities.",
+    "partial_check": "Save the build and wait for compatibility confirmation before adding it to the cart.",
     "specs": "Build specifications",
     "specs_placeholder": "Select components to see their specs.",
     "create": "Create build",
@@ -199,6 +201,7 @@
     "save_error_required": "Enter a build name.",
     "save_error_maxlen": "Name must not exceed 100 characters.",
     "save_error_account": "Could not save build. Check components and current account.",
+    "save_partial_error": "Components were saved, but the name or description could not be updated. Try saving again.",
     "save_success": "Build “{{name}}” saved.",
     "saved_builds": "My builds",
     "build_ready": "Build ready. You can now add it to cart.",
@@ -213,6 +216,40 @@
       "psu": "Power Supply",
       "case": "Case",
       "cooling": "Cooling"
+    },
+    "diagnostics": {
+      "missing": "Component not selected: {{component}}",
+      "invalid_product": "{{component}}: product is unavailable or does not fit this slot",
+      "unknown": "Insufficient data: {{check}}",
+      "incompatible": "Incompatible: {{check}}",
+      "checks": {
+        "cpu_mobo_socket": "CPU and motherboard sockets",
+        "cpu_mobo_bios_support": "CPU and motherboard BIOS support",
+        "ram_mobo_type": "memory and motherboard type",
+        "ram_mobo_capacity": "memory capacity and motherboard limit",
+        "ram_mobo_slots": "memory modules and slots",
+        "mobo_case_form_factor": "motherboard and case form factors",
+        "cpu_cooling_socket": "CPU socket and cooler mount",
+        "cpu_cooling_thermal": "CPU heat and cooler capacity",
+        "cooling_case_height": "cooler and case height",
+        "cooling_case_radiator": "radiator and case mounting",
+        "cooling_case_mount": "cooler type and mount",
+        "ram_cooling_clearance": "memory height and cooler clearance",
+        "gpu_case_length": "graphics card and case length",
+        "gpu_case_thickness": "graphics card and case thickness",
+        "gpu_mobo_slot": "graphics card interface and motherboard slot",
+        "storage_mobo_interface": "storage and motherboard interfaces",
+        "storage_mobo_length": "storage length and motherboard slot",
+        "storage_case_bay": "storage and case bay",
+        "storage_physical_fit": "storage type and mounting",
+        "psu_case_form_factor": "power supply and case form factors",
+        "psu_case_length": "power supply and case length",
+        "psu_gpu_connectors": "graphics card power connectors",
+        "psu_mobo_main_connector": "main motherboard power connector",
+        "psu_mobo_connectors": "CPU power connector",
+        "psu_system_power": "total power draw and power supply capacity",
+        "other": "component compatibility check"
+      }
     },
     "component_not_selected": "Component not selected",
     "replace": "Replace",
@@ -267,7 +304,7 @@
     },
     "availability": "Availability not specified",
     "build_check_enabled": "Compatibility check enabled",
-    "build_check_desc": "We check only parameters confirmed by catalog specs."
+    "build_check_desc": "The server checks compatibility after the build is saved."
   },
   "saved_builds": {
     "title": "My Builds",
@@ -381,7 +418,7 @@
     "register_btn": "Register",
     "register_loading": "Registering...",
     "validation_email": "Invalid email format",
-    "validation_username_min": "At least 2 characters",
+    "validation_username_min": "At least 3 characters",
     "validation_password_min": "At least 8 characters",
     "validation_confirm_required": "Confirm password",
     "validation_passwords_match": "Passwords do not match",
@@ -392,6 +429,8 @@
     "register_error": "Could not complete registration"
   },
   "reviews": {
+    "edit": "Edit review",
+    "delete": "Delete review",
     "title": "Write a Review",
     "name": "Name",
     "name_placeholder": "What is your name?",
@@ -407,6 +446,7 @@
     "stars_n": "Give {{count}} stars"
   },
   "common": {
+    "load_error": "Could not load data. Please try again.",
     "back": "Back",
     "back_title": "Go back to the previous page",
     "close": "Close",

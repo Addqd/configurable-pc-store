@@ -1,12 +1,11 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Header } from '../components/Header'
 import { Footer } from '../components/Footer'
 import { BackButton } from '../components/BackButton'
 import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
-import { useCartStore } from '../stores/cartStore'
+import { useGetOrdersApiV1CartOrdersGet, useGetProfileApiV1ProfileGet } from '../api/generated/client'
 import { useUIStore } from '../stores/uiStore'
-import { countAccountReviews, REVIEWS_UPDATED_EVENT } from '../data/reviewStorage'
 import placeholder from '../assets/placeholder.jpg'
 import { FiCamera, FiCheck, FiAlertCircle, FiTrash2, FiShoppingCart, FiMessageSquare, FiEye, FiEyeOff } from 'react-icons/fi'
 import { Link } from 'react-router'
@@ -49,15 +48,22 @@ async function imageToAvatar(file: File): Promise<string> {
       image.src = objectUrl
     })
     const canvas = document.createElement('canvas')
-    canvas.width = 256
-    canvas.height = 256
     const context = canvas.getContext('2d')
     if (!context) throw new Error('Невозможно обработать изображение')
     const side = Math.min(image.naturalWidth, image.naturalHeight)
-    context.drawImage(image,
-      (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side,
-      0, 0, 256, 256)
-    return canvas.toDataURL('image/jpeg', 0.78)
+    // The existing backend accepts avatar URLs up to 2048 characters.
+    for (const size of [128, 96, 64, 48, 32, 24]) {
+      canvas.width = size
+      canvas.height = size
+      context.drawImage(image,
+        (image.naturalWidth - side) / 2, (image.naturalHeight - side) / 2, side, side,
+        0, 0, size, size)
+      for (const quality of [0.78, 0.55, 0.35]) {
+        const data = canvas.toDataURL('image/jpeg', quality)
+        if (data.length <= 2048) return data
+      }
+    }
+    throw new Error('account.avatar_error_size')
   } finally {
     URL.revokeObjectURL(objectUrl)
   }
@@ -71,11 +77,12 @@ function AccountContent() {
   const changePassword = useAccountStore((s) => s.changePassword)
   const deleteAccount = useAccountStore((s) => s.deleteAccount)
   const openAuthModal = useUIStore((s) => s.openAuthModal)
-  const orders = useCartStore((s) => s.orders)
-  const [reviewCount, setReviewCount] = useState(0)
+  const orders = useGetOrdersApiV1CartOrdersGet({ query: { enabled: !!account, retry: false } })
+  const profileStats = useGetProfileApiV1ProfileGet({ query: { enabled: !!account, retry: false } })
   const inputRef = useRef<HTMLInputElement>(null)
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
+  const [profileDraft, setProfileDraft] = useState<{
+    originalName: string; originalEmail: string; name: string; email: string
+  } | null>(null)
   const [profileMessage, setProfileMessage] = useState('')
   const [profileError, setProfileError] = useState('')
   const [avatarError, setAvatarError] = useState('')
@@ -86,22 +93,6 @@ function AccountContent() {
   const [passwordError, setPasswordError] = useState('')
   const [changingPassword, setChangingPassword] = useState(false)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
-
-  useEffect(() => {
-    setName(account?.displayName ?? '')
-    setEmail(account?.email ?? '')
-  }, [account?.id, account?.displayName, account?.email])
-
-  useEffect(() => {
-    const refresh = () => setReviewCount(account ? countAccountReviews(account.id) : 0)
-    refresh()
-    window.addEventListener(REVIEWS_UPDATED_EVENT, refresh)
-    window.addEventListener('storage', refresh)
-    return () => {
-      window.removeEventListener(REVIEWS_UPDATED_EVENT, refresh)
-      window.removeEventListener('storage', refresh)
-    }
-  }, [account?.id])
 
   if (!account) {
     return (
@@ -119,13 +110,19 @@ function AccountContent() {
     )
   }
 
-  const purchaseCount = orders.filter((order) => order.ownerId === account.id).length
+  const draft = profileDraft?.originalName === account.displayName && profileDraft.originalEmail === account.email
+    ? profileDraft
+    : { originalName: account.displayName, originalEmail: account.email, name: account.displayName, email: account.email }
+  const { name, email } = draft
 
-  const saveProfile = (event: FormEvent<HTMLFormElement>) => {
+  const purchaseCount = orders.data?.length ?? '—'
+  const reviewCount = typeof profileStats.data?.review_count === 'number' ? profileStats.data.review_count : '—'
+
+  const saveProfile = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setProfileMessage('')
     setProfileError('')
-    const result = updateProfile({ displayName: name, email })
+    const result = await updateProfile({ displayName: name, email })
     if (result.success) setProfileMessage(t('account.profile_saved'))
     else setProfileError(result.error)
   }
@@ -141,6 +138,7 @@ function AccountContent() {
       if (result.success) {
         setCurrentPassword(''); setNewPassword(''); setRepeatPassword('')
         setPasswordMessage(t('account.password_changed'))
+        openAuthModal('login')
       } else setPasswordError(result.error)
     } catch { setPasswordError(t('account.password_change_error')) }
     finally { setChangingPassword(false) }
@@ -155,7 +153,7 @@ function AccountContent() {
     try {
       const image = await imageToAvatar(file)
       if (!uploadingFor || useAccountStore.getState().activeAccountId !== uploadingFor) return
-      if (!setAvatar(image)) setAvatarError(t('account.avatar_error_save'))
+      if (!await setAvatar(image)) setAvatarError(t('account.avatar_error_save'))
     } catch (error) {
       const msg = error instanceof Error ? t(error.message) : t('account.avatar_error_load')
       setAvatarError(msg)
@@ -204,12 +202,12 @@ function AccountContent() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5 mb-5">
               <div>
                 <label htmlFor="profile-name" className="block text-sm text-text-muted mb-2">{t('account.name')}</label>
-                <input id="profile-name" type="text" value={name} onChange={(e) => setName(e.target.value)}
+                <input id="profile-name" type="text" value={name} onChange={(e) => setProfileDraft({ ...draft, name: e.target.value })}
                   className="w-full h-12 px-4 rounded-lg border border-border bg-surface-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
               <div>
                 <label htmlFor="profile-email" className="block text-sm text-text-muted mb-2">{t('account.email')}</label>
-                <input id="profile-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                <input id="profile-email" type="email" value={email} onChange={(e) => setProfileDraft({ ...draft, email: e.target.value })}
                   className="w-full h-12 px-4 rounded-lg border border-border bg-surface-2 text-text-primary focus:outline-none focus:ring-2 focus:ring-primary" />
               </div>
             </div>
@@ -245,7 +243,7 @@ function AccountContent() {
             </div>
             {showDeleteConfirm ? (
               <div className="flex gap-2 flex-wrap">
-                <button type="button" onClick={() => { deleteAccount(); setShowDeleteConfirm(false) }}
+                <button type="button" onClick={async () => { if (!await deleteAccount()) setProfileError(t('common.load_error')); setShowDeleteConfirm(false) }}
                   className="rounded-lg bg-red-600 text-white px-4 py-2.5 text-sm font-medium hover:bg-red-700">{t('account.delete_confirm')}</button>
                 <button type="button" onClick={() => setShowDeleteConfirm(false)}
                   className="rounded-lg border border-border px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3">{t('account.delete_cancel')}</button>

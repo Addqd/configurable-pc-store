@@ -1,79 +1,29 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { cleanup, screen } from '@testing-library/react'
+import { render } from '../test-utils'
+import { mockCatalogFetch } from '../test-api'
 import { SearchDropdown } from './SearchDropdown'
 import { useUIStore } from '../stores/uiStore'
 
-vi.mock('react-icons/hi2', () => ({
-  HiMiniChevronRight: () => <div data-testid="hi-chevron" />,
-}))
-
-describe('SearchDropdown component', () => {
-  beforeEach(() => {
-    useUIStore.getState().setSearchQuery('')
-    cleanup()
+beforeEach(() => { useUIStore.getState().setSearchQuery(''); mockCatalogFetch() })
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
+describe('server search suggestions', () => {
+  it('makes no request for an empty query', () => {
+    const view = render(<SearchDropdown />)
+    expect(view.container.firstChild).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
   })
-
-  it('returns null when searchQuery is empty and no query', () => {
-    const { container } = render(
-      <MemoryRouter>
-        <SearchDropdown />
-      </MemoryRouter>
-    )
-    expect(container.firstChild).toBeNull()
+  it('shows server suggestions and links to the full search', async () => {
+    useUIStore.getState().setSearchQuery('ryzen')
+    render(<SearchDropdown />)
+    expect(await screen.findByText('AMD Ryzen 5 7600')).toBeTruthy()
+    expect(screen.getByRole('link', { name: /показать все/i }).getAttribute('href')).toBe('/catalog?q=ryzen')
+    expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).includes('/search/suggestions'))).toBe(true)
   })
-
-  it('renders search results when query exists', () => {
-    useUIStore.getState().setSearchQuery('rtx')
-    render(
-      <MemoryRouter>
-        <SearchDropdown />
-      </MemoryRouter>
-    )
-    expect(screen.getByText('Товары')).toBeTruthy()
-  })
-
-  it('shows "Показать все (N)" link', () => {
-    useUIStore.getState().setSearchQuery('rtx')
-    render(
-      <MemoryRouter>
-        <SearchDropdown />
-      </MemoryRouter>
-    )
-    const link = screen.getAllByText(/показать все/i)[0]
-    expect(link).toBeTruthy()
-    expect(link.getAttribute('href')).toContain('/catalog?q=')
-  })
-
-  it('shows product names in results', () => {
-    useUIStore.getState().setSearchQuery('rtx')
-    render(
-      <MemoryRouter>
-        <SearchDropdown />
-      </MemoryRouter>
-    )
-    const results = screen.getAllByText(/powerplay|ultra|promax/i)
-    expect(results.length).toBeGreaterThan(0)
-  })
-
-  it('shows product prices', () => {
-    useUIStore.getState().setSearchQuery('rtx')
-    render(
-      <MemoryRouter>
-        <SearchDropdown />
-      </MemoryRouter>
-    )
-    const prices = screen.getAllByText(/\d+\s?\d+/)
-    expect(prices.length).toBeGreaterThan(0)
-  })
-
-  it('shows empty state for no matches', () => {
-    useUIStore.getState().setSearchQuery('xyznonexistent12345')
-    render(
-      <MemoryRouter>
-        <SearchDropdown />
-      </MemoryRouter>
-    )
-    expect(screen.getByText('Ничего не найдено')).toBeTruthy()
+  it('distinguishes a failed request from an empty search result', async () => {
+    useUIStore.getState().setSearchQuery('ryzen')
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 503 })))
+    render(<SearchDropdown />)
+    expect((await screen.findByRole('alert', {}, { timeout: 5000 })).textContent).toContain('Не удалось загрузить')
   })
 })

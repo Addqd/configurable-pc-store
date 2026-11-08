@@ -1,27 +1,22 @@
-import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
 import {
   useBuilderStore, BUILDER_CATEGORIES, countSelected, calculateBuilderPrice,
-  checkBuildCompatibility, estimateComponentPower, isBuildCartEligible,
+  estimateComponentPower,
 } from '../stores/builderStore'
 import { formatPrice } from '../utils/formatPrice'
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiShoppingCart } from 'react-icons/fi'
 
-interface BuilderSidebarProps { onAddToCart: () => void }
+interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[]; canAdd?: boolean; loading?: boolean; error?: boolean }
 
-export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
+export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [], canAdd = true, loading = false, error = false }: BuilderSidebarProps) {
   const { t } = useTranslation()
   const selections = useBuilderStore((state) => state.selections)
-  const checks = useMemo(() => checkBuildCompatibility(selections), [selections])
   const count = countSelected(selections)
   const total = BUILDER_CATEGORIES.length
   const price = calculateBuilderPrice(selections)
   const power = estimateComponentPower(selections)
-  const eligible = isBuildCartEligible(selections)
-  const conflicts = checks.filter((check) => check.status === 'incompatible')
-  const unknown = checks.filter((check) => check.status === 'unknown')
-  const completelyChecked = eligible && unknown.length === 0 && checks.length >= 6
+  const eligible = status === 'compatible' && count === total && canAdd && !loading && !error
 
   return (
     <aside className="rounded-2xl border border-border bg-surface p-5 shadow-[0_5px_24px_var(--color-shadow)] lg:sticky lg:top-24">
@@ -33,12 +28,12 @@ export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
       <div className="space-y-3 border-b border-border py-5">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="text-text-muted">{t('builder.compatibility')}</span>
-          {conflicts.length ? (
-            <span className="inline-flex items-center gap-1.5 font-medium text-red-500"><FiAlertTriangle /> {t('common.conflicts', { count: conflicts.length })}</span>
-          ) : completelyChecked ? (
+          {loading ? <span role="status">{t('common.loading')}</span> : error ? <span role="alert" className="text-red-500">{t('common.load_error')}</span> : status === 'incompatible' ? (
+            <span className="inline-flex items-center gap-1.5 font-medium text-red-500"><FiAlertTriangle /> {t('common.conflicts', { count: messages.length })}</span>
+          ) : status === 'compatible' ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-emerald-500"><FiCheckCircle /> {t('builder.compatible')}</span>
           ) : (
-            <span className="font-medium text-amber-600 dark:text-amber-400">{count === 0 ? t('builder.not_checked') : t('builder.partially_checked')}</span>
+            <span className="font-medium text-amber-600 dark:text-amber-400">{checked ? t('builder.partially_checked') : t('builder.not_checked')}</span>
           )}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -50,16 +45,16 @@ export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
           <span className="text-text-muted">{t('builder.cost')}</span>
           <span className="font-medium text-text-primary">{formatPrice(price)}</span>
         </div>
-        {conflicts.length > 0 && (
+        {status === 'incompatible' && messages.length > 0 && (
           <div className="space-y-1 text-xs text-red-500" role="alert">
-            {conflicts.map((check) => <p key={check.label}>{catalogDisplay(check.label)}: {catalogDisplay(check.detail)}</p>)}
+            {messages.map((message, index) => <p key={`${index}-${message}`}>{catalogDisplay(message)}</p>)}
           </div>
         )}
-        {unknown.length > 0 && count > 0 && (
+        {status === 'unknown' && messages.length > 0 && count > 0 && (
           <details className="text-xs text-text-muted">
-            <summary className="cursor-pointer hover:text-primary">{t('builder.unknown_checks', { count: unknown.length })}</summary>
+            <summary className="cursor-pointer hover:text-primary">{t('builder.unknown_checks', { count: messages.length })}</summary>
             <ul className="mt-2 list-disc space-y-1 pl-4">
-              {unknown.map((check) => <li key={check.label}>{catalogDisplay(check.label)}: {catalogDisplay(check.detail)}</li>)}
+              {messages.map((message, index) => <li key={`${index}-${message}`}>{catalogDisplay(message)}</li>)}
             </ul>
           </details>
         )}
@@ -79,12 +74,13 @@ export function BuilderSidebar({ onAddToCart }: BuilderSidebarProps) {
           {count < total && (
             <span className="block">{t('builder.cart_validation', { left: total - count, total })}</span>
           )}
-          {conflicts.length > 0 && (
-            <span className="block">{t('builder.compatibility_error', { conflicts: conflicts.map((check) => catalogDisplay(check.label)).join(', ') })}</span>
+          {status === 'incompatible' && (
+            <span className="block">{t('builder.resolve_conflicts')}</span>
           )}
+          {status === 'compatible' && !canAdd && <span className="block">{t('builder.save_build')}</span>}
         </p>
       )}
-      {eligible && unknown.length > 0 && (
+      {count === total && status === 'unknown' && (
         <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" role="status">
           {t('builder.partial_check')}
         </p>

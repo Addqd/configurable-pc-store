@@ -7,10 +7,11 @@ interface BuilderActionsProps {
   onSave?: () => void
   hasSelections?: boolean
   canCreate: boolean
+  canSave?: boolean
   validationMessage?: string
 }
 
-export function BuilderActions({ onClear, onCreate, onSave, hasSelections = false, canCreate, validationMessage }: BuilderActionsProps) {
+export function BuilderActions({ onClear, onCreate, onSave, hasSelections = false, canCreate, canSave = canCreate, validationMessage }: BuilderActionsProps) {
   const { t } = useTranslation()
   return (
     <div className="space-y-2">
@@ -23,7 +24,7 @@ export function BuilderActions({ onClear, onCreate, onSave, hasSelections = fals
         <p id="builder-create-validation" role="alert" className="px-1 text-xs text-red-500">{validationMessage}</p>
       )}
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <button type="button" onClick={onSave} disabled={!canCreate || !onSave}
+        <button type="button" onClick={onSave} disabled={!canSave || !onSave}
           className="flex items-center justify-center gap-2 rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-text-primary transition-colors hover:bg-surface-3 hover:text-primary disabled:cursor-default disabled:opacity-60 disabled:hover:bg-surface-2 disabled:hover:text-text-primary">
           <FiSave className="h-4 w-4" /> {t('builder.save_build')}
         </button>

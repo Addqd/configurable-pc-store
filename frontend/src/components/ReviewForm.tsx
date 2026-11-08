@@ -9,15 +9,16 @@ export interface NewReview {
 }
 
 interface ReviewFormProps {
-  onSubmit: (review: NewReview) => void
+  onSubmit: (review: NewReview) => void | Promise<void>
   onClose: () => void
+  initialReview?: NewReview
 }
 
-export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
+export function ReviewForm({ onSubmit, onClose, initialReview }: ReviewFormProps) {
   const { t } = useTranslation()
-  const [author, setAuthor] = useState('')
-  const [rating, setRating] = useState(5)
-  const [text, setText] = useState('')
+  const [author, setAuthor] = useState(initialReview?.author ?? '')
+  const [rating, setRating] = useState(initialReview?.rating ?? 5)
+  const [text, setText] = useState(initialReview?.text ?? '')
   const [error, setError] = useState('')
   const nameInput = useRef<HTMLInputElement>(null)
   const modal = useRef<HTMLDivElement>(null)
@@ -47,7 +48,7 @@ export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
     }
   }
 
-  const submit = (event: React.FormEvent) => {
+  const submit = async (event: React.FormEvent) => {
     event.preventDefault()
     const name = author.trim()
     const body = text.trim()
@@ -55,8 +56,8 @@ export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
       setError(t('reviews.text_required'))
       return
     }
-    onSubmit({ author: name, rating, text: body })
-    onClose()
+    try { await onSubmit({ author: name, rating, text: body }); onClose() }
+    catch { setError(t('common.load_error')) }
   }
 
   return (
@@ -75,7 +76,7 @@ export function ReviewForm({ onSubmit, onClose }: ReviewFormProps) {
         <form onSubmit={submit} className="space-y-4">
           <div>
             <label htmlFor="review-author" className="mb-1 block text-sm font-medium text-text-primary">{t('reviews.name')}</label>
-            <input ref={nameInput} id="review-author" type="text" value={author} onChange={(event) => setAuthor(event.target.value)} placeholder={t('reviews.name_placeholder')} className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-primary focus:outline-none" />
+            <input ref={nameInput} id="review-author" type="text" value={author} readOnly={!!initialReview} onChange={(event) => setAuthor(event.target.value)} placeholder={t('reviews.name_placeholder')} className="w-full rounded-xl border border-border bg-surface-2 px-3 py-2 text-sm text-text-primary placeholder-text-muted focus:border-primary focus:outline-none" />
           </div>
           <fieldset>
             <legend className="mb-2 text-sm font-medium text-text-primary">{t('reviews.rating')}</legend>

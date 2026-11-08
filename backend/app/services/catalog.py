@@ -128,6 +128,7 @@ def _summary(product: Product, rating: tuple[float, int]) -> ProductSummaryOut:
         slug=product.slug,
         name=product.name,
         price=product.price,
+        short_specs=product.short_specs or product.spec_lines or [],
         color=product.color,
         graphics_chip_brand=product.graphics_chip_brand,
         on_sale=product.on_sale,
@@ -146,6 +147,7 @@ def _detail(product: Product, rating: tuple[float, int]) -> ProductDetailOut:
     images, cover = _images(product)
     return ProductDetailOut(
         id=product.id,
+        sku=product.sku,
         slug=product.slug,
         name=product.name,
         description=product.description,

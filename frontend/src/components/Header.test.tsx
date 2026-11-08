@@ -1,5 +1,6 @@
+import { render } from '../test-utils'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, fireEvent, cleanup } from '@testing-library/react'
+import { screen, fireEvent, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { Header } from './Header'
 import { useUIStore } from '../stores/uiStore'
@@ -67,10 +68,12 @@ describe('Header', () => {
     expect(screen.getByTestId('profile-dropdown')).toBeTruthy()
   })
 
-  it('shows a cart badge when items exist', () => {
-    useCartStore.getState().addItem({ id: 1, name: 'Test', price: 1000, image: '', specs: [], category: 'Test' })
+  it('shows the server cart count', async () => {
+    useAccountStore.setState({ activeAccountId: 'id1', accounts: { id1: { account: { id: 'id1', email: 'a@b.com', username: 'demo', displayName: 'Demo', avatar: '', createdAt: 1 } } } })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ id: 1, items: [], subtotal: '0.00', item_count: 1, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }), { status: 200, headers: { 'Content-Type': 'application/json' } })))
     renderHeader()
-    expect(screen.getByText('1')).toBeTruthy()
+    expect(await screen.findByText('1')).toBeTruthy()
+    vi.unstubAllGlobals()
   })
 
   it('shows and closes the search dropdown', () => {

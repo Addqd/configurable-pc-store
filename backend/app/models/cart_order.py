@@ -120,6 +120,7 @@ class Order(Base):
     )
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     item_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    idempotency_key: Mapped[str | None] = mapped_column(String(36), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
@@ -130,6 +131,9 @@ class Order(Base):
         CheckConstraint("status = 'completed_demo'", name="ck_orders_demo_only"),
         CheckConstraint("total_amount >= 0", name="ck_orders_total_nonnegative"),
         CheckConstraint("item_count > 0", name="ck_orders_item_count_positive"),
+        UniqueConstraint(
+            "user_id", "idempotency_key", name="uq_orders_user_idempotency_key"
+        ),
         Index("ix_orders_user_created", "user_id", "created_at"),
     )
 

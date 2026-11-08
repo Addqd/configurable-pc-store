@@ -1,16 +1,17 @@
 import { useTranslation } from 'react-i18next'
-import { useCartStore, type RegularCartItem } from '../stores/cartStore'
+import type { RegularCartItem } from '../stores/cartStore'
 import { formatPrice } from '../utils/formatPrice'
 import { FiX } from 'react-icons/fi'
 
 interface ProductCartItemProps {
   item: RegularCartItem
+  onQuantityChange: (id: number, quantity: number) => void
+  onRemove: (id: number) => void
+  pending?: boolean
 }
 
-export function ProductCartItem({ item }: ProductCartItemProps) {
+export function ProductCartItem({ item, onQuantityChange: updateQuantity, onRemove: removeItem, pending }: ProductCartItemProps) {
   const { t } = useTranslation()
-  const updateQuantity = useCartStore((s) => s.updateQuantity)
-  const removeItem = useCartStore((s) => s.removeItem)
 
   return (
     <article className="flex flex-col gap-4 px-3 py-5 sm:px-4 md:flex-row md:items-center">
@@ -27,10 +28,6 @@ export function ProductCartItem({ item }: ProductCartItemProps) {
           <p className="mt-1 text-sm leading-relaxed text-text-muted">
             {item.specs.join(', ')}
           </p>
-          <p className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-emerald-500">
-            <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-            В наличии
-          </p>
         </div>
       </div>
 
@@ -39,7 +36,7 @@ export function ProductCartItem({ item }: ProductCartItemProps) {
           <button
             type="button"
             onClick={() => updateQuantity(item.id, item.quantity - 1)}
-            disabled={item.quantity <= 1}
+            disabled={pending || item.quantity <= 1}
             className="flex h-full w-9 items-center justify-center text-lg text-text-primary hover:bg-surface-3 disabled:cursor-default disabled:opacity-40"
             aria-label={t('cart.decrease_named', { name: item.name })}
           >
@@ -51,6 +48,7 @@ export function ProductCartItem({ item }: ProductCartItemProps) {
           <button
             type="button"
             onClick={() => updateQuantity(item.id, item.quantity + 1)}
+            disabled={pending}
             className="flex h-full w-9 items-center justify-center text-lg text-text-primary hover:bg-surface-3"
             aria-label={t('cart.increase_named', { name: item.name })}
           >
@@ -63,6 +61,7 @@ export function ProductCartItem({ item }: ProductCartItemProps) {
         <button
           type="button"
           onClick={() => removeItem(item.id)}
+          disabled={pending}
           className="rounded p-1 text-text-muted transition-colors hover:bg-surface-3 hover:text-text-primary"
           aria-label={t('cart.remove_named', { name: item.name })}
         >

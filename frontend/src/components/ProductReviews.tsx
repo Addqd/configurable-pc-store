@@ -13,10 +13,14 @@ interface ProductReviewsProps {
   reviewCount: number
   sort: ReviewSort
   onSortChange: (sort: ReviewSort) => void
-  onAddReview: (review: NewReview) => void
+  onAddReview: (review: NewReview) => void | Promise<void>
+  ownReview?: Review | null
+  onDeleteReview?: () => void
+  accountName?: string
+  reviewDisabled?: boolean
 }
 
-export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview }: ProductReviewsProps) {
+export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview, ownReview, onDeleteReview, accountName, reviewDisabled }: ProductReviewsProps) {
   const { t } = useTranslation()
   const [openForm, setOpenForm] = useState(false)
   const sorted = [...reviews].sort((a, b) => {
@@ -39,8 +43,10 @@ export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChang
           <button
             type="button"
             onClick={() => setOpenForm(true)}
+            disabled={reviewDisabled}
             className="inline-flex items-center gap-2 rounded-xl border border-primary px-4 py-2 text-sm font-semibold text-primary transition-colors hover:bg-primary-light"
-          >{t('product.reviews.write')}</button>
+          >{ownReview ? t('reviews.edit') : t('product.reviews.write')}</button>
+          {ownReview && <button type="button" onClick={onDeleteReview} className="text-sm text-text-muted hover:text-primary">{t('reviews.delete')}</button>}
           <label className="relative inline-flex min-w-[140px] items-center justify-between overflow-hidden rounded-xl border border-border bg-surface px-3 py-2 text-sm font-medium text-text-primary">
             <span>{t('product.reviews.sort_' + sort)}</span>
             <select
@@ -57,7 +63,6 @@ export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChang
         </div>
       </div>
 
-      <p className="mb-4 text-xs text-text-muted">{t('product.reviews.note')}</p>
       {sorted.length === 0 ? (
         <p className="py-5 text-sm text-text-muted">{t('product.reviews.empty')}</p>
       ) : (
@@ -81,7 +86,7 @@ export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChang
           ))}
         </div>
       )}
-      {openForm && <ReviewForm onSubmit={onAddReview} onClose={() => setOpenForm(false)} />}
+      {openForm && <ReviewForm onSubmit={onAddReview} onClose={() => setOpenForm(false)} initialReview={ownReview ? { author: ownReview.author, rating: ownReview.rating, text: ownReview.text } : accountName ? { author: accountName, rating: 5, text: '' } : undefined} />}
     </section>
   )
 }

@@ -1,8 +1,10 @@
 import { catalogDisplay } from '../i18n/catalogDisplay'
 import { useTranslation } from 'react-i18next'
 import { useEffect, useRef, useState } from 'react'
-import { useBuilderStore, CATEGORY_LABELS, getProductsForCategory, type BuilderCategory } from '../stores/builderStore'
-import type { Product } from '../data/mockProducts'
+import { useBuilderStore, type BuilderCategory } from '../stores/builderStore'
+import { useListProductsApiV1ProductsGet, getProductApiV1ProductsSlugGet } from '../api/generated/client'
+import { productFromSummary, productFromDetail } from '../api/catalogAdapter'
+import type { Product } from '../data/product'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiX, FiSearch, FiCheck } from 'react-icons/fi'
@@ -12,6 +14,7 @@ interface BuilderProductSelectorProps { category: BuilderCategory; onClose: () =
 export function BuilderProductSelector({ category, onClose }: BuilderProductSelectorProps) {
   const { t } = useTranslation()
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
   const inputRef = useRef<HTMLInputElement>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
   const setProduct = useBuilderStore((state) => state.setProduct)
@@ -41,14 +44,17 @@ export function BuilderProductSelector({ category, onClose }: BuilderProductSele
   }, [onClose])
 
   const query = search.trim().toLocaleLowerCase('ru-RU')
-  const products = getProductsForCategory(category)
-  const filtered = products.filter((product) => !query ||
-    [product.name, product.manufacturer, ...product.specs].some((part) => part.toLocaleLowerCase('ru-RU').includes(query)))
-  const hasSearchError = query.length > 0 && filtered.length === 0
+  const results = useListProductsApiV1ProductsGet({ category, q: query || undefined, page_size: 49, page })
+  const filtered = (results.data?.items ?? []).map(productFromSummary)
+  const hasSearchError = query.length > 0 && !!results.data && filtered.length === 0
 
-  const handleSelect = (product: Product) => {
-    setProduct(category, product)
-    onClose()
+  const [error, setError] = useState(false)
+  const handleSelect = async (product: Product) => {
+    try {
+      const detail = await getProductApiV1ProductsSlugGet(product.slug)
+      setProduct(category, productFromDetail(detail))
+      onClose()
+    } catch { setError(true) }
   }
 
   return (
@@ -63,7 +69,7 @@ export function BuilderProductSelector({ category, onClose }: BuilderProductSele
         <div className="shrink-0 p-4 pb-2 sm:px-6">
           <div className="relative">
             <FiSearch className="absolute left-3 top-3 h-4 w-4 text-text-muted" />
-            <input ref={inputRef} value={search} onChange={(event) => setSearch(event.target.value)}
+            <input ref={inputRef} value={search} onChange={(event) => { setSearch(event.target.value); setPage(1) }}
               type="search" placeholder={t('builder.search_placeholder')}
               aria-invalid={hasSearchError}
               aria-describedby={hasSearchError ? 'builder-selector-search-error' : undefined}
@@ -78,7 +84,7 @@ export function BuilderProductSelector({ category, onClose }: BuilderProductSele
         {/* The list has its own fixed desktop height and a permanently scrollable track;
             on short screens it shrinks to remain fully reachable. */}
         <div data-testid="builder-products-scroll" className="h-[400px] max-h-[calc(100dvh-230px)] min-h-0 shrink overflow-y-scroll overscroll-contain px-4 py-3 sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-hover [&::-webkit-scrollbar-track]:bg-surface-2" style={{ scrollbarGutter: 'stable' }}>
-          {filtered.length === 0 ? (
+          {error || results.isError ? <p role="alert">{t('common.load_error')}</p> : results.isLoading ? <p role="status">{t('common.loading')}</p> : filtered.length === 0 ? (
             <div className="py-10 text-center text-sm text-text-muted">
               {t('builder.no_results_default')}
               {search && <button type="button" onClick={() => setSearch('')} className="ml-2 text-primary hover:underline">{t('builder.search_reset')}</button>}
@@ -103,6 +109,11 @@ export function BuilderProductSelector({ category, onClose }: BuilderProductSele
           )}
         </div>
         <div className="flex shrink-0 justify-end border-t border-border px-4 py-3 sm:px-6">
+          {(results.data?.total_pages ?? 1) > 1 && <div className="mr-auto flex items-center gap-3 text-sm text-text-primary">
+            <button type="button" disabled={page <= 1} onClick={() => setPage(value => value - 1)}>‹</button>
+            <span>{page} / {results.data?.total_pages}</span>
+            <button type="button" disabled={page >= (results.data?.total_pages ?? 1)} onClick={() => setPage(value => value + 1)}>›</button>
+          </div>}
           <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm text-text-primary hover:bg-surface-3">{t('builder.cancel')}</button>
         </div>
       </div>

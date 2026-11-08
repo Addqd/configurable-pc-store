@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { useParams, Link } from 'react-router'
-import { catalogDisplay } from '../i18n/catalogDisplay'
+import { useParams } from 'react-router'
 import { Header } from '../components/Header'
 import { BackButton } from '../components/BackButton'
 import { Footer } from '../components/Footer'
@@ -10,145 +10,122 @@ import { ProductInfo } from '../components/ProductInfo'
 import { ProductDescription } from '../components/ProductDescription'
 import { ProductSpecs } from '../components/ProductSpecs'
 import { ProductReviews, type ReviewSort } from '../components/ProductReviews'
-import { useCartStore, type Order, type RegularCartItem } from '../stores/cartStore'
-import { useAccountStore } from '../stores/accountStore'
-import { calculateRating, getProductDetail, type EnrichedProduct, type Review } from '../data/productDetails'
-import { readProductReviews, writeProductReviews } from '../data/reviewStorage'
+import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
+import { useUIStore } from '../stores/uiStore'
+import { useServerCart } from '../api/useServerCart'
+import { productFromDetail } from '../api/catalogAdapter'
+import type { EnrichedProduct, Review } from '../data/productDetails'
+import { ReviewOut, type ReviewOut as ReviewResponse } from '../api/generated/model'
+import { z } from 'zod'
 import { copyToClipboard } from '../utils/copyToClipboard'
-import { formatPrice } from '../utils/formatPrice'
+import { buyNowKey, clearBuyNowKey } from '../api/buyNowKey'
+import { ApiError } from '../api/transport'
+import {
+  useGetProductApiV1ProductsSlugGet, getProductReviewsApiV1ProductsProductIdReviewsGet,
+  getMyReviewApiV1ProductsProductIdReviewsMyGet, isFavoritedApiV1FavoritesProductIdIsFavoritedGet,
+  addFavoriteApiV1FavoritesProductIdPost, removeFavoriteApiV1FavoritesProductIdDelete,
+  createReviewApiV1ProductsProductIdReviewsPost, updateReviewApiV1ProductsProductIdReviewsPatch,
+  deleteReviewApiV1ProductsProductIdReviewsDelete,
+  buyNowApiV1CartBuyNowPost,
+} from '../api/generated/client'
+
+const asReview = (item: ReviewResponse): Review => ({
+  id: item.id, author: item.reviewer_name, authorId: String(item.user_id),
+  date: item.created_at, rating: item.rating, text: item.body,
+})
 
 export function ProductPage() {
-  const { slug } = useParams()
-  const product = slug ? getProductDetail(slug) : null
-  return <ProductDetailContent key={slug ?? 'missing'} product={product} />
+  const { slug = '' } = useParams()
+  const { t } = useTranslation()
+  const product = useGetProductApiV1ProductsSlugGet(slug, { query: { enabled: !!slug, retry: false } })
+  if (product.isLoading) return <div className="min-h-screen bg-surface-2"><Header /><main className="pt-24 text-center" role="status">{t('common.loading')}</main></div>
+  if (!product.data) return <div className="min-h-screen bg-surface-2"><Header /><main className="pt-24 text-center" role="alert">{product.isError ? t('common.load_error') : t('product.not_found')}</main><Footer /></div>
+  return <ProductContent key={slug} product={productFromDetail(product.data)} />
 }
 
-function ProductDetailContent({ product }: { product: EnrichedProduct | null }) {
+function ProductContent({ product }: { product: EnrichedProduct }) {
   const { t } = useTranslation()
-  const addItem = useCartStore((state) => state.addItem)
-  const purchaseProduct = useCartStore((state) => state.purchaseProduct)
-  const favorites = useCartStore((state) => state.favorites)
-  const toggleFavorite = useCartStore((state) => state.toggleFavorite)
-
+  const account = useAccountStore(selectActiveAccount)
+  const openAuth = useUIStore(state => state.openAuthModal)
+  const client = useQueryClient()
+  const cart = useServerCart()
+  const buying = useRef(false)
+  const [buyPending, setBuyPending] = useState(false)
+  const [purchased, setPurchased] = useState(false)
   const [quantity, setQuantity] = useState(1)
   const [sort, setSort] = useState<ReviewSort>('newest')
-  const [userReviews, setUserReviews] = useState<Review[]>(() => product ? readProductReviews(product.slug) : [])
-  const [buySuccess, setBuySuccess] = useState<Order | null>(null)
   const [shareCopied, setShareCopied] = useState(false)
+  const [actionError, setActionError] = useState(false)
+  const reviewsQuery = useQuery({ queryKey: ['product-reviews', product.id], queryFn: async ({ signal }) => {
+    const first = await getProductReviewsApiV1ProductsProductIdReviewsGet(product.id, { page: 1, page_size: 50 }, { signal })
+    const items = [...first.items]
+    for (let page = 2; page <= first.total_pages; page += 1) {
+      const next = await getProductReviewsApiV1ProductsProductIdReviewsGet(product.id, { page, page_size: 50 }, { signal })
+      items.push(...next.items)
+    }
+    return { ...first, items }
+  } })
+  const ownQuery = useQuery({ queryKey: ['my-review', product.id], enabled: !!account, retry: false,
+    queryFn: async ({ signal }) => ReviewOut.nullable().parse(await getMyReviewApiV1ProductsProductIdReviewsMyGet(product.id, { signal })) })
+  const favorite = useQuery({ queryKey: ['favorite', product.id], enabled: !!account, retry: false,
+    queryFn: async ({ signal }) => z.object({ is_favorited: z.boolean() }).parse(await isFavoritedApiV1FavoritesProductIdIsFavoritedGet(product.id, { signal })) })
+  const refresh = () => client.invalidateQueries()
+  const reviewMutation = useMutation({ mutationFn: (review: { rating: number; text: string }) => ownQuery.data
+    ? updateReviewApiV1ProductsProductIdReviewsPatch(product.id, { rating: review.rating, body: review.text })
+    : createReviewApiV1ProductsProductIdReviewsPost(product.id, { rating: review.rating, body: review.text }), onSuccess: refresh })
+  const deleteReview = useMutation({ mutationFn: () => deleteReviewApiV1ProductsProductIdReviewsDelete(product.id), onSuccess: refresh })
+  const isFavorite = favorite.data?.is_favorited === true
+  const favoriteMutation = useMutation({ mutationFn: async () => {
+    if (isFavorite) await removeFavoriteApiV1FavoritesProductIdDelete(product.id)
+    else await addFavoriteApiV1FavoritesProductIdPost(product.id)
+  }, onSuccess: refresh })
+  const reviews = (reviewsQuery.data?.items ?? []).map(asReview)
+  const current = { ...product, rating: reviewsQuery.data?.average_rating ?? product.rating, reviewCount: reviewsQuery.data?.total ?? product.reviewCount }
+  const requireAccount = () => { if (account) return true; openAuth('login'); return false }
+  const buy = async (count: number) => {
+    if (buying.current || !requireAccount() || !account) return
+    const accountId = account.id
+    const idempotencyKey = buyNowKey(accountId, product.id, count)
+    buying.current = true
+    setBuyPending(true)
+    setActionError(false)
+    setPurchased(false)
+    try {
+      await buyNowApiV1CartBuyNowPost({ product_id: product.id, quantity: count, idempotency_key: idempotencyKey })
+      clearBuyNowKey(accountId, product.id, count)
+      if (useAccountStore.getState().activeAccountId === accountId) { setPurchased(true); void client.invalidateQueries() }
+    } catch (error) {
+      if (useAccountStore.getState().activeAccountId === accountId && error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) clearBuyNowKey(accountId, product.id, count)
+      if (useAccountStore.getState().activeAccountId === accountId) setActionError(true)
+    }
+    finally { buying.current = false; setBuyPending(false) }
+  }
+  const share = async () => {
+    if (await copyToClipboard(`${window.location.origin}/products/${product.slug}`)) {
+      setShareCopied(true); window.setTimeout(() => setShareCopied(false), 1500)
+    }
+  }
 
-  if (!product) {
-    return (
-      <div className="min-h-screen bg-surface-2">
-        <Header />
-        <main className="mx-auto max-w-[1320px] px-4 pb-10 pt-24 text-center">
-          <div className="rounded-2xl border border-border bg-surface p-8 sm:p-12">
-            <p className="mb-2 text-sm font-medium text-primary">{t('product.not_found')}</p>
-            <h1 className="mb-4 text-2xl font-bold text-text-primary">{t('product.not_found')}</h1>
-            <p className="mb-6 text-text-secondary">{t('product.not_found_desc')}</p>
-            <BackButton />
-          </div>
-        </main>
-        <Footer />
+  return <div className="min-h-screen bg-surface-2">
+    <Header />
+    <main className="mx-auto max-w-[1320px] px-4 pb-8 pt-24">
+      <BackButton className="mb-5" />
+      {purchased && <p role="status" className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400">{t('cart.order_success')}</p>}
+      {(actionError || cart.add.isError || favorite.isError || ownQuery.isError || favoriteMutation.isError || deleteReview.isError || reviewsQuery.isError) && <p role="alert" className="text-sm text-red-500">{t('common.load_error')}</p>}
+      <div className="grid grid-cols-1 gap-6 rounded-2xl border border-border bg-surface p-4 sm:p-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
+        <div className="min-w-0 lg:pr-4"><ProductGallery product={current} /></div>
+        <ProductInfo product={current} quantity={quantity} isFavorite={isFavorite} buyPending={buyPending} favoriteDisabled={!!account && (!favorite.isSuccess || favoriteMutation.isPending)} onQuantityChange={setQuantity}
+          onAddToCart={count => cart.addProduct(product.id, count)} onBuyNow={buy}
+          onToggleFavorite={() => { if (requireAccount()) favoriteMutation.mutate() }} onShare={share} />
       </div>
-    )
-  }
-
-  const cartItem: Omit<RegularCartItem, 'quantity'> = {
-    id: product.id,
-    name: product.name,
-    price: product.price,
-    image: product.image,
-    specs: [...product.specs],
-    category: product.category,
-  }
-
-  const reviews = [...userReviews, ...product.reviews]
-  const productWithCurrentRating: EnrichedProduct = {
-    ...product,
-    reviews,
-    rating: calculateRating(reviews),
-    reviewCount: reviews.length,
-  }
-
-  const handleAddToCart = (count: number) => addItem(cartItem, count)
-
-  const handleBuyNow = (count: number) => {
-    const order = purchaseProduct(cartItem, count)
-    if (order) setBuySuccess(order)
-  }
-
-  const handleShare = async () => {
-    const url = `${window.location.origin}/products/${product.slug}`
-    const ok = await copyToClipboard(url)
-    if (ok) {
-      setShareCopied(true)
-      window.setTimeout(() => setShareCopied(false), 1500)
-    }
-  }
-
-  const addReview = (review: { author: string; rating: number; text: string }) => {
-    const accountId = useAccountStore.getState().activeAccountId
-    const nextReview: Review = {
-      ...review,
-      id: Math.max(Date.now(), ...userReviews.map((item) => item.id)) + 1,
-      date: new Date().toISOString().slice(0, 10),
-      ...(accountId ? { authorId: accountId } : {}),
-    }
-    const next = [nextReview, ...userReviews]
-    setUserReviews(next)
-    writeProductReviews(product.slug, next)
-  }
-
-  return (
-    <div className="min-h-screen bg-surface-2">
-      <Header />
-      <main className="mx-auto max-w-[1320px] px-4 pb-8 pt-24">
-        <BackButton className="mb-5" />
-        <div className="grid grid-cols-1 gap-6 rounded-2xl border border-border bg-surface p-4 sm:p-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
-          <div className="min-w-0 lg:pr-4"><ProductGallery product={productWithCurrentRating} /></div>
-          <ProductInfo
-            product={productWithCurrentRating}
-            quantity={quantity}
-            isFavorite={favorites.includes(product.id)}
-            onQuantityChange={(next) => setQuantity(Math.max(1, next))}
-            onAddToCart={handleAddToCart}
-            onBuyNow={handleBuyNow}
-            onToggleFavorite={() => toggleFavorite(product.id)}
-            onShare={handleShare}
-          />
-        </div>
-        {buySuccess && (
-          <div className="mt-6 overflow-hidden rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-5" role="status">
-            <h2 className="text-lg font-bold text-text-primary">{t('product.buy_success')}</h2>
-            <p className="mt-1 text-sm text-text-secondary">
-              {t('product.buy_success_desc', { id: buySuccess.id, name: catalogDisplay(buySuccess.items[0].name), count: buySuccess.items[0].quantity, price: formatPrice(buySuccess.total) })}
-            </p>
-            <p className="mt-2 text-sm text-text-muted">
-              {buySuccess.ownerId ? (
-                <>{t('product.buy_saved_intro')}{' '}<Link to="/account/orders" className="text-primary hover:underline">{t('product.buy_saved_link')}</Link>.{' '}{t('product.buy_no_cart_change')}</>
-              ) : (
-                t('product.buy_guest')
-              )}
-            </p>
-            <div className="mt-3 flex flex-wrap items-center gap-3">
-              <Link to="/cart" className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('builder.view_cart')}</Link>
-              <button type="button" onClick={() => setBuySuccess(null)} className="text-sm font-medium text-text-muted hover:text-text-primary">{t('common.continue_shopping')}</button>
-            </div>
-          </div>
-        )}
-        <div className="mt-6"><ProductDescription product={productWithCurrentRating} /></div>
-        <div className="mt-6"><ProductSpecs product={productWithCurrentRating} /></div>
-        <div className="mb-8 mt-6">
-          <ProductReviews
-            reviews={reviews} rating={productWithCurrentRating.rating} reviewCount={productWithCurrentRating.reviewCount}
-            sort={sort} onSortChange={setSort} onAddReview={addReview}
-          />
-        </div>
-      </main>
-      <Footer />
-      {shareCopied && (
-        <div role="status" className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-xl bg-text-primary px-4 py-2 text-sm font-medium text-surface shadow-lg">{t('product.link_copied')}</div>
-      )}
-    </div>
-  )
+      <div className="mt-6"><ProductDescription product={current} /></div>
+      <div className="mt-6"><ProductSpecs product={current} /></div>
+      <div className="mb-8 mt-6"><ProductReviews reviews={reviews} rating={current.rating} reviewCount={current.reviewCount}
+        sort={sort} onSortChange={setSort} ownReview={ownQuery.data ? asReview(ownQuery.data) : null} accountName={account?.displayName} reviewDisabled={!!account && (!ownQuery.isSuccess || reviewMutation.isPending)}
+        onDeleteReview={() => deleteReview.mutate()}
+        onAddReview={async review => { if (!requireAccount()) throw new Error('Authentication required'); await reviewMutation.mutateAsync(review) }} /></div>
+    </main>
+    <Footer />
+    {shareCopied && <div role="status" className="fixed bottom-6 left-1/2 z-[60] -translate-x-1/2 rounded-xl bg-text-primary px-4 py-2 text-sm font-medium text-surface shadow-lg">{t('product.link_copied')}</div>}
+  </div>
 }

@@ -5,7 +5,10 @@ import { Header } from '../components/Header'
 import { ProductCartItem } from '../components/ProductCartItem'
 import { BuildCartCard } from '../components/BuildCartCard'
 import { OrderSummary } from '../components/OrderSummary'
-import { useCartStore, seedDemoCart } from '../stores/cartStore'
+import { useServerCart } from '../api/useServerCart'
+import { cartItems, orderFromServer } from '../api/cartAdapter'
+import { useUIStore } from '../stores/uiStore'
+import { useAccountStore } from '../stores/accountStore'
 import type { RegularCartItem, BuildCartItem, Order } from '../stores/cartStore'
 import { useState } from 'react'
 import { Link } from 'react-router'
@@ -16,21 +19,25 @@ interface DemoOrderMessage {
 }
 
 export function CartPage() {
+  const accountId = useAccountStore(state => state.activeAccountId)
+  return <CartContent key={accountId ?? 'guest'} />
+}
+
+function CartContent() {
   const { t } = useTranslation()
-  const items = useCartStore((s) => s.items)
-  const placeOrder = useCartStore((s) => s.placeOrder)
+  const { accountId, cart, update, remove, checkout } = useServerCart()
+  const openAuth = useUIStore(state => state.openAuthModal)
+  const items = cart.data ? cartItems(cart.data) : []
   const [orderMessage, setOrderMessage] = useState<DemoOrderMessage | null>(null)
 
   const regularItems = items.filter((i): i is RegularCartItem => !('components' in i))
   const buildItems = items.filter((i): i is BuildCartItem => 'components' in i)
+  const pending = update.isPending || remove.isPending || checkout.isPending || cart.isFetching
 
-  const handleCheckout = () => {
+  const handleCheckout = async () => {
     if (items.length === 0) return
-    const order = placeOrder()
-    setOrderMessage({
-      type: 'success',
-      order,
-    })
+    try { const result = await checkout.mutateAsync(); setOrderMessage({ type: 'success', order: orderFromServer(result.order) }) }
+    catch { /* The error is displayed below. */ }
   }
 
   return (
@@ -40,7 +47,8 @@ export function CartPage() {
       <main className="pt-20 px-4">
         <div className="max-w-[1320px] mx-auto py-8">
           <BackButton className="mb-4" />
-          {orderMessage ? (
+          {cart.isError || update.isError || remove.isError || checkout.isError ? <p role="alert" className="text-sm text-red-500">{t('common.load_error')}</p> : null}
+          {!accountId ? <div className="py-16 text-center"><p className="mb-4 text-text-muted">{t('orders.login_desc')}</p><button type="button" onClick={() => openAuth('login')} className="rounded-lg bg-primary px-6 py-2.5 font-medium text-white hover:bg-primary-hover">{t('orders.login_btn')}</button></div> : cart.isLoading ? <p role="status">{t('common.loading')}</p> : cart.isError ? null : orderMessage ? (
             <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-xl p-8 text-center">
               <svg className="w-16 h-16 text-green-500 mx-auto mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" strokeLinecap="round" strokeLinejoin="round" />
@@ -51,7 +59,7 @@ export function CartPage() {
                 {t('cart.order_success_desc', { id: String(orderMessage.order.id).padStart(6, '0'), count: orderMessage.order.itemCount, price: formatPrice(orderMessage.order.total) })}
               </p>
               <p className="text-sm text-text-muted">
-                Запись сохранена в истории заказов (раздел в разработке).
+                {t('orders.title')}
               </p>
             </div>
           ) : items.length === 0 ? (
@@ -61,7 +69,7 @@ export function CartPage() {
               </svg>
               <h2 className="text-xl font-semibold text-text-primary mb-2">{t('cart.empty_title')}</h2>
               <p className="text-sm text-text-muted mb-4 max-w-sm">
-                Добавьте товары из каталога или загрузите демо-набор для проверки.
+                {t('cart.empty_desc')}
               </p>
               <div className="flex items-center gap-3">
                 <Link
@@ -73,12 +81,6 @@ export function CartPage() {
                     <path d="M5 12h14M12 5l7 7-7 7" />
                   </svg>
                 </Link>
-                <button
-                  onClick={() => seedDemoCart()}
-                  className="inline-flex items-center gap-2 border border-border text-text-primary font-medium px-6 py-2.5 rounded-lg hover:bg-surface-3 transition-colors"
-                >
-                  {t('cart.load_demo')}
-                </button>
               </div>
             </div>
           ) : (
@@ -87,13 +89,13 @@ export function CartPage() {
               <div className="min-w-0 rounded-2xl border border-border bg-surface p-3 shadow-[0_5px_24px_var(--color-shadow)] sm:p-4">
                 <div className="divide-y divide-border">
                   {regularItems.map((item) => (
-                    <ProductCartItem key={item.id} item={item} />
+                    <ProductCartItem key={item.id} item={item} pending={pending} onQuantityChange={(id, quantity) => update.mutate({ id, quantity })} onRemove={id => remove.mutate(id)} />
                   ))}
                 </div>
                 {buildItems.length > 0 && (
                   <div className="space-y-3 pt-2">
                     {buildItems.map((item) => (
-                      <BuildCartCard key={item.id} item={item} />
+                      <BuildCartCard key={item.id} item={item} pending={pending} onQuantityChange={(id, quantity) => update.mutate({ id, quantity })} onRemove={id => remove.mutate(id)} />
                     ))}
                   </div>
                 )}
@@ -101,7 +103,7 @@ export function CartPage() {
 
               {/* Right: Order summary */}
               <div className="min-w-0">
-                <OrderSummary onCheckout={handleCheckout} />
+                <OrderSummary onCheckout={handleCheckout} pending={pending} totalItems={cart.data?.item_count ?? 0} totalPrice={Number(cart.data?.subtotal ?? 0)} />
               </div>
             </div>
           )}

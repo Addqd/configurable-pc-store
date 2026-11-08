@@ -42,6 +42,7 @@ class ProductImageOut(BaseModel):
 
 class ProductDetailOut(BaseModel):
     id: int
+    sku: str | None = None
     slug: str
     name: str
     description: str
@@ -74,6 +75,7 @@ class ProductSummaryOut(BaseModel):
     slug: str
     name: str
     price: Decimal
+    short_specs: list[str] = []
     color: str | None = None
     graphics_chip_brand: str | None = None
     on_sale: bool

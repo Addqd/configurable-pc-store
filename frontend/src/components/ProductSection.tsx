@@ -1,4 +1,4 @@
-import type { Product } from '../data/mockProducts'
+import type { Product } from '../data/product'
 import { useTranslation } from 'react-i18next'
 import { ProductCard } from './ProductCard'
 import { HiMiniArrowRight } from 'react-icons/hi2'

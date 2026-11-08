@@ -79,6 +79,31 @@ def create_build(
     return _serialize(build)
 
 
+@router.post("/compatibility", response_model=BuildCompatibilityOut)
+def check_current_compatibility(
+    body: BuildUpdateItemsRequest,
+    db: Session = Depends(get_db_session, scope="function"),
+) -> BuildCompatibilityOut:
+    selections = {item.slot: item.product_id for item in body.items}
+    if len(selections) != len(body.items):
+        raise HTTPException(status_code=422, detail="Duplicate component slot")
+    result = compatibility_svc.check_selections(db, selections)
+    return BuildCompatibilityOut(
+        build_id=0,
+        overall_status=result.status,
+        items=[
+            CompatibilityStatus(
+                product_id=item.product_id,
+                product_name=item.product_name,
+                slot=item.slot,
+                status=item.status,
+                message=item.message,
+            )
+            for item in result.items or []
+        ],
+    )
+
+
 @router.get("/{build_id}", response_model=SavedBuildOut)
 def get_build(
     build_id: int,
@@ -101,6 +126,9 @@ def update_build(
             _owned(db, current_user, build_id),
             name=body.name,
             description=body.description,
+            items=[item.model_dump() for item in body.items]
+            if body.items is not None
+            else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

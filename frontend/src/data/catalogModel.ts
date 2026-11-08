@@ -1,4 +1,4 @@
-import { mockProducts, type Product } from './mockProducts'
+import type { Product } from './product'
 
 export const PAGE_SIZE = 49
 
@@ -234,4 +234,3 @@ export function countProductLabel(count: number): string {
   return 'товаров'
 }
 
-export const allCatalogProducts = mockProducts

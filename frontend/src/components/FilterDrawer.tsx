@@ -2,7 +2,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
 import { FiX, FiFilter, FiChevronDown } from 'react-icons/fi'
-import { allCatalogProducts, DEFAULT_FILTERS, SORT_OPTIONS, deriveFilterOptions, type FilterState } from '../data/catalogModel'
+import { DEFAULT_FILTERS, SORT_OPTIONS, type FilterState } from '../data/catalogModel'
+import type { FilterOptionsOut } from '../api/generated/model'
 export type { FilterState } from '../data/catalogModel'
 export { DEFAULT_FILTERS, SORT_OPTIONS } from '../data/catalogModel'
 
@@ -12,17 +13,25 @@ interface Props {
   onFiltersChange: (filters: FilterState) => void
   onApply: () => void
   onClose: () => void
+  options: FilterOptionsOut | undefined
 }
 type Section = 'sort' | 'categories' | 'types' | 'colors' | 'manufacturers'
 const sectionKeys: Record<Section,string> = {
   sort:'catalog.filter.sort', categories:'catalog.filter.categories', types:'catalog.filter.types', colors:'catalog.filter.colors', manufacturers:'catalog.filter.manufacturers',
 }
 const dotColors: Record<string,string> = { 'Чёрный':'#1a1a2e', 'Белый':'#fff', 'Серебристый':'#a0a8b4', 'Серый':'#6b7280' }
-export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose }: Props) {
+export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose, options: data }: Props) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState<Section[]>([])
   const panelRef = useRef<HTMLDivElement>(null)
-  const options = deriveFilterOptions(allCatalogProducts, filters)
+  const available = data?.categories.map(item => item.name) ?? []
+  const options = {
+    categories: [...new Set([...available, ...filters.categories])],
+    unavailableCategories: filters.categories.filter(name => !available.includes(name)),
+    types: [...new Set(data?.types.map(item => item.name) ?? [])],
+    colors: data?.colors ?? [],
+    manufacturers: [...new Set(data?.manufacturers.map(item => item.name) ?? [])],
+  }
   const hasCategory = filters.categories.length > 0
   const hasType = filters.types.length > 0
   const allowDetail = hasCategory || hasType

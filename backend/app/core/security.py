@@ -45,7 +45,9 @@ def _signing_key() -> str:
     return key
 
 
-def _create_token(subject: str, token_type: str, lifetime: timedelta) -> str:
+def _create_token(
+    subject: str, token_type: str, lifetime: timedelta, session_id: str | None = None
+) -> str:
     now = datetime.now(UTC)
     return jwt.encode(
         {
@@ -54,18 +56,19 @@ def _create_token(subject: str, token_type: str, lifetime: timedelta) -> str:
             "exp": now + lifetime,
             "type": token_type,
             "jti": token_hex(24),
+            **({"sid": session_id} if session_id else {}),
         },
         _signing_key(),
         algorithm="HS256",
     )
 
 
-def create_access_token(subject: str, extra: dict | None = None) -> str:
-    # No caller-controlled claims may override sub, type, exp or jti.
-    if extra:
-        raise ValueError("Additional unvalidated JWT claims are not allowed")
+def create_access_token(subject: str, session_id: str) -> str:
     return _create_token(
-        subject, "access", timedelta(minutes=get_settings().access_token_minutes)
+        subject,
+        "access",
+        timedelta(minutes=get_settings().access_token_minutes),
+        session_id=session_id,
     )
 
 

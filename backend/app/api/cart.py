@@ -8,8 +8,9 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
 from app.db.session import get_db_session
-from app.models import Cart, Order, Product, User
+from app.models import Cart, Order, Product, SavedBuild, User
 from app.schemas.cart import (
+    BuyNowRequest,
     CartAddBuildRequest,
     CartAddProductRequest,
     CartOut,
@@ -49,6 +50,8 @@ def _cart_to_out(cart: Cart | None, db: Session) -> CartOut:
                     "id": product.id,
                     "slug": product.slug,
                     "name": product.name,
+                    "category": product.product_type.category.name,
+                    "specs": product.spec_lines or [],
                     "price": str(product.price),
                     "cover_image_url": _images(product)[1],
                 }
@@ -56,6 +59,17 @@ def _cart_to_out(cart: Cart | None, db: Session) -> CartOut:
             price = Decimal(str(item.build_snapshot.get("total_price", "0")))
         subtotal += price * item.quantity
         count += item.quantity
+        snapshot = item.build_snapshot
+        if (
+            item.kind == "custom_build"
+            and isinstance(snapshot, dict)
+            and not snapshot.get("name")
+        ):
+            build = (
+                db.get(SavedBuild, item.saved_build_id) if item.saved_build_id else None
+            )
+            if build is not None and build.user_id == cart.user_id:
+                snapshot = {**snapshot, "name": build.name}
         items.append(
             {
                 "id": item.id,
@@ -63,7 +77,7 @@ def _cart_to_out(cart: Cart | None, db: Session) -> CartOut:
                 "product_id": item.product_id,
                 "saved_build_id": item.saved_build_id,
                 "product": info,
-                "build_snapshot": item.build_snapshot,
+                "build_snapshot": snapshot,
                 "quantity": item.quantity,
                 "unit_price": price,
                 "line_total": price * item.quantity,
@@ -174,6 +188,21 @@ def remove_item(
         raise HTTPException(status_code=404, detail="Cart item not found") from None
     db.expire_all()
     return _cart_to_out(svc.get_cart(db, current_user), db)
+
+
+@router.post("/buy-now", response_model=CheckoutResponse)
+def buy_now(
+    body: BuyNowRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db_session, scope="function"),
+) -> CheckoutResponse:
+    try:
+        order = svc.buy_product_demo(
+            db, current_user, body.product_id, body.quantity, str(body.idempotency_key)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return CheckoutResponse(order=_order_to_out(order))
 
 
 @router.post("/checkout", response_model=CheckoutResponse)

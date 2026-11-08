@@ -17,6 +17,7 @@ export interface DetailedSpec {
 }
 
 export interface EnrichedProduct extends Product {
+  stockQuantity?: number
   article: string
   rating: number
   reviewCount: number

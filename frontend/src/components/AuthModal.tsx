@@ -14,8 +14,8 @@ const loginSchema = z.object({
 })
 const registerSchema = z.object({
   email: z.string().email('auth.validation_email'),
-  username: z.string().trim().min(2, 'auth.validation_username_min'),
-  password: z.string().min(8, 'auth.validation_password_min'),
+  username: z.string().trim().min(3, 'auth.validation_username_min').max(64, 'auth.validation_check_data').refine(value => !value.includes('@'), 'auth.validation_check_data'),
+  password: z.string().min(8, 'auth.validation_password_min').max(128, 'auth.validation_check_data'),
   confirmPassword: z.string().min(1, 'auth.validation_confirm_required'),
 }).refine((data) => data.password === data.confirmPassword, {
   path: ['confirmPassword'], message: 'auth.validation_passwords_match',
@@ -59,6 +59,10 @@ function PasswordInput({ id, labelKey, value, onChange, error, autoComplete, pla
 }
 
 export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalProps) {
+  return isOpen ? <AuthModalContent key={defaultMode} onClose={onClose} defaultMode={defaultMode} /> : null
+}
+
+function AuthModalContent({ onClose, defaultMode = 'login' }: Omit<AuthModalProps, 'isOpen'>) {
   const { t } = useTranslation()
   const [mode, setMode] = useState<Mode>(defaultMode)
   const modalRef = useRef<HTMLDivElement>(null)
@@ -76,11 +80,6 @@ export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalP
   const login = useAccountStore((s) => s.login)
 
   useEffect(() => {
-    if (isOpen) setMode(defaultMode)
-  }, [defaultMode, isOpen])
-
-  useEffect(() => {
-    if (!isOpen) return
     const focusedBeforeOpen = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const originalOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
@@ -106,7 +105,7 @@ export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalP
       document.removeEventListener('keydown', handleKeyDown)
       focusedBeforeOpen?.focus()
     }
-  }, [isOpen, onClose])
+  }, [onClose])
 
   const switchMode = (next: Mode) => {
     setMode(next)
@@ -160,7 +159,6 @@ export function AuthModal({ isOpen, onClose, defaultMode = 'login' }: AuthModalP
     finally { setLoading(false) }
   }
 
-  if (!isOpen) return null
   return (
     <div
       className="fixed inset-0 z-[120] flex items-center justify-center overflow-y-auto bg-black/55 p-4"

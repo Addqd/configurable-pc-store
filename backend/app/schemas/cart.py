@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -35,6 +36,10 @@ class CartOut(BaseModel):
 class CartAddProductRequest(BaseModel):
     product_id: int = Field(gt=0)
     quantity: int = Field(gt=0, default=1)
+
+
+class BuyNowRequest(CartAddProductRequest):
+    idempotency_key: UUID
 
 
 class CartAddBuildRequest(BaseModel):

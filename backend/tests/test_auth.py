@@ -43,6 +43,14 @@ def test_csrf_rotation_reuse_and_logout(api_client: TestClient, registered_user:
     assert valid.status_code == 200, valid.text
     assert valid.json()["access_token"]
     assert "refresh_token" not in valid.json()
+    assert (
+        api_client.get(
+            "/api/v1/auth/me", headers=registered_user["headers"]
+        ).status_code
+        == 401
+    )
+    current_headers = {"Authorization": f"Bearer {valid.json()['access_token']}"}
+    assert api_client.get("/api/v1/auth/me", headers=current_headers).status_code == 200
     new_refresh = api_client.cookies.get("refresh_token")
     new_csrf = api_client.cookies.get("csrf_token")
     assert refresh != new_refresh
@@ -54,20 +62,19 @@ def test_csrf_rotation_reuse_and_logout(api_client: TestClient, registered_user:
     )
     assert replay.status_code == 401, replay.text
     assert (
-        api_client.post(
-            "/api/v1/auth/logout", headers=registered_user["headers"]
-        ).status_code
+        api_client.post("/api/v1/auth/logout", headers=current_headers).status_code
         == 403
     )
     result = api_client.post(
         "/api/v1/auth/logout",
         headers={
-            **registered_user["headers"],
+            **current_headers,
             "X-CSRF-Token": new_csrf,
         },
         cookies={"refresh_token": new_refresh, "csrf_token": new_csrf},
     )
     assert result.status_code == 200, result.text
+    assert api_client.get("/api/v1/auth/me", headers=current_headers).status_code == 401
     reused = api_client.post(
         "/api/v1/auth/refresh",
         cookies={"refresh_token": new_refresh, "csrf_token": new_csrf},

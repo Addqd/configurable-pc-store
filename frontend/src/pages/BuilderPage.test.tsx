@@ -1,96 +1,105 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { getProductsForCategory } from '../test-api'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { act, cleanup, fireEvent, screen, within, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
+import { render } from '../test-utils'
 import { BuilderPage } from './BuilderPage'
-import { useBuilderStore, emptyBuilderSelections, getProductsForCategory, type BuilderSelections } from '../stores/builderStore'
+import { useBuilderStore, emptyBuilderSelections } from '../stores/builderStore'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 
-vi.mock('../components/Header', () => ({ Header: () => <div data-testid="header" /> }))
-vi.mock('../components/Footer', () => ({ Footer: () => <div data-testid="footer" /> }))
-vi.mock('../components/BackButton', () => ({ BackButton: () => <div data-testid="back" /> }))
+vi.mock('../components/Header', () => ({ Header: () => <div /> }))
+vi.mock('../components/Footer', () => ({ Footer: () => <div /> }))
+vi.mock('../components/BackButton', () => ({ BackButton: () => <div /> }))
 vi.mock('../components/BuilderComponentRow', () => ({ BuilderComponentRow: () => <div /> }))
-vi.mock('../components/BuilderSidebar', () => ({ BuilderSidebar: () => <div data-testid="builder-sidebar" /> }))
+vi.mock('../components/BuilderSidebar', () => ({ BuilderSidebar: ({ status }: { status: string }) => <div data-testid="compatibility-status">{status}</div> }))
 vi.mock('../components/BuilderSpecsTable', () => ({ BuilderSpecsTable: () => <div /> }))
-
-function complete(): BuilderSelections {
-  return {
-    cpu: getProductsForCategory('cpu').find((p) => p.name.includes('7800X3D'))!,
-    mobo: getProductsForCategory('mobo').find((p) => p.name.includes('B650 Tomahawk'))!,
-    gpu: getProductsForCategory('gpu')[0], ram: getProductsForCategory('ram')[0],
-    storage: getProductsForCategory('storage')[0], psu: getProductsForCategory('psu')[0],
-    case: getProductsForCategory('case')[0], cooling: getProductsForCategory('cooling')[0],
-  }
-}
-
 beforeEach(() => {
-  useBuilderStore.setState({ selections: emptyBuilderSelections(), savedBuilds: [], editingBuildId: null, nextSavedBuildId: 1 })
+  useBuilderStore.setState({ selections: emptyBuilderSelections(), editingBuildId: null })
   useAccountStore.setState({ accounts: {}, activeAccountId: null })
-  useUIStore.setState({ authModalOpen: false, authModalMode: 'login' })
+  useUIStore.setState({ authModalOpen: false })
 })
-afterEach(() => cleanup())
+afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 
-function authenticate() {
-  useAccountStore.setState({
-    activeAccountId: 'me',
-    accounts: {
-      me: { account: { id: 'me', username: 'me', email: 'me@example.test', displayName: 'Me', avatar: '', createdAt: 1 },
-        password: { salt: 'x', hash: 'x' } },
-    },
-  })
-}
-
-describe('BuilderPage — TASK 007 save integration', () => {
-  it('keeps Save disabled for incomplete builds with a normal cursor', () => {
-    authenticate()
-    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
-    const saveButton = screen.getByRole('button', { name: /Сохранить сборку/i }) as HTMLButtonElement
-    expect(saveButton.disabled).toBe(true)
-    expect(saveButton.className).toContain('disabled:cursor-default')
-    expect(screen.getByText(/Выберите комплектующие/i)).toBeTruthy()
-  })
-
-  it('saves a completed build through the real form and shows inline errors for invalid names', () => {
-    authenticate()
-    useBuilderStore.setState({ selections: complete() })
-    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
-    const button = screen.getByRole('button', { name: /Сохранить сборку/i }) as HTMLButtonElement
-    expect(button.disabled).toBe(false)
-    fireEvent.click(button)
-    const dialog = screen.getByRole('dialog')
-    const submit = within(dialog).getByRole('button', { name: 'Сохранить сборку' })
-    const name = screen.getByLabelText('Название') as HTMLInputElement
-    fireEvent.change(name, { target: { value: '   ' } })
-    fireEvent.click(submit)
-    expect(screen.getByRole('alert').textContent).toContain('Введите название')
-    fireEvent.change(name, { target: { value: 'My Saved Build' } })
-    fireEvent.click(submit)
-    expect(screen.queryByRole('dialog')).toBeNull()
-    expect(useBuilderStore.getState().savedBuilds[0].name).toBe('My Saved Build')
-    expect(useBuilderStore.getState().savedBuilds[0].ownerId).toBe('me')
-    expect(screen.getByRole('link', { name: 'Мои сборки' })).toBeTruthy()
-  })
-
-  it('updates the opened build instead of creating an unrelated duplicate', () => {
-    authenticate()
-    useBuilderStore.setState({ selections: complete() })
-    const first = useBuilderStore.getState().saveBuild('Old name', '', '', 'me')!
-    useBuilderStore.getState().restoreBuild(first.id, 'me')
-    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
-    fireEvent.click(screen.getByRole('button', { name: /Сохранить сборку/i }))
-    expect((screen.getByLabelText('Название') as HTMLInputElement).value).toBe('Old name')
-    fireEvent.change(screen.getByLabelText('Название'), { target: { value: 'Updated name' } })
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Сохранить сборку' }))
-    expect(useBuilderStore.getState().savedBuilds).toHaveLength(1)
-    expect(useBuilderStore.getState().savedBuilds[0].id).toBe(first.id)
-    expect(useBuilderStore.getState().savedBuilds[0].name).toBe('Updated name')
-  })
-
-  it('opens authentication if a guest clicks Save instead of silently losing the draft', () => {
-    useBuilderStore.setState({ selections: complete() })
+describe('saving a server build', () => {
+  it('requires authentication and preserves the draft', () => {
+    const product = getProductsForCategory('cpu')[0]
+    useBuilderStore.getState().setProduct('cpu', product)
     render(<MemoryRouter><BuilderPage /></MemoryRouter>)
     fireEvent.click(screen.getByRole('button', { name: /Сохранить сборку/i }))
     expect(useUIStore.getState().authModalOpen).toBe(true)
-    expect(useBuilderStore.getState().savedBuilds).toHaveLength(0)
+    expect(useBuilderStore.getState().selections.cpu?.id).toBe(product.id)
+  })
+  it('posts selected server IDs and reports success only after a valid response', async () => {
+    const product = getProductsForCategory('cpu')[0]
+    useBuilderStore.getState().setProduct('cpu', product)
+    useAccountStore.setState({ activeAccountId: '7', accounts: { '7': { account: { id: '7', username: 'test', email: 'test@example.com', displayName: 'Test', avatar: '', createdAt: 0 } } } })
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds' && init.method === 'POST') return new Response(JSON.stringify({ id: 42, user_id: 7, name: 'My build', description: '', version: 1, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', items: [] }), { status: 201, headers: { 'Content-Type': 'application/json' } })
+      return new Response(null, { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Сохранить сборку/i }))
+    fireEvent.change(screen.getByLabelText('Название'), { target: { value: 'My build' } })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Сохранить сборку' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    const post = fetchMock.mock.calls.find(([url, init]) => url === '/api/v1/builds' && init.method === 'POST')!
+    expect(JSON.parse(String(post[1].body)).items).toEqual([{ slot: 'cpu', product_id: product.id }])
+    expect(useBuilderStore.getState().editingBuildId).toBe(42)
+    expect(screen.getByText(/сохранена/i)).toBeTruthy()
+    act(() => useBuilderStore.getState().setProduct('cpu', getProductsForCategory('cpu')[1]))
+    expect(screen.queryByText(/сохранена/i)).toBeNull()
+  })
+
+  it('saves an existing build name and selected parts in one request', async () => {
+    const product = getProductsForCategory('cpu')[0]
+    useBuilderStore.setState({ selections: { ...emptyBuilderSelections(), cpu: product }, editingBuildId: 42 })
+    useAccountStore.setState({ activeAccountId: '7', accounts: { '7': { account: { id: '7', username: 'test', email: 'test@example.com', displayName: 'Test', avatar: '', createdAt: 0 } } } })
+    const build = { id: 42, user_id: 7, name: 'Old name', description: '', version: 1, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', items: [] }
+    const fetchMock = vi.fn(async (url: string, _init: RequestInit) => {
+      if (url === '/api/v1/builds/42') return new Response(JSON.stringify(build), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      return new Response(null, { status: 404 })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: /Сохранить сборку/i }))
+    fireEvent.change(screen.getByLabelText('Название'), { target: { value: 'Updated name' } })
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Сохранить сборку' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    const writes = fetchMock.mock.calls.filter(([url, init]) => url !== '/api/v1/builds/compatibility' && (init.method === 'PUT' || init.method === 'POST'))
+    expect(writes).toHaveLength(1)
+    expect(writes[0][0]).toBe('/api/v1/builds/42')
+    expect(JSON.parse(String(writes[0][1].body))).toMatchObject({ name: 'Updated name', items: [{ slot: 'cpu', product_id: product.id }] })
+  })
+
+  it('checks an unsaved selection through the server', async () => {
+    const product = getProductsForCategory('cpu')[0]
+    useBuilderStore.getState().setProduct('cpu', product)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ build_id: 0, overall_status: 'unknown', items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const call = fetchMock.mock.calls.find(([url]: unknown[]) => url === '/api/v1/builds/compatibility') as unknown as [string, RequestInit]
+    expect(JSON.parse(String(call[1].body))).toEqual({ items: [{ slot: 'cpu', product_id: product.id }] })
+  })
+
+  it('does not display an older compatibility response after selection changes', async () => {
+    const [first, second] = getProductsForCategory('cpu')
+    useBuilderStore.getState().setProduct('cpu', first)
+    let resolveFirst!: (response: Response) => void
+    const response = (status: string) => new Response(JSON.stringify({ build_id: 0, overall_status: status, items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const id = JSON.parse(String(init.body)).items[0].product_id
+      if (id === first.id) return new Promise<Response>(resolve => { resolveFirst = resolve })
+      return response('incompatible')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    act(() => useBuilderStore.getState().setProduct('cpu', second))
+    await waitFor(() => expect(screen.getByTestId('compatibility-status').textContent).toBe('incompatible'))
+    await act(async () => { resolveFirst(response('compatible')) })
+    expect(screen.getByTestId('compatibility-status').textContent).toBe('incompatible')
   })
 })

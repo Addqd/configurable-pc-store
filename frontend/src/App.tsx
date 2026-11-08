@@ -1,10 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
+import { queryClient } from './api/queryClient'
 import { useTranslation } from 'react-i18next'
 import { useThemeStore } from './stores/themeStore'
 import { useAccountStore } from './stores/accountStore'
-import { useCartStore } from './stores/cartStore'
 import { useBuilderStore } from './stores/builderStore'
 import { useUIStore } from './stores/uiStore'
 import { HomePage } from './pages/HomePage'
@@ -17,8 +17,6 @@ import { OrdersPage } from './pages/OrdersPage'
 import { SavesPage } from './pages/SavesPage'
 import { NotFound } from './pages/NotFound'
 import { AuthModal } from './components/AuthModal'
-
-const queryClient = new QueryClient({ defaultOptions: { queries: { staleTime: 300_000, retry: 1 } } })
 
 function LangUpdater() {
   const { i18n } = useTranslation()
@@ -40,15 +38,15 @@ function LangUpdater() {
 function AppStateEffects() {
   const isDark = useThemeStore((s) => s.isDark)
   const accountId = useAccountStore((s) => s.activeAccountId)
-  const setOrderAccount = useCartStore((s) => s.setActiveAccountId)
+  const restore = useAccountStore((s) => s.restore)
+  const previousAccount = useRef(accountId)
+  useEffect(() => { void restore() }, [restore])
   useEffect(() => { document.documentElement.classList.toggle('dark', isDark) }, [isDark])
-  // Restore cart/order ownership after a page refresh and prevent stale cart sessions.
-  useEffect(() => { setOrderAccount(accountId) }, [accountId, setOrderAccount])
   // A saved draft opened by account A must never remain editable after A logs out
   // or account B signs in. Keep unowned, unsaved guest drafts untouched.
   useEffect(() => {
-    const { editingBuildId, getSavedBuild, startNewBuild } = useBuilderStore.getState()
-    if (editingBuildId !== null && (!accountId || !getSavedBuild(editingBuildId, accountId))) startNewBuild()
+    if (previousAccount.current && previousAccount.current !== accountId) useBuilderStore.getState().startNewBuild()
+    previousAccount.current = accountId
   }, [accountId])
   return null
 }

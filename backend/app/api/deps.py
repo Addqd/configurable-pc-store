@@ -1,14 +1,17 @@
 """Authenticated API dependencies; never trust a caller-controlled user id."""
 
+from datetime import UTC, datetime
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import decode_token
 from app.db.session import get_db_session
-from app.models import User
+from app.models import AuthSession, User
 
 bearer_scheme = HTTPBearer(auto_error=False)
 DBSessionDep = Annotated[Session, Depends(get_db_session, scope="function")]
@@ -20,8 +23,19 @@ def _get_current_user_from_token(token: str, db: Session) -> User:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
     try:
         user_id = int(payload["sub"])
+        session_id = UUID(payload["sid"])
     except ValueError, TypeError, KeyError:
         raise HTTPException(status_code=401, detail="Invalid token payload") from None
+    active_session = db.scalar(
+        select(AuthSession.id).where(
+            AuthSession.id == session_id,
+            AuthSession.user_id == user_id,
+            AuthSession.revoked_at.is_(None),
+            AuthSession.expires_at > datetime.now(UTC),
+        )
+    )
+    if active_session is None:
+        raise HTTPException(status_code=401, detail="Session expired or revoked")
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
