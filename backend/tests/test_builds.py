@@ -92,3 +92,40 @@ def test_build_ownership_is_checked_per_user(
             **({"json": {"name": "Stolen"}} if method == "put" else {}),
         )
         assert response.status_code == 404, (route, response.status_code, response.text)
+
+
+def test_build_update_is_atomic(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    headers = registered_user["headers"]
+    original = {
+        "name": "Original",
+        "items": [{"slot": "cpu", "product_id": sample_products["cpu"].id}],
+    }
+    created = api_client.post("/api/v1/builds", headers=headers, json=original)
+    assert created.status_code == 201
+    route = f"/api/v1/builds/{created.json()['id']}"
+    invalid = api_client.put(
+        route,
+        headers=headers,
+        json={
+            "name": "Must not persist",
+            "items": [{"slot": "cpu", "product_id": sample_products["gpu"].id}],
+        },
+    )
+    assert invalid.status_code == 422
+    current = api_client.get(route, headers=headers).json()
+    assert current["name"] == "Original"
+    assert current["items"][0]["product_id"] == sample_products["cpu"].id
+    updated = api_client.put(
+        route,
+        headers=headers,
+        json={
+            "name": "Updated",
+            "items": [{"slot": "gpu", "product_id": sample_products["gpu"].id}],
+        },
+    )
+    assert updated.status_code == 200
+    current = api_client.get(route, headers=headers).json()
+    assert current["name"] == "Updated"
+    assert current["items"][0]["product_id"] == sample_products["gpu"].id

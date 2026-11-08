@@ -1,10 +1,13 @@
+import { getProductsForCategory } from '../test-api'
+import { render } from '../test-utils'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { mockCatalogFetch } from '../test-api'
 import { BuilderActions } from './BuilderActions'
 import { BuilderProductSelector } from './BuilderProductSelector'
 import { BuilderSidebar } from './BuilderSidebar'
 import {
-  useBuilderStore, emptyBuilderSelections, getProductsForCategory,
+  useBuilderStore, emptyBuilderSelections,
   type BuilderSelections,
 } from '../stores/builderStore'
 
@@ -54,19 +57,21 @@ describe('Builder controls and validation', () => {
     expect(onCreate).toHaveBeenCalledTimes(1)
   })
 
-  it('keeps the component list fixed-height and scrollable even after an unsuccessful search', () => {
+  it('keeps the component list fixed-height and scrollable even after an unsuccessful search', async () => {
+    mockCatalogFetch()
     render(<BuilderProductSelector category="cpu" onClose={() => {}} />)
     const list = screen.getByTestId('builder-products-scroll')
     expect(list.className).toContain('h-[400px]')
     expect(list.className).toContain('overflow-y-scroll')
     const search = screen.getByPlaceholderText('Поиск по названию и характеристикам') as HTMLInputElement
     fireEvent.change(search, { target: { value: 'nonexistent-product-123!' } })
-    expect(search.getAttribute('aria-invalid')).toBe('true')
+    await waitFor(() => expect(search.getAttribute('aria-invalid')).toBe('true'))
     expect(screen.getByRole('alert').textContent).toMatch(/ничего не найдено/i)
     expect(screen.getByRole('alert').className).toContain('text-red-500')
     fireEvent.change(search, { target: { value: '' } })
     expect(search.getAttribute('aria-invalid')).toBe('false')
-    expect(screen.queryByRole('alert')).toBeNull()
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull())
+    vi.unstubAllGlobals()
   })
 
   it('disables right-hand cart action until all parts are selected, with visible validation', () => {
@@ -82,6 +87,8 @@ describe('Builder controls and validation', () => {
 
     act(() => useBuilderStore.setState({ selections: complete() }))
     view.rerender(<BuilderSidebar onAddToCart={onCart} />)
+    expect(cart.disabled).toBe(true)
+    view.rerender(<BuilderSidebar onAddToCart={onCart} status="compatible" />)
     expect(cart.disabled).toBe(false)
   })
 })

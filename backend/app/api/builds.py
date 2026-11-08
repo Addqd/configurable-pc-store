@@ -101,6 +101,9 @@ def update_build(
             _owned(db, current_user, build_id),
             name=body.name,
             description=body.description,
+            items=[item.model_dump() for item in body.items]
+            if body.items is not None
+            else None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

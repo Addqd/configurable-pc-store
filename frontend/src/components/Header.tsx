@@ -2,7 +2,7 @@ import { LanguageSwitcher } from './LanguageSwitcher'
 import { useTranslation } from 'react-i18next'
 import { useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useUIStore } from '../stores/uiStore'
-import { useCartStore } from '../stores/cartStore'
+import { useServerCart } from '../api/useServerCart'
 import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router'
@@ -23,7 +23,8 @@ export function Header() {
   } = useUIStore()
   const account = useAccountStore(selectActiveAccount)
   const logout = useAccountStore((s) => s.logout)
-  const totalItems = useCartStore((s) => s.totalItems())
+  const { cart } = useServerCart()
+  const totalItems = cart.data?.item_count ?? 0
   const headerRef = useRef<HTMLElement>(null)
   const navButtonRef = useRef<HTMLButtonElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)

@@ -11,6 +11,7 @@ interface ProductInfoProps {
   product: EnrichedProduct
   quantity: number
   isFavorite: boolean
+  favoriteDisabled?: boolean
   onQuantityChange: (quantity: number) => void
   onAddToCart: (quantity: number) => void
   onBuyNow: (quantity: number) => void
@@ -22,6 +23,7 @@ export function ProductInfo({
   product,
   quantity,
   isFavorite,
+  favoriteDisabled,
   onQuantityChange,
   onAddToCart,
   onBuyNow,
@@ -64,7 +66,7 @@ export function ProductInfo({
         <StarRating rating={product.rating} count={product.reviewCount} />
       </div>
 
-      <div className="mt-5 flex items-center justify-between gap-3 border-b border-border pb-4">
+      {product.article && <div className="mt-5 flex items-center justify-between gap-3 border-b border-border pb-4">
         <span className="text-sm text-text-secondary">{t('product.spec')}</span>
         <button
           type="button"
@@ -75,14 +77,14 @@ export function ProductInfo({
           {product.article}
           {copied ? <span className="text-xs text-emerald-500">{t('product.copied')}</span> : <FiCopy className="h-4 w-4 text-text-muted" />}
         </button>
-      </div>
+      </div>}
 
       <div className="mt-5">
         <p className="text-sm text-text-secondary">{t('product.price')}</p>
         <p className="mt-1 text-3xl font-bold text-primary">{formatPrice(product.price)}</p>
         <p className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-emerald-500">
           <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
-          {t('product.in_stock')}
+          {product.stockQuantity === 0 ? t('product.out_of_stock') : t('product.in_stock')}
         </p>
         <p className="mt-1 text-xs text-text-muted">{t('product.availability_note')}</p>
       </div>
@@ -110,6 +112,7 @@ export function ProductInfo({
         <button
           type="button"
           onClick={() => onAddToCart(quantity)}
+          disabled={product.stockQuantity === 0}
           className="flex w-full flex-1 items-center justify-center rounded-xl bg-primary px-5 py-3 text-base font-semibold text-white transition-colors hover:bg-primary-hover dark:text-[#08090C]"
         >
           {t('product.add_to_cart')}
@@ -119,6 +122,7 @@ export function ProductInfo({
       <button
         type="button"
         onClick={() => onBuyNow(quantity)}
+        disabled={product.stockQuantity === 0}
         className="mt-3 flex w-full items-center justify-center rounded-xl border border-border px-5 py-3 text-base font-semibold text-text-primary transition-colors hover:bg-surface-3"
       >
         {t('product.buy_now')}
@@ -128,6 +132,7 @@ export function ProductInfo({
         <button
           type="button"
           onClick={onToggleFavorite}
+          disabled={favoriteDisabled}
           className={`inline-flex items-center gap-2 text-sm font-medium transition-colors ${isFavorite ? 'text-rose-500 hover:text-rose-400' : 'text-text-muted hover:text-text-primary'}`}
           aria-pressed={isFavorite}
           aria-label={isFavorite ? t('product.remove_favorite') : t('product.favorite')}

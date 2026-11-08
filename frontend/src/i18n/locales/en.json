@@ -107,15 +107,16 @@
     "category_empty": "No products yet"
   },
   "product": {
+    "out_of_stock": "Out of stock",
     "not_found": "Product not found",
     "not_found_desc": "It seems this product is not in the catalog.",
     "spec": "SKU",
     "price": "Price",
-    "in_stock": "In stock (demo)",
-    "availability_note": "Availability and prices are shown for demonstration purposes",
+    "in_stock": "In stock",
+    "availability_note": "Availability and price are checked at checkout",
     "quantity": "Quantity",
     "add_to_cart": "Add to cart",
-    "buy_now": "Buy now",
+    "buy_now": "Add and go to cart",
     "favorite": "Add to favorites",
     "favorites": "Favorites",
     "remove_favorite": "Remove from favorites",
@@ -144,7 +145,7 @@
   "cart": {
     "title": "Shopping Cart",
     "empty_title": "Cart is empty",
-    "empty_desc": "Add products from the catalog or load a demo set for testing.",
+    "empty_desc": "Add products from the catalog.",
     "go_catalog": "Go to catalog",
     "load_demo": "Load demo",
     "summary": "Your order",
@@ -182,7 +183,7 @@
     "add_to_cart": "Add build to cart",
     "cart_validation": "Select all components: {{left}} of {{total}} remaining.",
     "compatibility_error": "Fix incompatibility: {{conflicts}}.",
-    "partial_check": "Some checks unavailable. Adding does not guarantee full compatibility.",
+    "partial_check": "Save the build and wait for compatibility confirmation before adding it to the cart.",
     "specs": "Build specifications",
     "specs_placeholder": "Select components to see their specs.",
     "create": "Create build",
@@ -199,6 +200,7 @@
     "save_error_required": "Enter a build name.",
     "save_error_maxlen": "Name must not exceed 100 characters.",
     "save_error_account": "Could not save build. Check components and current account.",
+    "save_partial_error": "Components were saved, but the name or description could not be updated. Try saving again.",
     "save_success": "Build “{{name}}” saved.",
     "saved_builds": "My builds",
     "build_ready": "Build ready. You can now add it to cart.",
@@ -267,7 +269,7 @@
     },
     "availability": "Availability not specified",
     "build_check_enabled": "Compatibility check enabled",
-    "build_check_desc": "We check only parameters confirmed by catalog specs."
+    "build_check_desc": "The server checks compatibility after the build is saved."
   },
   "saved_builds": {
     "title": "My Builds",
@@ -381,7 +383,7 @@
     "register_btn": "Register",
     "register_loading": "Registering...",
     "validation_email": "Invalid email format",
-    "validation_username_min": "At least 2 characters",
+    "validation_username_min": "At least 3 characters",
     "validation_password_min": "At least 8 characters",
     "validation_confirm_required": "Confirm password",
     "validation_passwords_match": "Passwords do not match",
@@ -392,6 +394,8 @@
     "register_error": "Could not complete registration"
   },
   "reviews": {
+    "edit": "Edit review",
+    "delete": "Delete review",
     "title": "Write a Review",
     "name": "Name",
     "name_placeholder": "What is your name?",
@@ -407,6 +411,7 @@
     "stars_n": "Give {{count}} stars"
   },
   "common": {
+    "load_error": "Could not load data. Please try again.",
     "back": "Back",
     "back_title": "Go back to the previous page",
     "close": "Close",

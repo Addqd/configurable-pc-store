@@ -74,6 +74,7 @@ class ProductSummaryOut(BaseModel):
     slug: str
     name: str
     price: Decimal
+    short_specs: list[str] = []
     color: str | None = None
     graphics_chip_brand: str | None = None
     on_sale: bool

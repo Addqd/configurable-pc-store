@@ -5,16 +5,18 @@ import { useAccountStore } from '../stores/accountStore'
 import { FiUser, FiBox, FiFileText, FiSettings, FiLogOut } from 'react-icons/fi'
 import { HiMiniMoon, HiMiniSun } from 'react-icons/hi2'
 import { Link } from 'react-router'
+import { useState } from 'react'
 import placeholder from '../assets/placeholder.jpg'
 
 type User = { name: string; email: string; avatar: string }
-interface ProfileDropdownProps { user?: User | null; onLogout?: () => void }
+interface ProfileDropdownProps { user?: User | null; onLogout?: () => void | Promise<void> }
 
 export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
   const { t } = useTranslation()
   const closeProfile = useUIStore((s) => s.closeProfile)
   const { isDark, toggle } = useThemeStore()
   const defaultLogout = useAccountStore((s) => s.logout)
+  const [logoutError, setLogoutError] = useState(false)
   const avatarUrl = user?.avatar || placeholder
   const MENU_ITEMS = [
     { labelKey: 'account.title', icon: FiUser, to: '/account' },
@@ -76,8 +78,9 @@ export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
         <button
           type="button"
           className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-muted hover:bg-surface-3 hover:text-primary transition-colors"
-          onClick={() => { closeProfile(); (onLogout ?? defaultLogout)() }}
+          onClick={async () => { try { await (onLogout ?? defaultLogout)(); closeProfile() } catch { setLogoutError(true) } }}
         ><FiLogOut className="w-5 h-5" /><span>{t('account.logout')}</span></button>
+        {logoutError && <p role="alert" className="px-2 text-xs text-red-500">{t('common.load_error')}</p>}
       </div>
     </div>
   )

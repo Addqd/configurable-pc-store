@@ -1,19 +1,19 @@
 import { useTranslation } from 'react-i18next'
-import { useCartStore } from '../stores/cartStore'
 import { formatPrice } from '../utils/formatPrice'
 import { FiArrowRight, FiTruck } from 'react-icons/fi'
 
 interface OrderSummaryProps {
   onCheckout?: () => void
   showCheckoutButton?: boolean
+  totalItems: number
+  totalPrice: number
+  pending?: boolean
 }
 
 const FREE_SHIPPING_THRESHOLD = 50000
 
-export function OrderSummary({ onCheckout, showCheckoutButton = true }: OrderSummaryProps) {
+export function OrderSummary({ onCheckout, showCheckoutButton = true, totalItems, totalPrice, pending }: OrderSummaryProps) {
   const { t } = useTranslation()
-  const totalItems = useCartStore((s) => s.totalItems())
-  const totalPrice = useCartStore((s) => s.totalPrice())
   const isFreeShipping = totalPrice >= FREE_SHIPPING_THRESHOLD
 
   return (
@@ -49,7 +49,7 @@ export function OrderSummary({ onCheckout, showCheckoutButton = true }: OrderSum
         <button
           type="button"
           onClick={onCheckout}
-          disabled={!onCheckout || totalItems === 0}
+          disabled={!onCheckout || totalItems === 0 || pending}
           className="flex w-full items-center justify-center gap-3 rounded-xl bg-primary px-4 py-3.5 text-base font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-default disabled:opacity-50 dark:text-[#08090C]"
         >
           {t('cart.checkout')}

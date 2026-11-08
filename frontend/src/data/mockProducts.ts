@@ -1,23 +1,7 @@
 import placeholder from '../assets/placeholder.jpg'
 
-export interface Product {
-  id: number
-  name: string
-  category: string
-  type: string
-  color?: string
-  rating: number
-  reviewCount: number
-  addedAt: string // Explicit mock catalog insertion date, not a product launch date.
-  onSale?: boolean // A real sale flag if future demo fixtures include special offers.
-  manufacturer: string // Board/graphics-card manufacturer, not necessarily GPU chip designer
-  specs: string[]
-  shortSpecs?: string[]
-  graphicsChipBrand?: 'AMD' | 'NVIDIA'
-  price: number
-  image: string
-  slug: string
-}
+import type { Product } from './product'
+export type { Product } from './product'
 
 // All products and prices below are deliberately illustrative demo fixtures.
 // Only explicitly supplied technical specs are presented as product facts.

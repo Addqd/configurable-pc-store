@@ -1,5 +1,14 @@
 # React + TypeScript + Vite
 
+## API client generation
+
+Start the project's FastAPI backend at `http://127.0.0.1:8000`, then run
+`npm run api:generate` from this directory. Orval reads its live OpenAPI document
+and writes the generated client, React Query hooks, and Zod models to
+`src/api/generated/`. Do not edit generated files by hand. The Vite development
+server proxies `/api` to that backend; production hosting must provide the same
+origin routing for `/api` and the backend's cookies.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

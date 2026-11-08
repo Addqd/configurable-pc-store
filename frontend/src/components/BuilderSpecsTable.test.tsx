@@ -1,6 +1,7 @@
+import { getProductsForCategory } from '../test-api'
 import { describe, expect, it } from 'vitest'
-import { getProductsForCategory, emptyBuilderSelections } from '../stores/builderStore'
-import { deriveBuilderSpecs } from './BuilderSpecsTable'
+import { emptyBuilderSelections } from '../stores/builderStore'
+import { deriveBuilderSpecs } from '../data/builderSpecs'
 
 describe('builder specifications', () => {
   it('shows storage capacity and interface in the proper fields', () => {

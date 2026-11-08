@@ -51,6 +51,7 @@ class SavedBuildCreate(BaseModel):
 class SavedBuildUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = Field(default=None, max_length=300)
+    items: list[BuildItemCreate] | None = Field(default=None, max_length=8)
 
 
 class CompatibilityStatus(BaseModel):

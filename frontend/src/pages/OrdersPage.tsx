@@ -7,7 +7,9 @@ import { Header } from '../components/Header'
 import { Footer } from '../components/Footer'
 import { BackButton } from '../components/BackButton'
 import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
-import { useCartStore, type Order, type OrderItem, type BuildComponent } from '../stores/cartStore'
+import type { Order, OrderItem, BuildComponent } from '../stores/cartStore'
+import { useGetOrdersApiV1CartOrdersGet } from '../api/generated/client'
+import { orderFromServer } from '../api/cartAdapter'
 import { useUIStore } from '../stores/uiStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
@@ -110,7 +112,7 @@ function OrderCard({ order, isExpanded, onToggle }: { order: Order; isExpanded: 
 function OrdersContent() {
   const { t } = useTranslation()
   const account = useAccountStore(selectActiveAccount)
-  const orders = useCartStore((state) => state.orders)
+  const orders = useGetOrdersApiV1CartOrdersGet({ query: { enabled: !!account, retry: false } })
   const openAuthModal = useUIStore((state) => state.openAuthModal)
   const [expandedId, setExpandedId] = useState<number | null | undefined>(undefined)
 
@@ -130,7 +132,7 @@ function OrdersContent() {
     )
   }
 
-  const accountOrders = orders.filter((order) => order.ownerId === account.id)
+  const accountOrders = (orders.data ?? []).map(orderFromServer)
     .sort((a, b) => b.timestamp - a.timestamp || b.id - a.id)
   const openOrder = expandedId === undefined ? accountOrders[0]?.id : expandedId
 
@@ -142,7 +144,7 @@ function OrdersContent() {
           <h1 className="text-3xl font-bold text-text-primary">{t('orders.title')}</h1>
           <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm text-text-muted">{t('orders.total', { count: accountOrders.length })}</span>
         </div>
-        {accountOrders.length === 0 ? (
+        {orders.isLoading ? <p role="status">{t('common.loading')}</p> : orders.isError ? <p role="alert">{t('common.load_error')}</p> : accountOrders.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface px-6 py-12 text-center">
             <FiShoppingCart className="w-14 h-14 text-text-muted mx-auto mb-4" />
             <h2 className="text-xl font-bold text-text-primary mb-2">{t('orders.empty_title')}</h2>

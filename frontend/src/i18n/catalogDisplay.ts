@@ -41,7 +41,6 @@ const catalogNames: Record<string, string> = {
   'Тип оперативной памяти': 'Memory type',
   'Форм-фактор корпуса и платы': 'Case/motherboard form factor',
   'Габариты видеокарты': 'GPU dimensions',
-  'Мощность блока питания': 'Power supply capacity',
   'В каталоге нет данных о сокете': 'Socket data is unavailable',
   'В каталоге нет данных о типе памяти': 'Memory type data is unavailable',
   'Не указан форм-фактор': 'Form factor is unavailable',

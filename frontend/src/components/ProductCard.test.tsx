@@ -1,5 +1,6 @@
+import { render } from '../test-utils'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
+import { screen, cleanup } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
 import { ProductCard } from './ProductCard'
 import { mockProducts } from '../data/mockProducts'

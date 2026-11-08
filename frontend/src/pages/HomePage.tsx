@@ -4,17 +4,18 @@ import { PromotionalBanner } from '../components/PromotionalBanner'
 import { ProductSection } from '../components/ProductSection'
 import { WhyChooseUs } from '../components/WhyChooseUs'
 import { Footer } from '../components/Footer'
-import { mockProducts } from '../data/mockProducts'
+import { useListProductsApiV1ProductsGet } from '../api/generated/client'
+import { productFromSummary } from '../api/catalogAdapter'
 import catalogBg from '../assets/home/home-hero-catalog-bg.png'
 import configuratorBg from '../assets/home/home-hero-configurator-bg.png'
 import { HiMiniCube, HiMiniCpuChip, HiMiniCubeTransparent } from 'react-icons/hi2'
 
 export function HomePage() {
   const { t } = useTranslation()
-  const prebuilts = mockProducts.filter((p) => p.category === 'Готовые сборки')
-  const gpus = mockProducts.filter((p) => p.category === 'Видеокарты')
-  const cpus = mockProducts.filter((p) => p.category === 'Процессоры')
-  const mobos = mockProducts.filter((p) => p.category === 'Материнские платы')
+  const prebuilts = useListProductsApiV1ProductsGet({ category: 'prebuilt', page_size: 6 })
+  const gpus = useListProductsApiV1ProductsGet({ category: 'gpu', page_size: 6 })
+  const cpus = useListProductsApiV1ProductsGet({ category: 'cpu', page_size: 6 })
+  const mobos = useListProductsApiV1ProductsGet({ category: 'mobo', page_size: 6 })
 
   return (
     <div className="min-h-screen bg-surface-2">
@@ -56,31 +57,32 @@ export function HomePage() {
           </div>
 
           {/* Product Sections */}
+          {[prebuilts, gpus, cpus, mobos].some(result => result.isError) && <p role="alert" className="text-sm text-red-500">{t('common.load_error')}</p>}
           <ProductSection
             titleKey="home.categories.prebuilt"
             icon={HiMiniCube}
-            products={prebuilts}
+            products={(prebuilts.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=prebuilt"
           />
 
           <ProductSection
             titleKey="home.categories.gpu"
             icon={HiMiniCpuChip}
-            products={gpus}
+            products={(gpus.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=gpu"
           />
 
           <ProductSection
             titleKey="home.categories.cpu"
             icon={HiMiniCpuChip}
-            products={cpus}
+            products={(cpus.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=cpu"
           />
 
           <ProductSection
             titleKey="home.categories.mobo"
             icon={HiMiniCubeTransparent}
-            products={mobos}
+            products={(mobos.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=mobo"
           />
 

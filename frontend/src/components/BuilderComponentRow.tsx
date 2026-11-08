@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
-import { useBuilderStore, checkBuildCompatibility, type BuilderCategory } from '../stores/builderStore'
+import { useBuilderStore, type BuilderCategory } from '../stores/builderStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiRefreshCw, FiTrash2, FiPlus } from 'react-icons/fi'
@@ -15,25 +15,13 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
   const [showSelector, setShowSelector] = useState(false)
   const selections = useBuilderStore((state) => state.selections)
   const product = selections[category]
-  const affected: Record<BuilderCategory, string[]> = {
-    cpu: ['Сокет CPU и платы', 'Совместимость охлаждения'],
-    mobo: ['Сокет CPU и платы', 'Тип оперативной памяти', 'Форм-фактор корпуса и платы'],
-    gpu: ['Габариты видеокарты'],
-    ram: ['Тип оперативной памяти'],
-    storage: [],
-    psu: ['Мощность блока питания'],
-    case: ['Форм-фактор корпуса и платы', 'Габариты видеокарты'],
-    cooling: ['Совместимость охлаждения'],
-  }
-  const issues = checkBuildCompatibility(selections).filter((check) =>
-    check.status === 'incompatible' && affected[category].includes(check.label))
   const removeProduct = useBuilderStore((state) => state.removeProduct)
   const label = t('builder.components.' + category)
 
   return (
     <>
       <div>
-      <div className={`flex flex-col gap-3 rounded-xl border bg-surface-2 p-3 transition-colors sm:flex-row sm:items-center sm:gap-3 ${issues.length ? 'border-red-500/60' : 'border-border hover:border-border-hover'}`}>
+      <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface-2 p-3 transition-colors hover:border-border-hover sm:flex-row sm:items-center sm:gap-3">
         <div className="flex min-w-0 items-center gap-3 sm:w-[154px] sm:shrink-0">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10">
             <BuilderCategoryIcon category={category} className="h-5 w-5 text-primary" />
@@ -50,7 +38,6 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
               <div className="min-w-0 flex-1">
                 <p className="break-words text-sm font-semibold text-text-primary">{catalogDisplay(product.name)}</p>
                 <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">{product.specs.slice(0, 3).map((part) => catalogDisplay(part)).join(', ')}</p>
-                <p className="mt-1 text-xs text-text-muted">{t('builder.availability')}</p>
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
@@ -78,11 +65,6 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
           </div>
         )}
       </div>
-      {issues.length > 0 && (
-        <div role="alert" className="space-y-1 px-2 pt-1 text-xs text-red-500">
-          {issues.map((check) => <p key={check.label}>{catalogDisplay(check.label)}: {catalogDisplay(check.detail)}</p>)}
-        </div>
-      )}
       </div>
       {showSelector && <BuilderProductSelector category={category} onClose={() => setShowSelector(false)} />}
     </>

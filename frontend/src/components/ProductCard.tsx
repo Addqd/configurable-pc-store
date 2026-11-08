@@ -1,7 +1,7 @@
 import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
-import type { Product } from '../data/mockProducts'
-import { useCartStore } from '../stores/cartStore'
+import type { Product } from '../data/product'
+import { useServerCart } from '../api/useServerCart'
 import { formatPrice } from '../utils/formatPrice'
 import { FiShoppingCart } from 'react-icons/fi'
 import { Link } from 'react-router'
@@ -13,7 +13,7 @@ interface ProductCardProps {
 
 export function ProductCard({ product }: ProductCardProps) {
   const { t } = useTranslation()
-  const addItem = useCartStore((s) => s.addItem)
+  const { addProduct, add } = useServerCart()
   // Home cards should stay compact even though Product Details uses individual specs.
   const specs = product.shortSpecs ?? product.specs
   const summaryLines = specs.length > 2
@@ -21,14 +21,7 @@ export function ProductCard({ product }: ProductCardProps) {
     : specs
 
   const handleCartClick = () => {
-    addItem({
-      id: product.id,
-      name: product.name,
-      price: product.price,
-      image: product.image,
-      specs: product.specs,
-      category: product.category,
-    })
+    addProduct(product.id)
   }
 
   return (
@@ -62,11 +55,13 @@ export function ProductCard({ product }: ProductCardProps) {
         <button
           type="button"
           onClick={handleCartClick}
+          disabled={add.isPending}
           className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary hover:text-white dark:hover:text-[#08090C]"
           aria-label={t('product.add_to_cart')}
         >
           <FiShoppingCart className="h-4 w-4" />
         </button>
+        {add.isError && <p role="alert" className="text-xs text-red-500">{t('common.load_error')}</p>}
       </div>
     </div>
   )
