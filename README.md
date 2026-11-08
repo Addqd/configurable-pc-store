@@ -6,9 +6,16 @@
 
 Frontend построен на **React и TypeScript**, backend — на **FastAPI и PostgreSQL**. Для взаимодействия между ними используется API-клиент, автоматически генерируемый из OpenAPI-спецификации.
 
-> **Статус:** активная разработка. Основные пользовательские сценарии реализованы, проект продолжает проходить тестирование и доработку.
->
 > **Важно:** покупки являются демонстрационными. Реальные платежи, доставка и обработка денежных транзакций не предусмотрены.
+
+## Тестовый аккаунт
+
+Для знакомства с возможностями, требующими авторизации, можно использовать демонстрационную учётную запись:
+
+- **Логин:** `testuser12345`
+- **Пароль:** `testtest1234`
+
+> Учётная запись предназначена только для демонстрационного окружения и должна присутствовать в подключённой базе данных.
 
 ## Возможности
 
@@ -130,24 +137,23 @@ Frontend построен на **React и TypeScript**, backend — на **FastA
 
 ```mermaid
 flowchart TD
-    A["React + TypeScript"]
-    B["Zustand — Client State"]
-    C["TanStack Query — Server State"]
-    D["Orval — Generated API Client"]
-    E["Zod — Runtime Validation"]
-    F["FastAPI + Pydantic"]
-    G["Services — Business Logic"]
-    H["SQLAlchemy 2"]
-    I[("PostgreSQL")]
-
-    A --> B
-    A --> C
-    C --> D
-    D --> E
-    D --> F
-    F --> G
-    G --> H
-    H --> I
+    A["React + TypeScript"]
+    B["Zustand — Client State"]
+    C["TanStack Query — Server State"]
+    D["Orval — Generated API Client"]
+    E["Zod — Runtime Validation"]
+    F["FastAPI + Pydantic"]
+    G["Services — Business Logic"]
+    H["SQLAlchemy 2"]
+    I[("PostgreSQL")]
+    A --> B
+    A --> C
+    C --> D
+    D --> E
+    D --> F
+    F --> G
+    G --> H
+    H --> I
 ```
 
 **Frontend** отвечает за представление данных, пользовательские взаимодействия, локальное состояние и кеширование ответов API.
@@ -192,31 +198,31 @@ Access token хранится в памяти frontend-приложения, а 
 ```text
 .
 ├── backend/
-│   ├── alembic/          # Миграции PostgreSQL
-│   ├── app/
-│   │   ├── api/          # Маршруты FastAPI
-│   │   ├── core/         # Конфигурация и безопасность
-│   │   ├── db/           # Подключение и сессии БД
-│   │   ├── models/       # SQLAlchemy-модели
-│   │   ├── schemas/      # Pydantic-схемы
-│   │   ├── services/     # Бизнес-логика
-│   │   └── main.py       # Точка входа FastAPI
-│   ├── tests/
-│   └── pyproject.toml
+│   ├── alembic/          # Миграции PostgreSQL
+│   ├── app/
+│   │   ├── api/          # Маршруты FastAPI
+│   │   ├── core/         # Конфигурация и безопасность
+│   │   ├── db/           # Подключение и сессии БД
+│   │   ├── models/       # SQLAlchemy-модели
+│   │   ├── schemas/      # Pydantic-схемы
+│   │   ├── services/     # Бизнес-логика
+│   │   └── main.py       # Точка входа FastAPI
+│   ├── tests/
+│   └── pyproject.toml
 ├── frontend/
-│   ├── src/
-│   │   ├── api/          # API-клиент и интеграция
-│   │   ├── components/   # UI-компоненты
-│   │   ├── data/         # Адаптеры и вспомогательная логика
-│   │   ├── i18n/         # Русская и английская локализация
-│   │   ├── pages/        # Страницы приложения
-│   │   ├── stores/       # Zustand stores
-│   │   └── App.tsx
-│   ├── orval.config.ts
-│   └── package.json
-├── docs/                 # Спецификации и дизайн-материалы
-├── scripts/              # Вспомогательные скрипты
-├── compose.yaml          # PostgreSQL через Docker Compose
+│   ├── src/
+│   │   ├── api/          # API-клиент и интеграция
+│   │   ├── components/   # UI-компоненты
+│   │   ├── data/         # Адаптеры и вспомогательная логика
+│   │   ├── i18n/         # Русская и английская локализация
+│   │   ├── pages/        # Страницы приложения
+│   │   ├── stores/       # Zustand stores
+│   │   └── App.tsx
+│   ├── orval.config.ts
+│   └── package.json
+├── docs/                 # Спецификации и дизайн-материалы
+├── scripts/              # Вспомогательные скрипты
+├── compose.yaml          # PostgreSQL через Docker Compose
 └── README.md
 ```
 
@@ -237,12 +243,9 @@ Access token хранится в памяти frontend-приложения, а 
 POSTGRES_DB=pc_builder
 POSTGRES_USER=pc_builder
 POSTGRES_PASSWORD=replace_with_a_private_password
-
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=55432
-
 JWT_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters
-
 COOKIE_SECURE=false
 COOKIE_SAMESITE=lax
 ```
@@ -375,7 +378,7 @@ REST API использует преимущественно префикс `/ap
 
 PC Builder & Store является демонстрационным full-stack приложением.
 
-В текущую область проекта **не входят**:
+В проекте **не предусмотрены**:
 
 - Реальные онлайн-платежи и платёжные провайдеры.
 - Доставка и отслеживание отправлений.
@@ -385,10 +388,6 @@ PC Builder & Store является демонстрационным full-stack 
 - Система сравнения товаров.
 
 Проект предназначен для демонстрации навыков frontend- и backend-разработки, проектирования API, работы с реляционной базой данных, реализации бизнес-логики, аутентификации и интеграционного тестирования.
-
-## Разработка
-
-Проект находится в активной разработке. Реализованные функции и API-контракты могут изменяться по мере тестирования, исправления ошибок и развития приложения.
 
 ## Автор
 
