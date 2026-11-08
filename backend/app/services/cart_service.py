@@ -130,6 +130,7 @@ def add_build_to_cart(
         ).all()
     }
     snapshot = _build_snapshot(db, selections, new_qty)
+    snapshot["name"] = build.name
     if existing:
         existing.quantity = new_qty
         existing.build_snapshot = snapshot
@@ -183,7 +184,12 @@ def update_cart_quantity(
         _product(db, item.product_id, quantity)
     elif item.kind == "custom_build":
         selections = _selections(item.build_snapshot)
-        item.build_snapshot = _build_snapshot(db, selections, quantity)
+        refreshed = _build_snapshot(db, selections, quantity)
+        if isinstance(item.build_snapshot, dict) and isinstance(
+            item.build_snapshot.get("name"), str
+        ):
+            refreshed["name"] = item.build_snapshot["name"]
+        item.build_snapshot = refreshed
     else:
         raise ValueError("Invalid cart item")
     item.quantity = quantity
@@ -217,6 +223,37 @@ def _selections(snapshot: dict | None) -> dict[str, int]:
     if len(result) != len(components):
         raise ValueError("Duplicate build slots")
     return result
+
+
+def buy_product_demo(db: Session, user: User, product_id: int, quantity: int) -> Order:
+    product = _product(db, product_id, quantity)
+    _, cover = _images(product)
+    order = Order(
+        user_id=user.id,
+        status="completed_demo",
+        total_amount=product.price * quantity,
+        item_count=quantity,
+    )
+    db.add(order)
+    db.flush()
+    db.add(
+        OrderItem(
+            order_id=order.id,
+            kind="product",
+            product_id=product.id,
+            saved_build_id=None,
+            sku_snapshot=product.sku,
+            name_snapshot=product.name,
+            image_url_snapshot=cover,
+            unit_price=product.price,
+            quantity=quantity,
+            specs_snapshot=list(product.spec_lines or []),
+            components_snapshot=None,
+        )
+    )
+    db.flush()
+    db.refresh(order, ["items"])
+    return order
 
 
 def checkout_demo(db: Session, user: User) -> Order:

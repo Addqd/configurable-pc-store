@@ -7,16 +7,16 @@ import {
 import { formatPrice } from '../utils/formatPrice'
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiShoppingCart } from 'react-icons/fi'
 
-interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[] }
+interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[]; canAdd?: boolean; loading?: boolean; error?: boolean }
 
-export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [] }: BuilderSidebarProps) {
+export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [], canAdd = true, loading = false, error = false }: BuilderSidebarProps) {
   const { t } = useTranslation()
   const selections = useBuilderStore((state) => state.selections)
   const count = countSelected(selections)
   const total = BUILDER_CATEGORIES.length
   const price = calculateBuilderPrice(selections)
   const power = estimateComponentPower(selections)
-  const eligible = status === 'compatible' && count === total
+  const eligible = status === 'compatible' && count === total && canAdd && !loading && !error
 
   return (
     <aside className="rounded-2xl border border-border bg-surface p-5 shadow-[0_5px_24px_var(--color-shadow)] lg:sticky lg:top-24">
@@ -28,9 +28,9 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
       <div className="space-y-3 border-b border-border py-5">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="text-text-muted">{t('builder.compatibility')}</span>
-          {status === 'incompatible' ? (
+          {loading ? <span role="status">{t('common.loading')}</span> : error ? <span role="alert" className="text-red-500">{t('common.load_error')}</span> : status === 'incompatible' ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-red-500"><FiAlertTriangle /> {t('common.conflicts', { count: messages.length })}</span>
-          ) : eligible ? (
+          ) : status === 'compatible' ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-emerald-500"><FiCheckCircle /> {t('builder.compatible')}</span>
           ) : (
             <span className="font-medium text-amber-600 dark:text-amber-400">{checked ? t('builder.partially_checked') : t('builder.not_checked')}</span>
@@ -77,6 +77,7 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
           {status === 'incompatible' && (
             <span className="block">{t('builder.compatibility_error', { conflicts: messages.join(', ') })}</span>
           )}
+          {status === 'compatible' && !canAdd && <span className="block">{t('builder.save_build')}</span>}
         </p>
       )}
       {count === total && status === 'unknown' && (

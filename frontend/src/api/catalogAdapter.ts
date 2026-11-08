@@ -17,7 +17,7 @@ export function productFromDetail(item: ProductDetailOut): EnrichedProduct {
   const summary = productFromSummary(item)
   return {
     ...summary, addedAt: item.listed_at, specs: item.spec_lines ?? [], shortSpecs: item.short_specs?.length ? item.short_specs : item.spec_lines ?? [],
-    article: '', description: item.description, reviews: [],
+    article: item.sku ?? '', description: item.description, reviews: [],
     gallery: item.images?.length ? item.images.map(image => image.url) : [item.cover_image_url],
     detailedSpecs: Object.entries(item.technical_specs ?? {}).flatMap(([label, value]) =>
       typeof value === 'string' || typeof value === 'number' ? [{ label, value: String(value) }] : []),

@@ -14,6 +14,7 @@ export const productDetailOutAverageRatingDefault = 0;
 export const productDetailOutReviewCountDefault = 0;
 export const ProductDetailOut = zod.object({
   "id": zod.int(),
+  "sku": zod.union([zod.string(),zod.null()]).optional(),
   "slug": zod.string(),
   "name": zod.string(),
   "description": zod.string(),

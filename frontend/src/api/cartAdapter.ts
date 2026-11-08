@@ -16,7 +16,7 @@ function components(value: unknown): BuildComponent[] {
 export function cartItems(cart: CartOut): CartItem[] {
   return (cart.items ?? []).map(item => {
     if (item.kind === 'custom_build') return {
-      id: item.id, name: 'Сборка ПК', price: Number(item.unit_price), quantity: item.quantity,
+      id: item.id, name: typeof item.build_snapshot?.name === 'string' ? item.build_snapshot.name : 'Сборка ПК', price: Number(item.unit_price), quantity: item.quantity,
       image: placeholder, description: '', components: components(item.build_snapshot?.components), isExpanded: true,
     }
     const product = item.product
@@ -24,7 +24,8 @@ export function cartItems(cart: CartOut): CartItem[] {
       id: item.id, name: typeof product?.name === 'string' ? product.name : 'Товар недоступен',
       price: Number(item.unit_price), quantity: item.quantity,
       image: typeof product?.cover_image_url === 'string' ? product.cover_image_url : placeholder,
-      category: '', specs: [],
+      category: typeof product?.category === 'string' ? product.category : '',
+      specs: Array.isArray(product?.specs) ? product.specs.filter((spec): spec is string => typeof spec === 'string') : [],
     }
   })
 }

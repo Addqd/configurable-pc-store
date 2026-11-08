@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { Header } from '../components/Header'
@@ -14,7 +14,7 @@ import { BuilderActions } from '../components/BuilderActions'
 import {
   useBuilderStore, BUILDER_CATEGORIES, countSelected, type BuilderSelections,
 } from '../stores/builderStore'
-import { createBuildApiV1BuildsPost, updateBuildApiV1BuildsBuildIdPut, addBuildApiV1CartBuildsPost, useGetBuildApiV1BuildsBuildIdGet, useCheckCompatibilityApiV1BuildsBuildIdCompatibilityGet } from '../api/generated/client'
+import { createBuildApiV1BuildsPost, updateBuildApiV1BuildsBuildIdPut, addBuildApiV1CartBuildsPost, useGetBuildApiV1BuildsBuildIdGet, checkCurrentCompatibilityApiV1BuildsCompatibilityPost } from '../api/generated/client'
 import { FiCheckCircle } from 'react-icons/fi'
 
 export function BuilderPage() {
@@ -40,8 +40,10 @@ export function BuilderPage() {
   const saved = useGetBuildApiV1BuildsBuildIdGet(editingBuildId ?? 0, { query: { enabled: !!activeAccountId && editingBuildId !== null, retry: false } })
   const matchesSaved = !!saved.data && (saved.data.items ?? []).length === count && BUILDER_CATEGORIES.every(slot =>
     (selections[slot]?.id ?? null) === ((saved.data?.items ?? []).find(item => item.slot === slot)?.product_id ?? null))
-  const compatibility = useCheckCompatibilityApiV1BuildsBuildIdCompatibilityGet(editingBuildId ?? 0, { query: { enabled: !!activeAccountId && matchesSaved, retry: false } })
-  const status = matchesSaved && compatibility.isSuccess ? compatibility.data.overall_status : 'unknown'
+  const items = BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
+  const compatibility = useQuery({ queryKey: ['current-compatibility', items], enabled: count > 0, retry: false,
+    queryFn: ({ signal }) => checkCurrentCompatibilityApiV1BuildsCompatibilityPost({ items }, { signal }) })
+  const status = compatibility.isSuccess && !compatibility.isFetching ? compatibility.data.overall_status : 'unknown'
   const canCreate = count > 0
   const missing = BUILDER_CATEGORIES.filter((category) => !selections[category])
   const validationMessage = [
@@ -133,7 +135,7 @@ export function BuilderPage() {
               </div>
 
               <div className="space-y-2">
-                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} />)}
+                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} conflicts={(compatibility.data?.items ?? []).filter(item => item.status === 'incompatible' && item.slot.split('+').some(part => part === category || part.startsWith(`${category}_`))).map(item => item.message ?? item.slot)} />)}
               </div>
 
               <div className="mt-3"><BuilderSpecsTable /></div>
@@ -166,7 +168,7 @@ export function BuilderPage() {
                 </div>
               )}
             </section>
-            <BuilderSidebar onAddToCart={handleAddToCart} status={status} checked={matchesSaved && compatibility.isSuccess} messages={(matchesSaved ? compatibility.data?.items ?? [] : []).filter(item => item.status !== 'compatible').map(item => item.message ?? item.product_name)} />
+            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={compatibility.isSuccess} loading={compatibility.isFetching} error={compatibility.isError} messages={(compatibility.data?.items ?? []).filter(item => item.status !== 'compatible').map(item => item.message ?? item.product_name)} />
           </div>
         </div>
       </main>

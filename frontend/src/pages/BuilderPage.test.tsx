@@ -12,7 +12,7 @@ vi.mock('../components/Header', () => ({ Header: () => <div /> }))
 vi.mock('../components/Footer', () => ({ Footer: () => <div /> }))
 vi.mock('../components/BackButton', () => ({ BackButton: () => <div /> }))
 vi.mock('../components/BuilderComponentRow', () => ({ BuilderComponentRow: () => <div /> }))
-vi.mock('../components/BuilderSidebar', () => ({ BuilderSidebar: () => <div /> }))
+vi.mock('../components/BuilderSidebar', () => ({ BuilderSidebar: ({ status }: { status: string }) => <div data-testid="compatibility-status">{status}</div> }))
 vi.mock('../components/BuilderSpecsTable', () => ({ BuilderSpecsTable: () => <div /> }))
 beforeEach(() => {
   useBuilderStore.setState({ selections: emptyBuilderSelections(), editingBuildId: null })
@@ -67,9 +67,39 @@ describe('saving a server build', () => {
     fireEvent.change(screen.getByLabelText('Название'), { target: { value: 'Updated name' } })
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Сохранить сборку' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
-    const writes = fetchMock.mock.calls.filter(([, init]) => init.method === 'PUT' || init.method === 'POST')
+    const writes = fetchMock.mock.calls.filter(([url, init]) => url !== '/api/v1/builds/compatibility' && (init.method === 'PUT' || init.method === 'POST'))
     expect(writes).toHaveLength(1)
     expect(writes[0][0]).toBe('/api/v1/builds/42')
     expect(JSON.parse(String(writes[0][1].body))).toMatchObject({ name: 'Updated name', items: [{ slot: 'cpu', product_id: product.id }] })
+  })
+
+  it('checks an unsaved selection through the server', async () => {
+    const product = getProductsForCategory('cpu')[0]
+    useBuilderStore.getState().setProduct('cpu', product)
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ build_id: 0, overall_status: 'unknown', items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled())
+    const call = fetchMock.mock.calls.find(([url]: unknown[]) => url === '/api/v1/builds/compatibility') as unknown as [string, RequestInit]
+    expect(JSON.parse(String(call[1].body))).toEqual({ items: [{ slot: 'cpu', product_id: product.id }] })
+  })
+
+  it('does not display an older compatibility response after selection changes', async () => {
+    const [first, second] = getProductsForCategory('cpu')
+    useBuilderStore.getState().setProduct('cpu', first)
+    let resolveFirst!: (response: Response) => void
+    const response = (status: string) => new Response(JSON.stringify({ build_id: 0, overall_status: status, items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const id = JSON.parse(String(init.body)).items[0].product_id
+      if (id === first.id) return new Promise<Response>(resolve => { resolveFirst = resolve })
+      return response('incompatible')
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    act(() => useBuilderStore.getState().setProduct('cpu', second))
+    await waitFor(() => expect(screen.getByTestId('compatibility-status').textContent).toBe('incompatible'))
+    await act(async () => { resolveFirst(response('compatible')) })
+    expect(screen.getByTestId('compatibility-status').textContent).toBe('incompatible')
   })
 })

@@ -36,7 +36,7 @@ export function mockCatalogFetch() {
     if (slug) {
       const product = products.find(item => item.slug === slug)
       if (!product) return response({ detail: 'Not found' }, 404)
-      return response({ ...product, description: 'Server description', stock_quantity: 5, spec_lines: product.details.specs, short_specs: product.details.shortSpecs ?? [], technical_specs: {}, listed_at: '2026-01-01', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' })
+      return response({ ...product, sku: 'SKU-TEST-13', description: 'Server description', stock_quantity: 5, spec_lines: product.details.specs, short_specs: product.details.shortSpecs ?? [], technical_specs: {}, listed_at: '2026-01-01', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' })
     }
     if (/\/reviews$/.test(url.pathname)) return response({ items: [], total: 0, page: 1, page_size: 50, total_pages: 1, average_rating: 0 })
     return response({ detail: 'Not found' }, 404)

@@ -12,6 +12,7 @@ interface ProductInfoProps {
   quantity: number
   isFavorite: boolean
   favoriteDisabled?: boolean
+  buyPending?: boolean
   onQuantityChange: (quantity: number) => void
   onAddToCart: (quantity: number) => void
   onBuyNow: (quantity: number) => void
@@ -24,6 +25,7 @@ export function ProductInfo({
   quantity,
   isFavorite,
   favoriteDisabled,
+  buyPending,
   onQuantityChange,
   onAddToCart,
   onBuyNow,
@@ -82,8 +84,8 @@ export function ProductInfo({
       <div className="mt-5">
         <p className="text-sm text-text-secondary">{t('product.price')}</p>
         <p className="mt-1 text-3xl font-bold text-primary">{formatPrice(product.price)}</p>
-        <p className="mt-2 inline-flex items-center gap-2 text-sm font-medium text-emerald-500">
-          <span className="h-2.5 w-2.5 rounded-full bg-emerald-500" />
+        <p className={`mt-2 inline-flex items-center gap-2 text-sm font-medium ${product.stockQuantity === 0 ? 'text-text-muted' : 'text-emerald-500'}`}>
+          <span className={`h-2.5 w-2.5 rounded-full ${product.stockQuantity === 0 ? 'bg-text-muted' : 'bg-emerald-500'}`} />
           {product.stockQuantity === 0 ? t('product.out_of_stock') : t('product.in_stock')}
         </p>
         <p className="mt-1 text-xs text-text-muted">{t('product.availability_note')}</p>
@@ -122,7 +124,7 @@ export function ProductInfo({
       <button
         type="button"
         onClick={() => onBuyNow(quantity)}
-        disabled={product.stockQuantity === 0}
+        disabled={product.stockQuantity === 0 || buyPending}
         className="mt-3 flex w-full items-center justify-center rounded-xl border border-border px-5 py-3 text-base font-semibold text-text-primary transition-colors hover:bg-surface-3"
       >
         {t('product.buy_now')}

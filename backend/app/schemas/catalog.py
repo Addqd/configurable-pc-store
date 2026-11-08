@@ -42,6 +42,7 @@ class ProductImageOut(BaseModel):
 
 class ProductDetailOut(BaseModel):
     id: int
+    sku: str | None = None
     slug: str
     name: str
     description: str

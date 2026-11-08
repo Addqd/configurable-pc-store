@@ -147,6 +147,7 @@ def _detail(product: Product, rating: tuple[float, int]) -> ProductDetailOut:
     images, cover = _images(product)
     return ProductDetailOut(
         id=product.id,
+        sku=product.sku,
         slug=product.slug,
         name=product.name,
         description=product.description,

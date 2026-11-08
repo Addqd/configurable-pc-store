@@ -19,6 +19,33 @@ describe('server product page', () => {
     expect(screen.getByText('Server description')).toBeTruthy()
     expect(screen.getByText(/18\s*990/)).toBeTruthy()
     expect(screen.getByText('6 ядер')).toBeTruthy()
+    const availability = screen.getByText('В наличии')
+    expect(availability.className).toContain('text-emerald-500')
+    expect(availability.querySelector('span')?.className).toContain('bg-emerald-500')
+  })
+  it('shows and copies the server SKU', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })
+    setup()
+    const button = await screen.findByRole('button', { name: /SKU-TEST-13/ })
+    fireEvent.click(button)
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('SKU-TEST-13'))
+  })
+
+  it('uses muted availability styling when the product is out of stock', async () => {
+    const catalogFetch = vi.mocked(fetch)
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      const result = await catalogFetch(url)
+      if (url.endsWith('/products/cpu-ryzen-5-7600')) {
+        return new Response(JSON.stringify({ ...await result.json(), stock_quantity: 0 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return result
+    }))
+    setup()
+    const label = await screen.findByText('Нет в наличии')
+    expect(label.className).toContain('text-text-muted')
+    expect(label.querySelector('span')?.className).toContain('bg-text-muted')
+    expect((screen.getByRole('button', { name: 'Купить сейчас' }) as HTMLButtonElement).disabled).toBe(true)
   })
   it('shows an error for an unavailable product rather than mock content', async () => {
     setup('missing')

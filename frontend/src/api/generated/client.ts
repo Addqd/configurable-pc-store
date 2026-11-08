@@ -1989,6 +1989,93 @@ export const useCreateBuildApiV1BuildsPost = <TError = HTTPValidationError,
       return useMutation(getCreateBuildApiV1BuildsPostMutationOptions(options), queryClient);
     }
 
+export const getCheckCurrentCompatibilityApiV1BuildsCompatibilityPostUrl = () => {
+
+
+
+
+  return `/api/v1/builds/compatibility`
+}
+
+/**
+ * @summary Check Current Compatibility
+ */
+export const checkCurrentCompatibilityApiV1BuildsCompatibilityPost = async (buildUpdateItemsRequest: BuildUpdateItemsRequest, options?: Parameters<typeof apiFetch>[1]): Promise<BuildCompatibilityOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<BuildCompatibilityOut>(getCheckCurrentCompatibilityApiV1BuildsCompatibilityPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(buildUpdateItemsRequest),
+    schema: BuildCompatibilityOut
+  }
+);}
+
+
+
+
+
+export const getCheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationKey = () => ['checkCurrentCompatibilityApiV1BuildsCompatibilityPost'] as const;
+
+export const getCheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkCurrentCompatibilityApiV1BuildsCompatibilityPost>>, TError,CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof checkCurrentCompatibilityApiV1BuildsCompatibilityPost>>, TError,CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationVariables, TContext> => {
+
+const mutationKey = getCheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof checkCurrentCompatibilityApiV1BuildsCompatibilityPost>>, CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  checkCurrentCompatibilityApiV1BuildsCompatibilityPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationResult = NonNullable<Awaited<ReturnType<typeof checkCurrentCompatibilityApiV1BuildsCompatibilityPost>>>
+    export type CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationBody = BuildUpdateItemsRequest
+    export type CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationError = HTTPValidationError
+    export type CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationVariables = {data: BuildUpdateItemsRequest}
+
+    /** @summary Check Current Compatibility */
+export const useCheckCurrentCompatibilityApiV1BuildsCompatibilityPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof checkCurrentCompatibilityApiV1BuildsCompatibilityPost>>, TError,CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof checkCurrentCompatibilityApiV1BuildsCompatibilityPost>>,
+        TError,
+        CheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCheckCurrentCompatibilityApiV1BuildsCompatibilityPostMutationOptions(options), queryClient);
+    }
+
 export const getGetBuildApiV1BuildsBuildIdGetUrl = (buildId: number,) => {
 
 
@@ -2978,6 +3065,93 @@ export const useRemoveItemApiV1CartItemIdDelete = <TError = HTTPValidationError,
         TContext
       > => {
       return useMutation(getRemoveItemApiV1CartItemIdDeleteMutationOptions(options), queryClient);
+    }
+
+export const getBuyNowApiV1CartBuyNowPostUrl = () => {
+
+
+
+
+  return `/api/v1/cart/buy-now`
+}
+
+/**
+ * @summary Buy Now
+ */
+export const buyNowApiV1CartBuyNowPost = async (cartAddProductRequest: CartAddProductRequest, options?: Parameters<typeof apiFetch>[1]): Promise<CheckoutResponse> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<CheckoutResponse>(getBuyNowApiV1CartBuyNowPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(cartAddProductRequest),
+    schema: CheckoutResponse
+  }
+);}
+
+
+
+
+
+export const getBuyNowApiV1CartBuyNowPostMutationKey = () => ['buyNowApiV1CartBuyNowPost'] as const;
+
+export const getBuyNowApiV1CartBuyNowPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof buyNowApiV1CartBuyNowPost>>, TError,BuyNowApiV1CartBuyNowPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof buyNowApiV1CartBuyNowPost>>, TError,BuyNowApiV1CartBuyNowPostMutationVariables, TContext> => {
+
+const mutationKey = getBuyNowApiV1CartBuyNowPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof buyNowApiV1CartBuyNowPost>>, BuyNowApiV1CartBuyNowPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  buyNowApiV1CartBuyNowPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BuyNowApiV1CartBuyNowPostMutationResult = NonNullable<Awaited<ReturnType<typeof buyNowApiV1CartBuyNowPost>>>
+    export type BuyNowApiV1CartBuyNowPostMutationBody = CartAddProductRequest
+    export type BuyNowApiV1CartBuyNowPostMutationError = HTTPValidationError
+    export type BuyNowApiV1CartBuyNowPostMutationVariables = {data: CartAddProductRequest}
+
+    /** @summary Buy Now */
+export const useBuyNowApiV1CartBuyNowPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof buyNowApiV1CartBuyNowPost>>, TError,BuyNowApiV1CartBuyNowPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof buyNowApiV1CartBuyNowPost>>,
+        TError,
+        BuyNowApiV1CartBuyNowPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getBuyNowApiV1CartBuyNowPostMutationOptions(options), queryClient);
     }
 
 export const getCheckoutApiV1CartCheckoutPostUrl = () => {

@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { selectActiveAccount, useAccountStore } from './accountStore'
 import { apiFetch, setAccessToken } from '../api/transport'
+import { queryClient } from '../api/queryClient'
 
 const user = { id: 12, email: 'person@example.test', username: 'person', display_name: 'Person', avatar_url: null }
 const json = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
@@ -84,5 +85,15 @@ describe('server account session', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ detail: 'expired' }, 401)))
     await expect(apiFetch('/api/v1/cart', {})).rejects.toBeTruthy()
     expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
+  })
+
+  it('clears account and cached private data after password change', async () => {
+    useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
+    setAccessToken('old-access')
+    queryClient.setQueryData(['private-cart'], { items: ['private'] })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ detail: 'Password changed' })))
+    expect((await useAccountStore.getState().changePassword('old-password', 'new-password')).success).toBe(true)
+    expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
+    expect(queryClient.getQueryData(['private-cart'])).toBeUndefined()
   })
 })

@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { useNavigate, useParams } from 'react-router'
+import { useParams } from 'react-router'
 import { Header } from '../components/Header'
 import { BackButton } from '../components/BackButton'
 import { Footer } from '../components/Footer'
@@ -24,6 +24,7 @@ import {
   addFavoriteApiV1FavoritesProductIdPost, removeFavoriteApiV1FavoritesProductIdDelete,
   createReviewApiV1ProductsProductIdReviewsPost, updateReviewApiV1ProductsProductIdReviewsPatch,
   deleteReviewApiV1ProductsProductIdReviewsDelete,
+  buyNowApiV1CartBuyNowPost,
 } from '../api/generated/client'
 
 const asReview = (item: ReviewResponse): Review => ({
@@ -45,8 +46,10 @@ function ProductContent({ product }: { product: EnrichedProduct }) {
   const account = useAccountStore(selectActiveAccount)
   const openAuth = useUIStore(state => state.openAuthModal)
   const client = useQueryClient()
-  const navigate = useNavigate()
   const cart = useServerCart()
+  const buying = useRef(false)
+  const [buyPending, setBuyPending] = useState(false)
+  const [purchased, setPurchased] = useState(false)
   const [quantity, setQuantity] = useState(1)
   const [sort, setSort] = useState<ReviewSort>('newest')
   const [shareCopied, setShareCopied] = useState(false)
@@ -78,9 +81,14 @@ function ProductContent({ product }: { product: EnrichedProduct }) {
   const current = { ...product, rating: reviewsQuery.data?.average_rating ?? product.rating, reviewCount: reviewsQuery.data?.total ?? product.reviewCount }
   const requireAccount = () => { if (account) return true; openAuth('login'); return false }
   const buy = async (count: number) => {
-    if (!requireAccount()) return
-    try { await cart.add.mutateAsync({ productId: product.id, quantity: count }); navigate('/cart') }
+    if (buying.current || !requireAccount()) return
+    buying.current = true
+    setBuyPending(true)
+    setActionError(false)
+    setPurchased(false)
+    try { await buyNowApiV1CartBuyNowPost({ product_id: product.id, quantity: count }); setPurchased(true); await client.invalidateQueries() }
     catch { setActionError(true) }
+    finally { buying.current = false; setBuyPending(false) }
   }
   const share = async () => {
     if (await copyToClipboard(`${window.location.origin}/products/${product.slug}`)) {
@@ -92,10 +100,11 @@ function ProductContent({ product }: { product: EnrichedProduct }) {
     <Header />
     <main className="mx-auto max-w-[1320px] px-4 pb-8 pt-24">
       <BackButton className="mb-5" />
+      {purchased && <p role="status" className="mb-4 rounded-xl border border-green-200 bg-green-50 p-4 text-green-700 dark:border-green-800 dark:bg-green-950/20 dark:text-green-400">{t('cart.order_success')}</p>}
       {(actionError || cart.add.isError || favorite.isError || ownQuery.isError || favoriteMutation.isError || deleteReview.isError || reviewsQuery.isError) && <p role="alert" className="text-sm text-red-500">{t('common.load_error')}</p>}
       <div className="grid grid-cols-1 gap-6 rounded-2xl border border-border bg-surface p-4 sm:p-6 lg:grid-cols-[minmax(0,7fr)_minmax(0,3fr)]">
         <div className="min-w-0 lg:pr-4"><ProductGallery product={current} /></div>
-        <ProductInfo product={current} quantity={quantity} isFavorite={isFavorite} favoriteDisabled={!!account && (!favorite.isSuccess || favoriteMutation.isPending)} onQuantityChange={setQuantity}
+        <ProductInfo product={current} quantity={quantity} isFavorite={isFavorite} buyPending={buyPending} favoriteDisabled={!!account && (!favorite.isSuccess || favoriteMutation.isPending)} onQuantityChange={setQuantity}
           onAddToCart={count => cart.addProduct(product.id, count)} onBuyNow={buy}
           onToggleFavorite={() => { if (requireAccount()) favoriteMutation.mutate() }} onShare={share} />
       </div>

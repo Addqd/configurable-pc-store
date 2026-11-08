@@ -138,6 +138,7 @@ function AccountContent() {
       if (result.success) {
         setCurrentPassword(''); setNewPassword(''); setRepeatPassword('')
         setPasswordMessage(t('account.password_changed'))
+        openAuthModal('login')
       } else setPasswordError(result.error)
     } catch { setPasswordError(t('account.password_change_error')) }
     finally { setChangingPassword(false) }

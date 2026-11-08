@@ -8,9 +8,9 @@ import { FiRefreshCw, FiTrash2, FiPlus } from 'react-icons/fi'
 import { BuilderCategoryIcon } from './BuilderCategoryIcon'
 import { BuilderProductSelector } from './BuilderProductSelector'
 
-interface BuilderComponentRowProps { category: BuilderCategory }
+interface BuilderComponentRowProps { category: BuilderCategory; conflicts?: string[] }
 
-export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
+export function BuilderComponentRow({ category, conflicts = [] }: BuilderComponentRowProps) {
   const { t } = useTranslation()
   const [showSelector, setShowSelector] = useState(false)
   const selections = useBuilderStore((state) => state.selections)
@@ -65,6 +65,7 @@ export function BuilderComponentRow({ category }: BuilderComponentRowProps) {
           </div>
         )}
       </div>
+      {conflicts.map((message, index) => <p key={`${message}-${index}`} role="alert" className="mt-1 text-xs text-red-500">{message}</p>)}
       </div>
       {showSelector && <BuilderProductSelector category={category} onClose={() => setShowSelector(false)} />}
     </>

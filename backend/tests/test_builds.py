@@ -129,3 +129,18 @@ def test_build_update_is_atomic(
     current = api_client.get(route, headers=headers).json()
     assert current["name"] == "Updated"
     assert current["items"][0]["product_id"] == sample_products["gpu"].id
+
+
+def test_unsaved_compatibility_and_duplicate_slots(
+    api_client: TestClient, sample_products: dict
+):
+    item = {"slot": "cpu", "product_id": sample_products["cpu"].id}
+    result = api_client.post("/api/v1/builds/compatibility", json={"items": [item]})
+    assert result.status_code == 200
+    assert result.json()["overall_status"] == "unknown"
+    assert (
+        api_client.post(
+            "/api/v1/builds/compatibility", json={"items": [item, item]}
+        ).status_code
+        == 422
+    )

@@ -70,3 +70,48 @@ def test_insufficient_stock_rejected(
         ]
         == []
     )
+
+
+def test_buy_now_preserves_cart_and_creates_separate_order(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    headers = registered_user["headers"]
+    first = sample_products["cpu"].id
+    second = sample_products["gpu"].id
+    assert (
+        api_client.post(
+            "/api/v1/cart/products",
+            headers=headers,
+            json={"product_id": first, "quantity": 1},
+        ).status_code
+        == 200
+    )
+    before = api_client.get("/api/v1/cart", headers=headers).json()["items"]
+    bought = api_client.post(
+        "/api/v1/cart/buy-now",
+        headers=headers,
+        json={"product_id": second, "quantity": 2},
+    )
+    assert bought.status_code == 200
+    order = bought.json()["order"]
+    assert [item["product_id"] for item in order["items"]] == [second]
+    assert order["item_count"] == 2
+    assert api_client.get("/api/v1/cart", headers=headers).json()["items"] == before
+    assert any(
+        item["id"] == order["id"]
+        for item in api_client.get("/api/v1/cart/orders", headers=headers).json()
+    )
+    assert (
+        api_client.post(
+            "/api/v1/cart/buy-now",
+            headers=headers,
+            json={"product_id": second, "quantity": 99999},
+        ).status_code
+        == 409
+    )
+    assert (
+        api_client.post(
+            "/api/v1/cart/buy-now", json={"product_id": second, "quantity": 1}
+        ).status_code
+        == 401
+    )
