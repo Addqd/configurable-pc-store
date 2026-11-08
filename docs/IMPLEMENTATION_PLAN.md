@@ -20,12 +20,14 @@
 
 - OpenAPI → Orval → клиент/типы/Zod, TanStack Query invalidation и состояния загрузки/ошибок.
 - UI и Backend E2E, Docker Compose, документация локального запуска, GitHub README/медиа.
-- Git commit/push/PR — только по запросу владельца, отдельно от разработки.
+- Git commit/push/PR выполняет только владелец проекта самостоятельно, **не через Pi**.
 
 ## Для каждого шага Pi
 
-1. Read-only discovery + global/project AGENTS + PROJECT.
+1. Read-only discovery реальных файлов без Git/GitHub + global/project AGENTS + PROJECT.
 2. Выбрать релевантные skills, найти и прочитать все нужные реальные SKILL.md.
 3. До edits создать/актуализировать `.agent/TASK.md`, точные критерии и контрольные точки.
 4. Минимальная реализация и реальные runtime/test/visual/security проверки по scope.
-5. Проверить `git diff`; чекбоксы закрывать **после** полученных evidence; затем отчёт без преувеличений.
+5. Сверить изменённые файлы непосредственным чтением (не используя Git); чекбоксы закрывать **после** полученных evidence; затем отчёт без преувеличений.
+
+**Pi не выполняет никаких Git/GitHub-операций, включая `git diff` и `git status`.**

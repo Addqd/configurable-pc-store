@@ -20,7 +20,7 @@ class DatabaseHealthResponse(BaseModel):
 
 @router.get("/health/db", response_model=DatabaseHealthResponse)
 def health_db(
-    db: Annotated[Session, Depends(get_db_session)],
+    db: Annotated[Session, Depends(get_db_session, scope="function")],
 ) -> DatabaseHealthResponse:
     try:
         db.execute(text("SELECT 1"))
