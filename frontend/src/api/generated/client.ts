@@ -52,6 +52,7 @@ import {
 } from './model';
 import type {
   BuildUpdateItemsRequest,
+  BuyNowRequest,
   CartAddBuildRequest,
   CartAddProductRequest,
   CartUpdateQuantityRequest,
@@ -3078,7 +3079,7 @@ export const getBuyNowApiV1CartBuyNowPostUrl = () => {
 /**
  * @summary Buy Now
  */
-export const buyNowApiV1CartBuyNowPost = async (cartAddProductRequest: CartAddProductRequest, options?: Parameters<typeof apiFetch>[1]): Promise<CheckoutResponse> => {
+export const buyNowApiV1CartBuyNowPost = async (buyNowRequest: BuyNowRequest, options?: Parameters<typeof apiFetch>[1]): Promise<CheckoutResponse> => {
 
     const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
     if (!h) return {};
@@ -3099,7 +3100,7 @@ return apiFetch<CheckoutResponse>(getBuyNowApiV1CartBuyNowPostUrl(),
     ...options,
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
-    body: JSON.stringify(cartAddProductRequest),
+    body: JSON.stringify(buyNowRequest),
     schema: CheckoutResponse
   }
 );}
@@ -3138,9 +3139,9 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
   return  { mutationFn, ...mutationOptions }}
 
     export type BuyNowApiV1CartBuyNowPostMutationResult = NonNullable<Awaited<ReturnType<typeof buyNowApiV1CartBuyNowPost>>>
-    export type BuyNowApiV1CartBuyNowPostMutationBody = CartAddProductRequest
+    export type BuyNowApiV1CartBuyNowPostMutationBody = BuyNowRequest
     export type BuyNowApiV1CartBuyNowPostMutationError = HTTPValidationError
-    export type BuyNowApiV1CartBuyNowPostMutationVariables = {data: CartAddProductRequest}
+    export type BuyNowApiV1CartBuyNowPostMutationVariables = {data: BuyNowRequest}
 
     /** @summary Buy Now */
 export const useBuyNowApiV1CartBuyNowPost = <TError = HTTPValidationError,

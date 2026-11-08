@@ -96,4 +96,32 @@ describe('server account session', () => {
     expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
     expect(queryClient.getQueryData(['private-cart'])).toBeUndefined()
   })
+
+  it('retains the current session when password change is rejected', async () => {
+    useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ detail: 'wrong' }, 400)))
+    expect((await useAccountStore.getState().changePassword('wrong', 'new-password')).success).toBe(false)
+    expect(selectActiveAccount(useAccountStore.getState())?.id).toBe('12')
+  })
+
+  it.each(['logout', 'switch'] as const)('does not report a stale password change after %s', async (action) => {
+    useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
+    setAccessToken(null)
+    let finish!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (url.endsWith('/password')) return new Promise<Response>(resolve => { finish = resolve })
+      if (url.endsWith('/logout')) return json({ detail: 'Logged out' })
+      if (url.endsWith('/login')) return json({ access_token: 'new', token_type: 'bearer' })
+      return json({ ...user, id: 42 })
+    }))
+    const change = useAccountStore.getState().changePassword('old-password', 'new-password')
+    await vi.waitFor(() => expect(finish).toBeDefined())
+    if (action === 'logout') await useAccountStore.getState().logout()
+    else expect((await useAccountStore.getState().login('other', 'password')).success).toBe(true)
+    if (action === 'switch') queryClient.setQueryData(['new-user-private'], 'preserved')
+    finish(json({ detail: 'Password changed' }))
+    expect((await change).success).toBe(false)
+    expect(selectActiveAccount(useAccountStore.getState())?.id ?? null).toBe(action === 'switch' ? '42' : null)
+    if (action === 'switch') expect(queryClient.getQueryData(['new-user-private'])).toBe('preserved')
+  })
 })

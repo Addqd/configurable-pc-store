@@ -59,6 +59,34 @@ describe('server product page', () => {
     expect(useUIStore.getState().authModalOpen).toBe(true)
     expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith('/cart/products'))).toBe(false)
   })
+  it('retries an uncertain buy-now request with the same key, then uses a new key for a new purchase', async () => {
+    useAccountStore.setState({ activeAccountId: '7', accounts: { '7': { account: { id: '7', username: 'test', email: 'test@example.com', displayName: 'Test', avatar: '', createdAt: 0 } } } })
+    const catalogFetch = vi.mocked(fetch)
+    const keys: string[] = []
+    const mock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/cart/buy-now')) {
+        keys.push(JSON.parse(String(init.body)).idempotency_key)
+        if (keys.length === 1) throw new TypeError('network disconnected')
+        return new Response(JSON.stringify({ order: { id: keys.length, user_id: 7, status: 'completed_demo', total_amount: '1.00', item_count: 1, items: [], created_at: '2026-01-01T00:00:00Z' } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.endsWith('/reviews/my')) return new Response('null', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url.endsWith('/is_favorited')) return new Response('{"is_favorited":false}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      return catalogFetch(url)
+    })
+    vi.stubGlobal('fetch', mock)
+    setup()
+    const button = await screen.findByRole('button', { name: 'Купить сейчас' })
+    fireEvent.click(button)
+    await waitFor(() => expect(keys).toHaveLength(1))
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(button)
+    await waitFor(() => expect(keys).toHaveLength(2))
+    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false))
+    fireEvent.click(button)
+    await waitFor(() => expect(keys).toHaveLength(3))
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[1])
+  })
   it('does not insert a review when the server rejects it', async () => {
     useAccountStore.setState({ activeAccountId: '7', accounts: { '7': { account: { id: '7', username: 'test', email: 'test@example.com', displayName: 'Test', avatar: '', createdAt: 0 } } } })
     const catalogFetch = vi.mocked(fetch)

@@ -18,6 +18,8 @@ import type { EnrichedProduct, Review } from '../data/productDetails'
 import { ReviewOut, type ReviewOut as ReviewResponse } from '../api/generated/model'
 import { z } from 'zod'
 import { copyToClipboard } from '../utils/copyToClipboard'
+import { buyNowKey, clearBuyNowKey } from '../api/buyNowKey'
+import { ApiError } from '../api/transport'
 import {
   useGetProductApiV1ProductsSlugGet, getProductReviewsApiV1ProductsProductIdReviewsGet,
   getMyReviewApiV1ProductsProductIdReviewsMyGet, isFavoritedApiV1FavoritesProductIdIsFavoritedGet,
@@ -81,13 +83,21 @@ function ProductContent({ product }: { product: EnrichedProduct }) {
   const current = { ...product, rating: reviewsQuery.data?.average_rating ?? product.rating, reviewCount: reviewsQuery.data?.total ?? product.reviewCount }
   const requireAccount = () => { if (account) return true; openAuth('login'); return false }
   const buy = async (count: number) => {
-    if (buying.current || !requireAccount()) return
+    if (buying.current || !requireAccount() || !account) return
+    const accountId = account.id
+    const idempotencyKey = buyNowKey(accountId, product.id, count)
     buying.current = true
     setBuyPending(true)
     setActionError(false)
     setPurchased(false)
-    try { await buyNowApiV1CartBuyNowPost({ product_id: product.id, quantity: count }); setPurchased(true); await client.invalidateQueries() }
-    catch { setActionError(true) }
+    try {
+      await buyNowApiV1CartBuyNowPost({ product_id: product.id, quantity: count, idempotency_key: idempotencyKey })
+      clearBuyNowKey(accountId, product.id, count)
+      if (useAccountStore.getState().activeAccountId === accountId) { setPurchased(true); void client.invalidateQueries() }
+    } catch (error) {
+      if (useAccountStore.getState().activeAccountId === accountId && error instanceof ApiError && error.status >= 400 && error.status < 500 && error.status !== 408 && error.status !== 429) clearBuyNowKey(accountId, product.id, count)
+      if (useAccountStore.getState().activeAccountId === accountId) setActionError(true)
+    }
     finally { buying.current = false; setBuyPending(false) }
   }
   const share = async () => {

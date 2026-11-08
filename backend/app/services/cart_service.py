@@ -225,7 +225,25 @@ def _selections(snapshot: dict | None) -> dict[str, int]:
     return result
 
 
-def buy_product_demo(db: Session, user: User, product_id: int, quantity: int) -> Order:
+def buy_product_demo(
+    db: Session, user: User, product_id: int, quantity: int, idempotency_key: str
+) -> Order:
+    # Serialize this user's purchase attempts through transaction commit.  The
+    # unique constraint also protects against callers not taking this lock.
+    db.scalar(select(User.id).where(User.id == user.id).with_for_update())
+    previous = db.scalar(
+        select(Order)
+        .where(Order.user_id == user.id, Order.idempotency_key == idempotency_key)
+        .options(selectinload(Order.items))
+    )
+    if previous is not None:
+        if (
+            len(previous.items) != 1
+            or previous.items[0].product_id != product_id
+            or previous.items[0].quantity != quantity
+        ):
+            raise ValueError("Idempotency key was already used for another purchase")
+        return previous
     product = _product(db, product_id, quantity)
     _, cover = _images(product)
     order = Order(
@@ -233,6 +251,7 @@ def buy_product_demo(db: Session, user: User, product_id: int, quantity: int) ->
         status="completed_demo",
         total_amount=product.price * quantity,
         item_count=quantity,
+        idempotency_key=idempotency_key,
     )
     db.add(order)
     db.flush()
@@ -304,13 +323,23 @@ def checkout_demo(db: Session, user: User) -> Order:
             )
             if build is not None and build.user_id != user.id:
                 raise ValueError("Build does not belong to this user")
+            captured = (
+                item.build_snapshot.get("name")
+                if isinstance(item.build_snapshot, dict)
+                else None
+            )
+            name = (
+                captured
+                if isinstance(captured, str) and captured.strip()
+                else (build.name if build else None)
+            )
             snapshots.append(
                 {
                     "kind": "custom_build",
                     "product_id": None,
                     "saved_build_id": build.id if build else None,
                     "sku_snapshot": None,
-                    "name_snapshot": f"Сборка: {build.name}" if build else "Сборка ПК",
+                    "name_snapshot": f"Сборка: {name}" if name else "Сборка ПК",
                     "image_url_snapshot": None,
                     "unit_price": price,
                     "quantity": item.quantity,

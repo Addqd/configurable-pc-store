@@ -13,6 +13,7 @@ export * from './buildItemOut.zod';
 export * from './buildTotalOut.zod';
 export * from './buildUpdateItemsRequest.zod';
 export * from './buyNowApiV1CartBuyNowPostBody.zod';
+export * from './buyNowRequest.zod';
 export * from './cartAddBuildRequest.zod';
 export * from './cartAddProductRequest.zod';
 export * from './cartItemOut.zod';

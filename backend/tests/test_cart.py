@@ -1,6 +1,13 @@
 """Rollback-safe demo checkout integration tests."""
 
+from uuid import uuid4
+
+import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models import CartItem
+from tests.test_compatibility_engine import _parts
 
 
 def test_checkout_is_atomic_and_not_repeated(
@@ -75,6 +82,7 @@ def test_insufficient_stock_rejected(
 def test_buy_now_preserves_cart_and_creates_separate_order(
     api_client: TestClient, registered_user: dict, sample_products: dict
 ):
+    key = str(uuid4())
     headers = registered_user["headers"]
     first = sample_products["cpu"].id
     second = sample_products["gpu"].id
@@ -90,7 +98,7 @@ def test_buy_now_preserves_cart_and_creates_separate_order(
     bought = api_client.post(
         "/api/v1/cart/buy-now",
         headers=headers,
-        json={"product_id": second, "quantity": 2},
+        json={"product_id": second, "quantity": 2, "idempotency_key": key},
     )
     assert bought.status_code == 200
     order = bought.json()["order"]
@@ -105,13 +113,113 @@ def test_buy_now_preserves_cart_and_creates_separate_order(
         api_client.post(
             "/api/v1/cart/buy-now",
             headers=headers,
-            json={"product_id": second, "quantity": 99999},
+            json={
+                "product_id": second,
+                "quantity": 99999,
+                "idempotency_key": str(uuid4()),
+            },
         ).status_code
         == 409
     )
     assert (
         api_client.post(
-            "/api/v1/cart/buy-now", json={"product_id": second, "quantity": 1}
+            "/api/v1/cart/buy-now",
+            json={"product_id": second, "quantity": 1, "idempotency_key": str(uuid4())},
         ).status_code
         == 401
     )
+
+
+def test_buy_now_replay_and_key_payload_conflict(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    headers = registered_user["headers"]
+    key = str(uuid4())
+    payload = {
+        "product_id": sample_products["gpu"].id,
+        "quantity": 2,
+        "idempotency_key": key,
+    }
+    first = api_client.post("/api/v1/cart/buy-now", headers=headers, json=payload)
+    replay = api_client.post("/api/v1/cart/buy-now", headers=headers, json=payload)
+    assert first.status_code == replay.status_code == 200
+    assert first.json()["order"]["id"] == replay.json()["order"]["id"]
+    assert (
+        api_client.post(
+            "/api/v1/cart/buy-now", headers=headers, json={**payload, "quantity": 3}
+        ).status_code
+        == 409
+    )
+    another = api_client.post(
+        "/api/v1/cart/buy-now",
+        headers=headers,
+        json={**payload, "idempotency_key": str(uuid4())},
+    )
+    assert another.status_code == 200
+    assert another.json()["order"]["id"] != first.json()["order"]["id"]
+    assert len(api_client.get("/api/v1/cart/orders", headers=headers).json()) == 2
+
+
+@pytest.mark.parametrize(
+    "scenario,expected",
+    [
+        ("renamed", "Сборка: Gaming PC"),
+        ("deleted", "Сборка: Gaming PC"),
+        ("legacy", "Сборка: Workstation"),
+    ],
+)
+def test_build_order_name_uses_cart_snapshot(
+    api_client: TestClient,
+    test_db_session: Session,
+    registered_user: dict,
+    sample_products: dict,
+    scenario: str,
+    expected: str,
+):
+    fake, slots = _parts()
+    for slot, product in sample_products.items():
+        product.technical_specs = fake.parts[slots[slot]].technical_specs
+    test_db_session.flush()
+    headers = registered_user["headers"]
+    items = [
+        {"slot": slot, "product_id": product.id}
+        for slot, product in sample_products.items()
+    ]
+    build = api_client.post(
+        "/api/v1/builds", headers=headers, json={"name": "Gaming PC", "items": items}
+    )
+    assert build.status_code == 201, build.text
+    bid = build.json()["id"]
+    add = api_client.post(
+        "/api/v1/cart/builds", headers=headers, json={"saved_build_id": bid}
+    )
+    assert add.status_code == 200, add.text
+    item_id = add.json()["items"][0]["id"]
+    assert (
+        api_client.put(
+            f"/api/v1/builds/{bid}", headers=headers, json={"name": "Workstation"}
+        ).status_code
+        == 200
+    )
+    updated = api_client.patch(
+        f"/api/v1/cart/{item_id}", headers=headers, json={"quantity": 2}
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["items"][0]["build_snapshot"]["name"] == "Gaming PC"
+    if scenario == "deleted":
+        assert (
+            api_client.delete(f"/api/v1/builds/{bid}", headers=headers).status_code
+            == 204
+        )
+    if scenario == "legacy":
+        row = test_db_session.get(CartItem, item_id)
+        row.build_snapshot = {
+            k: v for k, v in row.build_snapshot.items() if k != "name"
+        }
+        test_db_session.flush()
+    checkout = api_client.post("/api/v1/cart/checkout", headers=headers)
+    assert checkout.status_code == 200, checkout.text
+    entry = checkout.json()["order"]["items"][0]
+    assert entry["name_snapshot"] == expected
+    assert entry["quantity"] == 2
+    assert len(entry["components_snapshot"]) == 8

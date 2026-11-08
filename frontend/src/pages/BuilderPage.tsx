@@ -16,6 +16,7 @@ import {
 } from '../stores/builderStore'
 import { createBuildApiV1BuildsPost, updateBuildApiV1BuildsBuildIdPut, addBuildApiV1CartBuildsPost, useGetBuildApiV1BuildsBuildIdGet, checkCurrentCompatibilityApiV1BuildsCompatibilityPost } from '../api/generated/client'
 import { FiCheckCircle } from 'react-icons/fi'
+import { checkTouchesComponent, compatibilityMessage } from '../data/compatibilityMessages'
 
 export function BuilderPage() {
   const { t } = useTranslation()
@@ -44,6 +45,9 @@ export function BuilderPage() {
   const compatibility = useQuery({ queryKey: ['current-compatibility', items], enabled: count > 0, retry: false,
     queryFn: ({ signal }) => checkCurrentCompatibilityApiV1BuildsCompatibilityPost({ items }, { signal }) })
   const status = compatibility.isSuccess && !compatibility.isFetching ? compatibility.data.overall_status : 'unknown'
+  const diagnostics = compatibility.isSuccess && !compatibility.isFetching ? compatibility.data.items.filter(item => item.status !== 'compatible') : []
+  const relevant = diagnostics.filter(item => status === 'incompatible' ? item.status === 'incompatible' : item.status === 'unknown')
+  const messages = [...new Set(relevant.map(item => compatibilityMessage(item, t)))]
   const canCreate = count > 0
   const missing = BUILDER_CATEGORIES.filter((category) => !selections[category])
   const validationMessage = [
@@ -135,7 +139,7 @@ export function BuilderPage() {
               </div>
 
               <div className="space-y-2">
-                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} conflicts={(compatibility.data?.items ?? []).filter(item => item.status === 'incompatible' && item.slot.split('+').some(part => part === category || part.startsWith(`${category}_`))).map(item => item.message ?? item.slot)} />)}
+                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} conflicts={[...new Set(diagnostics.filter(item => item.status === 'incompatible' && checkTouchesComponent(item.slot, category)).map(item => compatibilityMessage(item, t)))]} />)}
               </div>
 
               <div className="mt-3"><BuilderSpecsTable /></div>
@@ -168,7 +172,7 @@ export function BuilderPage() {
                 </div>
               )}
             </section>
-            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={compatibility.isSuccess} loading={compatibility.isFetching} error={compatibility.isError} messages={(compatibility.data?.items ?? []).filter(item => item.status !== 'compatible').map(item => item.message ?? item.product_name)} />
+            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={compatibility.isSuccess} loading={compatibility.isFetching} error={compatibility.isError} messages={messages} />
           </div>
         </div>
       </main>

@@ -75,7 +75,7 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
             <span className="block">{t('builder.cart_validation', { left: total - count, total })}</span>
           )}
           {status === 'incompatible' && (
-            <span className="block">{t('builder.compatibility_error', { conflicts: messages.join(', ') })}</span>
+            <span className="block">{t('builder.resolve_conflicts')}</span>
           )}
           {status === 'compatible' && !canAdd && <span className="block">{t('builder.save_build')}</span>}
         </p>

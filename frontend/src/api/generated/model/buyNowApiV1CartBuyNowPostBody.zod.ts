@@ -14,7 +14,8 @@ export const buyNowApiV1CartBuyNowPostBodyQuantityExclusiveMin = 0;
 
 export const BuyNowApiV1CartBuyNowPostBody = zod.object({
   "product_id": zod.int().gt(buyNowApiV1CartBuyNowPostBodyProductIdExclusiveMin),
-  "quantity": zod.int().gt(buyNowApiV1CartBuyNowPostBodyQuantityExclusiveMin).default(buyNowApiV1CartBuyNowPostBodyQuantityDefault)
+  "quantity": zod.int().gt(buyNowApiV1CartBuyNowPostBodyQuantityExclusiveMin).default(buyNowApiV1CartBuyNowPostBodyQuantityDefault),
+  "idempotency_key": zod.uuid()
 })
 
 export type BuyNowApiV1CartBuyNowPostBody = zod.input<typeof BuyNowApiV1CartBuyNowPostBody>;

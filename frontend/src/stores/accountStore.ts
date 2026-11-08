@@ -150,7 +150,8 @@ export const useAccountStore = create<AccountState>()((_set, get) => ({
     const version = epoch
     try {
       await changePasswordApiV1AuthPasswordPatch({ old_password: current, new_password: next })
-      if (version === epoch) clearSession()
+      if (version !== epoch) return failure('Сессия изменилась')
+      clearSession()
       return { success: true }
     } catch (error) { return failure(errorMessage(error)) }
   },
