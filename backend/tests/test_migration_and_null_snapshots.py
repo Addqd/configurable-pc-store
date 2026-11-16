@@ -14,7 +14,7 @@ _MIGRATION_TEMPLATE = Path(__file__).resolve().parents[1] / "alembic" / "script.
 
 
 def _render_migration(upgrades: str, downgrades: str) -> str:
-    return Template(filename=str(_MIGRATION_TEMPLATE)).render(
+    rendered = Template(filename=str(_MIGRATION_TEMPLATE)).render(
         message="Verify generated migration",
         up_revision="test_revision",
         down_revision="previous_revision",
@@ -26,6 +26,9 @@ def _render_migration(upgrades: str, downgrades: str) -> str:
         downgrades=downgrades,
         comma=lambda value: value,
     )
+    # The template keeps the checkout's line endings (CRLF on Windows), so the
+    # assertions describe the generated code rather than the platform newline.
+    return rendered.replace("\r\n", "\n").replace("\r", "\n")
 
 
 def test_alembic_template_renders_operations() -> None:

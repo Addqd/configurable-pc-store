@@ -21,6 +21,9 @@ class AppSettings(BaseSettings):
     postgres_host: str = "127.0.0.1"
     postgres_port: int = 55432
 
+    # `development` allows plain-HTTP local cookies; `production` is HTTPS-only.
+    app_env: Literal["development", "production"] = "development"
+
     # Authentication is disabled until a private, sufficiently long key is set.
     # No publicly known key is ever used as a fallback.
     jwt_secret_key: SecretStr | None = None
@@ -35,6 +38,9 @@ class AppSettings(BaseSettings):
     def validate_cookie_security(self) -> AppSettings:
         if self.cookie_samesite == "none" and not self.cookie_secure:
             raise ValueError("SameSite=None requires COOKIE_SECURE=true")
+        # An HTTPS deployment must never issue session cookies without `Secure`.
+        if self.app_env == "production" and not self.cookie_secure:
+            raise ValueError("APP_ENV=production requires COOKIE_SECURE=true")
         return self
 
     @property
