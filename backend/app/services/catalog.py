@@ -15,6 +15,7 @@ from app.schemas.catalog import (
     ManufacturerOut,
     PaginatedProductsOut,
     ProductDetailOut,
+    ProductDisplaySpecOut,
     ProductImageOut,
     ProductSummaryOut,
     ProductTypeOut,
@@ -52,6 +53,33 @@ def _images(product: Product) -> tuple[list[ProductImageOut], str]:
         for x in rows
     ]
     return values, rows[0].image_url if rows else PLACEHOLDER_URL
+
+
+def serialize_display_specs(raw: object) -> list[ProductDisplaySpecOut]:
+    """Return the customer-facing label/value rows, in the imported order.
+
+    `display_specs` entries also carry internal `evidence` metadata; only the
+    label and value are exposed. Malformed entries and empty arrays are safe.
+    """
+    if not isinstance(raw, list):
+        return []
+    specs: list[ProductDisplaySpecOut] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        label = item.get("label")
+        value = item.get("value")
+        if not isinstance(label, str):
+            continue
+        label = label.strip()
+        if not label or value is None or isinstance(value, bool):
+            continue
+        if not isinstance(value, str | int | float):
+            continue
+        text = str(value).strip()
+        if text:
+            specs.append(ProductDisplaySpecOut(label=label, value=text))
+    return specs
 
 
 def _base_stmt():
@@ -158,6 +186,7 @@ def _detail(product: Product, rating: tuple[float, int]) -> ProductDetailOut:
         spec_lines=product.spec_lines or [],
         short_specs=product.short_specs or [],
         technical_specs=product.technical_specs or {},
+        display_specs=serialize_display_specs(product.display_specs),
         on_sale=product.on_sale,
         is_active=product.is_active,
         listed_at=product.listed_at,

@@ -23,8 +23,8 @@ export function ProductSpecs({ product }: ProductSpecsProps) {
         <p className="text-sm text-text-muted">{t('product.specs_empty')}</p>
       ) : (
         <div className="grid grid-cols-1 gap-x-8 gap-y-4 lg:grid-cols-2">
-          {visible.map((spec) => (
-            <div key={`${product.slug}-${spec.label}`} className="flex min-w-0 items-baseline gap-2 text-sm">
+          {visible.map((spec, index) => (
+            <div key={`${product.slug}-${index}-${spec.label}`} className="flex min-w-0 items-baseline gap-2 text-sm">
               <span className="shrink-0 text-text-muted">{catalogDisplay(spec.label)}</span>
               <span aria-hidden="true" className="min-w-2 flex-1 border-b border-dotted border-border" />
               <span className="max-w-[55%] break-words text-right font-medium text-text-primary">{catalogDisplay(spec.value)}</span>

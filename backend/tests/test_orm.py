@@ -133,6 +133,26 @@ def test_product_relationships(db_session: Session) -> None:
     assert isinstance(product.spec_lines, list)
     assert isinstance(product.short_specs, list)
     assert isinstance(product.technical_specs, dict)
+    assert isinstance(product.display_specs, list)
+
+
+def test_seeded_products_have_customer_display_specs(db_session: Session) -> None:
+    """Every imported catalog product exposes readable label/value specifications."""
+    seeded = {str(row["slug"]) for row in parse_catalog()}
+    rows = db_session.execute(
+        select(Product.slug, Product.display_specs).where(Product.slug.in_(seeded))
+    ).all()
+    assert {slug for slug, _ in rows} == seeded
+    for slug, specs in rows:
+        assert isinstance(specs, list) and specs, slug
+        assert all(
+            isinstance(spec, dict)
+            and isinstance(spec.get("label"), str)
+            and spec["label"].strip()
+            and isinstance(spec.get("value"), str)
+            and spec["value"].strip()
+            for spec in specs
+        ), slug
 
 
 def test_category_has_product_types(db_session: Session) -> None:
@@ -172,6 +192,7 @@ def test_product_model_columns() -> None:
         "spec_lines",
         "short_specs",
         "technical_specs",
+        "display_specs",
         "on_sale",
         "is_active",
         "listed_at",

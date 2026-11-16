@@ -1,6 +1,6 @@
 import type { PaginatedProductsOut, FilterOptionsOut, ListProductsApiV1ProductsGetParams, ProductDetailOut } from './generated/model'
 import type { Product } from '../data/product'
-import type { EnrichedProduct } from '../data/productDetails'
+import type { DetailedSpec, EnrichedProduct } from '../data/productDetails'
 import { CATEGORY_SLUG_MAP, type FilterState } from '../data/catalogModel'
 
 export function productFromSummary(item: PaginatedProductsOut['items'][number]): Product {
@@ -18,11 +18,25 @@ export function productFromDetail(item: ProductDetailOut): EnrichedProduct {
   return {
     ...summary, addedAt: item.listed_at, specs: item.spec_lines ?? [], shortSpecs: item.short_specs?.length ? item.short_specs : item.spec_lines ?? [],
     article: item.sku ?? '', description: item.description, reviews: [],
-    gallery: item.images?.length ? item.images.map(image => image.url) : [item.cover_image_url],
-    detailedSpecs: Object.entries(item.technical_specs ?? {}).flatMap(([label, value]) =>
-      typeof value === 'string' || typeof value === 'number' ? [{ label, value: String(value) }] : []),
+    gallery: item.images?.length
+      ? item.images.map(image => ({ url: image.url, alt: image.alt_text?.trim() || item.name }))
+      : [{ url: item.cover_image_url, alt: item.name }],
+    detailedSpecs: displaySpecs(item.display_specs),
     stockQuantity: item.stock_quantity,
   }
+}
+
+/**
+ * Customer-facing specifications come from the imported `display_specs` array.
+ * `technical_specs` is the compatibility engine's input and is never rendered as
+ * raw labels. The imported order is preserved; empty rows are skipped.
+ */
+function displaySpecs(specs: ProductDetailOut['display_specs'] | undefined): DetailedSpec[] {
+  return (specs ?? []).flatMap(spec => {
+    const label = typeof spec?.label === 'string' ? spec.label.trim() : ''
+    const value = typeof spec?.value === 'string' ? spec.value.trim() : ''
+    return label && value ? [{ label, value }] : []
+  })
 }
 
 type NamedOption = { name: string; slug: string }

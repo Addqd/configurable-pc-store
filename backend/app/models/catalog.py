@@ -113,6 +113,13 @@ class Product(Base):
         nullable=False,
         server_default=text("'{}'::jsonb"),
     )
+    # Customer-facing label/value pairs. Independent of `technical_specs`, which
+    # remains the compatibility engine's input and is never shown as raw keys.
+    display_specs: Mapped[list[dict[str, Any]]] = mapped_column(
+        MutableList.as_mutable(JSONB),
+        nullable=False,
+        server_default=text("'[]'::jsonb"),
+    )
     on_sale: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
@@ -145,6 +152,10 @@ class Product(Base):
         CheckConstraint(
             "jsonb_typeof(technical_specs) = 'object'",
             name="ck_products_technical_specs_object",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(display_specs) = 'array'",
+            name="ck_products_display_specs_array",
         ),
         Index("ix_products_product_type_id", "product_type_id"),
         Index("ix_products_manufacturer_id", "manufacturer_id"),

@@ -1,5 +1,7 @@
 """Catalog counting, filters, review summaries, image ordering and placeholder tests."""
 
+import json
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -59,6 +61,57 @@ def test_images_are_product_specific_and_sorted(
     assert "example.invalid" not in without["cover_image_url"]
     gallery = api_client.get(f"/api/v1/products/{gpu.id}/images").json()
     assert len(gallery["images"]) == 2
+
+
+def test_single_image_is_cover_and_alt_text_is_serialized(
+    api_client: TestClient, test_db_session: Session, sample_products: dict
+):
+    product = sample_products["ram"]
+    test_db_session.add(
+        ProductImage(
+            product_id=product.id,
+            image_url="https://example.invalid/only.jpg",
+            alt_text="Только один ракурс",
+            sort_order=0,
+        )
+    )
+    test_db_session.flush()
+    body = api_client.get(f"/api/v1/products/{product.slug}").json()
+    assert body["cover_image_url"] == "https://example.invalid/only.jpg"
+    assert body["images"] == [
+        {
+            "url": "https://example.invalid/only.jpg",
+            "alt_text": "Только один ракурс",
+            "sort_order": 0,
+        }
+    ]
+    gallery = api_client.get(f"/api/v1/products/{product.id}/images").json()
+    assert gallery["cover_image_url"] == "https://example.invalid/only.jpg"
+    assert len(gallery["images"]) == 1
+
+
+def test_product_detail_exposes_display_specs_without_evidence(
+    api_client: TestClient, test_db_session: Session, sample_products: dict
+):
+    product = sample_products["gpu"]
+    product.display_specs = [
+        {
+            "label": "Объём видеопамяти",
+            "value": "12 ГБ",
+            "evidence": {"source": "internal-vendor-sheet"},
+        },
+        {"label": "Разрядность шины", "value": "192 бит"},
+    ]
+    test_db_session.flush()
+    body = api_client.get(f"/api/v1/products/{product.slug}").json()
+    assert body["display_specs"] == [
+        {"label": "Объём видеопамяти", "value": "12 ГБ"},
+        {"label": "Разрядность шины", "value": "192 бит"},
+    ]
+    assert "evidence" not in json.dumps(body["display_specs"])
+    assert body["technical_specs"] == {}
+    empty = api_client.get(f"/api/v1/products/{sample_products['cpu'].slug}").json()
+    assert empty["display_specs"] == []
 
 
 def test_filter_total_matches_products(api_client: TestClient, sample_products: dict):
