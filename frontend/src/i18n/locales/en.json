@@ -33,6 +33,7 @@
     "search_clear": "Clear search",
     "search_results": "Products",
     "show_all": "Show all ({{count}})",
+    "show_all_no_count": "Show all",
     "search_empty": "Nothing found",
     "nav": {
       "home": "Home",
@@ -95,7 +96,8 @@
       "no_products": "No products yet",
       "sale_only": "Sale items only",
       "sale_hint": "There are no sale items in the current demo catalog.",
-      "load_error": "Filters are unavailable. Products are shown without filters."
+      "load_error": "Filters are unavailable. Products are shown without filters.",
+      "partial_error": "Filters are unavailable. Not applied: {{filters}}."
     },
     "sort": {
       "newest": "Newest first",

@@ -246,13 +246,20 @@ POSTGRES_PASSWORD=replace_with_a_private_password
 POSTGRES_HOST=127.0.0.1
 POSTGRES_PORT=55432
 JWT_SECRET_KEY=replace_with_a_random_secret_of_at_least_32_characters
+APP_ENV=development
 COOKIE_SECURE=false
 COOKIE_SAMESITE=lax
 ```
 
 Замените значения пароля PostgreSQL и JWT-ключа собственными секретами.
 
-`JWT_SECRET_KEY` должен содержать не менее 32 символов. Для локальной разработки через HTTP используется `COOKIE_SECURE=false`; при развёртывании через HTTPS необходимо настроить безопасные cookie.
+`JWT_SECRET_KEY` должен содержать не менее 32 символов. Для локальной разработки через HTTP используется
+`APP_ENV=development` и `COOKIE_SECURE=false`; при развёртывании через HTTPS обязательны `APP_ENV=production`
+и `COOKIE_SECURE=true` — иначе приложение не запустится с понятной ошибкой конфигурации.
+
+Cookie сессии: `refresh_token` — HttpOnly, `csrf_token` — читаемый клиентом (double-submit, значение
+выводится из refresh-токена), оба с `SameSite=Lax` по умолчанию. `SameSite=None` разрешён только вместе
+с `COOKIE_SECURE=true`.
 
 **Никогда не добавляйте `.env` и настоящие секреты в репозиторий.**
 

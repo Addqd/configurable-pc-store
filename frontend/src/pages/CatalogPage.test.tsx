@@ -144,3 +144,32 @@ describe('catalog filter drawer and URL synchronization', () => {
     expect(screen.queryByRole('dialog', { name: 'Фильтры' })).toBeNull()
   })
 })
+
+describe('catalog filter metadata fallback', () => {
+  it('does not send display names as slugs when the filter endpoint fails, and says what was not applied', async () => {
+    const base = mockCatalogFetch()
+    const failing = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/v1/products/filters') {
+        return new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      }
+      return base(input)
+    })
+    vi.stubGlobal('fetch', failing)
+
+    // A type filter stored as a display name cannot be translated without metadata.
+    setup('/catalog?category=gpu&types=Видеокарты&colors=Чёрный')
+
+    const grid = await screen.findByTestId('catalog-grid')
+    expect(within(grid).getAllByRole('article').length).toBeGreaterThan(0)
+
+    const productCall = failing.mock.calls.map(([url]) => String(url)).find((url) => url.startsWith('/api/v1/products?'))
+    expect(productCall).toContain('categories=gpu')
+    expect(productCall).toContain('colors=%D0%A7%D1%91%D1%80%D0%BD%D1%8B%D0%B9')
+    expect(productCall).not.toContain('types=')
+    expect(productCall).not.toContain(encodeURIComponent('Видеокарты'))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toContain('Не применены: Тип')
+  })
+})

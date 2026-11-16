@@ -11,7 +11,7 @@ import {
   readFilters, writeFilters, getPageNumbers, type FilterState,
 } from '../data/catalogModel'
 import { useGetFilterOptionsApiV1ProductsFiltersGet, useListProductsApiV1ProductsGet } from '../api/generated/client'
-import { catalogParams, productFromSummary } from '../api/catalogAdapter'
+import { catalogParams, productFromSummary, resolveCatalogQuery } from '../api/catalogAdapter'
 
 export function CatalogPage() {
   const { t } = useTranslation()
@@ -36,8 +36,14 @@ export function CatalogPage() {
   const rawPage = Number(searchParams.get('page') || 1)
   const requestedPage = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1
   // Product parameters never wait for filter metadata: a public catalog must load
-  // even when /products/filters is unavailable.
-  const params = catalogParams(applied, query, requestedPage, allOptions.data)
+  // even when /products/filters is unavailable. Selections that cannot be turned
+  // into API slugs yet are left out of the request and reported to the user.
+  const { params, unresolved } = resolveCatalogQuery(applied, query, requestedPage, allOptions.data)
+  const notApplied = [
+    unresolved.categories.length ? t('catalog.filter.categories') : null,
+    unresolved.types.length ? t('catalog.filter.types') : null,
+    unresolved.manufacturers.length ? t('catalog.filter.manufacturers') : null,
+  ].filter((label): label is string => label !== null)
   const products = useListProductsApiV1ProductsGet(params)
   const draftParams = allOptions.data ? catalogParams(draft, '', 1, allOptions.data) : undefined
   const filteredOptions = useGetFilterOptionsApiV1ProductsFiltersGet(draftParams && {
@@ -83,7 +89,7 @@ export function CatalogPage() {
         {products.data && <span className="text-sm text-text-muted">{t('catalog.found', { count: products.data.total, count_label: t('common.product_labels', { count: products.data.total }) })}</span>}
       </div>
       <div className="mx-auto max-w-[1320px] px-4 pb-6">
-        {allOptions.isError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm text-text-muted"><span>{t('catalog.filter.load_error')}</span><button type="button" onClick={() => void allOptions.refetch()} className="rounded-md border border-border bg-surface-3 px-3 py-1 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div>}
+        {allOptions.isError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm text-text-muted"><span>{notApplied.length ? t('catalog.filter.partial_error', { filters: notApplied.join(', ') }) : t('catalog.filter.load_error')}</span><button type="button" onClick={() => void allOptions.refetch()} className="rounded-md border border-border bg-surface-3 px-3 py-1 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div>}
         {products.isError ? <div role="alert" className="py-20 text-center text-text-muted"><p>{t('common.load_error')}</p><button type="button" onClick={() => void products.refetch()} className="mt-3 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div> : products.isLoading ? <div role="status" className="py-20 text-center text-text-muted">{t('common.loading')}</div> : pageProducts.length ? <>
           <div className="flex flex-wrap justify-center gap-3" data-testid="catalog-grid">
             {pageProducts.map(p=><div key={p.id} className="min-w-0 w-[calc((100%-0.75rem)/2)] sm:w-[calc((100%-1.5rem)/3)] md:w-[calc((100%-2.25rem)/4)] lg:w-[calc((100%-3rem)/5)] xl:w-[calc((100%-4.5rem)/7)]"><CatalogProductCard product={p}/></div>)}

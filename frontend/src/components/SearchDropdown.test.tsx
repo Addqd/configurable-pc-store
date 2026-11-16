@@ -100,3 +100,54 @@ describe('search suggestions', () => {
     expect(screen.getByText('RTX 4070 result')).toBeTruthy()
   })
 })
+
+describe('search suggestions staleness', () => {
+  const jsonSuggestions = (items: unknown[]) =>
+    new Response(JSON.stringify(items), { status: 200, headers: { 'Content-Type': 'application/json' } })
+
+  it('hides the previous term results and count while the new term is still debouncing', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      const term = url.searchParams.get('q')
+      if (url.pathname === '/api/v1/products/search/suggestions') return jsonSuggestions([suggestion(1, `Result for ${term}`)])
+      return new Response(JSON.stringify({ items: [], total: term === 'ryzen' ? 12 : 3, page: 1, page_size: 1, total_pages: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    appRender(<SearchDropdown />)
+
+    type('ryzen')
+    expect(await screen.findByText('Result for ryzen')).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('link', { name: /показать все/i }).textContent).toContain('12'))
+
+    // Typing the next term: the settled term's data is stale for this input.
+    type('rtx')
+    expect(screen.queryByText('Result for ryzen')).toBeNull()
+    expect(screen.getByRole('link', { name: /показать все/i }).textContent).not.toContain('12')
+    expect(screen.getByRole('status').textContent).toBe('Загрузка...')
+
+    expect(await screen.findByText('Result for rtx')).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('link', { name: /показать все/i }).textContent).toContain('3'))
+  })
+
+  it('hides the previous results when the query is cleared and retyped', async () => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      const term = url.searchParams.get('q')
+      if (url.pathname === '/api/v1/products/search/suggestions') return jsonSuggestions([suggestion(1, `Result for ${term}`)])
+      return new Response(JSON.stringify({ items: [], total: 1, page: 1, page_size: 1, total_pages: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    appRender(<SearchDropdown />)
+
+    type('ryzen')
+    expect(await screen.findByText('Result for ryzen')).toBeTruthy()
+
+    type('')
+    expect(screen.queryByText('Result for ryzen')).toBeNull()
+    expect(screen.queryByRole('link', { name: /показать все/i })).toBeNull()
+
+    type('rtx')
+    expect(screen.queryByText('Result for ryzen')).toBeNull()
+    expect(await screen.findByText('Result for rtx')).toBeTruthy()
+  })
+})
