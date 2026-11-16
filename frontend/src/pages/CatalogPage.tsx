@@ -16,16 +16,29 @@ import { catalogParams, productFromSummary } from '../api/catalogAdapter'
 export function CatalogPage() {
   const { t } = useTranslation()
   const [searchParams,setSearchParams]=useSearchParams()
-  const [filtersOpen,setFiltersOpen]=useState(false)
   const applied=useMemo(()=>readFilters(searchParams),[searchParams])
   const query=searchParams.get('q') || ''
-  const [draft,setDraft]=useState<FilterState>(()=>readFilters(searchParams))
+  // The draft belongs to one concrete catalogue URL: a navigation (header link,
+  // pagination, Back/Forward) always ends drawer editing and the checkboxes are
+  // rehydrated from the new URL on the next open. This is React's documented
+  // "adjust state when a prop changes" pattern, not an Effect + setState.
+  const urlKey=searchParams.toString()
+  const [editing,setEditing]=useState<FilterState|null>(null)
+  const [draftUrlKey,setDraftUrlKey]=useState(urlKey)
+  if (draftUrlKey!==urlKey) {
+    setDraftUrlKey(urlKey)
+    if (editing!==null) setEditing(null)
+  }
+  const filtersOpen=editing!==null
+  const draft=editing??applied
   const openButtonRef=useRef<HTMLButtonElement>(null)
   const allOptions = useGetFilterOptionsApiV1ProductsFiltersGet()
   const rawPage = Number(searchParams.get('page') || 1)
   const requestedPage = Number.isSafeInteger(rawPage) && rawPage > 0 ? rawPage : 1
-  const params = allOptions.data ? catalogParams(applied, query, requestedPage, allOptions.data) : undefined
-  const products = useListProductsApiV1ProductsGet(params, { query: { enabled: !!params } })
+  // Product parameters never wait for filter metadata: a public catalog must load
+  // even when /products/filters is unavailable.
+  const params = catalogParams(applied, query, requestedPage, allOptions.data)
+  const products = useListProductsApiV1ProductsGet(params)
   const draftParams = allOptions.data ? catalogParams(draft, '', 1, allOptions.data) : undefined
   const filteredOptions = useGetFilterOptionsApiV1ProductsFiltersGet(draftParams && {
     categories: draftParams.categories, types: draftParams.types,
@@ -35,12 +48,8 @@ export function CatalogPage() {
   const pageProducts = products.data?.items.map(productFromSummary) ?? []
   const pagination=getPageNumbers(currentPage,totalPages)
 
-  // Header/hamburger links may change the catalog URL while the drawer is open.
-  // Close and rehydrate it so the checkboxes always reflect the new destination.
-  useEffect(()=>{
-    setDraft(readFilters(searchParams))
-    setFiltersOpen(false)
-  },[searchParams])
+  // Header/hamburger links may change the catalogue URL while the drawer is open.
+  // The URL key above closes it and rehydrates the draft from the new destination.
   useEffect(()=>{
     const raw=searchParams.get('page')
     if(products.data && raw && raw!==String(currentPage)){
@@ -50,11 +59,13 @@ export function CatalogPage() {
     }
   },[currentPage,searchParams,setSearchParams,products.data])
 
-  const open=()=>{setDraft(readFilters(searchParams));setFiltersOpen(true)}
-  const close=useCallback(()=>{setFiltersOpen(false);openButtonRef.current?.focus()},[])
+  const open=()=>{setEditing(readFilters(searchParams))}
+  const close=useCallback(()=>{setEditing(null);openButtonRef.current?.focus()},[])
+  const changeDraft=(filters:FilterState)=>setEditing(filters)
   const apply=()=>{
-    setSearchParams(writeFilters(draft,query,1)) // push: Back/Forward restores prior state
-    setFiltersOpen(false)
+    const next=draft
+    setEditing(null)
+    setSearchParams(writeFilters(next,query,1)) // push: Back/Forward restores prior state
     openButtonRef.current?.focus()
   }
   const changePage=(page:number)=>{
@@ -72,7 +83,8 @@ export function CatalogPage() {
         {products.data && <span className="text-sm text-text-muted">{t('catalog.found', { count: products.data.total, count_label: t('common.product_labels', { count: products.data.total }) })}</span>}
       </div>
       <div className="mx-auto max-w-[1320px] px-4 pb-6">
-        {products.isError || allOptions.isError ? <div role="alert" className="py-20 text-center text-text-muted">{t('common.load_error')}</div> : products.isLoading || allOptions.isLoading ? <div role="status" className="py-20 text-center text-text-muted">{t('common.loading')}</div> : pageProducts.length ? <>
+        {allOptions.isError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm text-text-muted"><span>{t('catalog.filter.load_error')}</span><button type="button" onClick={() => void allOptions.refetch()} className="rounded-md border border-border bg-surface-3 px-3 py-1 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div>}
+        {products.isError ? <div role="alert" className="py-20 text-center text-text-muted"><p>{t('common.load_error')}</p><button type="button" onClick={() => void products.refetch()} className="mt-3 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div> : products.isLoading ? <div role="status" className="py-20 text-center text-text-muted">{t('common.loading')}</div> : pageProducts.length ? <>
           <div className="flex flex-wrap justify-center gap-3" data-testid="catalog-grid">
             {pageProducts.map(p=><div key={p.id} className="min-w-0 w-[calc((100%-0.75rem)/2)] sm:w-[calc((100%-1.5rem)/3)] md:w-[calc((100%-2.25rem)/4)] lg:w-[calc((100%-3rem)/5)] xl:w-[calc((100%-4.5rem)/7)]"><CatalogProductCard product={p}/></div>)}
           </div>
@@ -85,6 +97,6 @@ export function CatalogPage() {
       </div>
     </main>
     <Footer />
-    <FilterDrawer open={filtersOpen} filters={draft} onFiltersChange={setDraft} onApply={apply} onClose={close} options={filteredOptions.data ?? allOptions.data}/>
+    <FilterDrawer open={filtersOpen} filters={draft} onFiltersChange={changeDraft} onApply={apply} onClose={close} options={filteredOptions.data ?? allOptions.data}/>
   </div>
 }

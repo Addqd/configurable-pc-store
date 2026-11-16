@@ -11,7 +11,7 @@ describe('server account session', () => {
     useAccountStore.setState({ accounts: {}, activeAccountId: null })
     document.cookie = 'csrf_token=test; path=/'
   })
-  afterEach(() => { vi.unstubAllGlobals(); document.cookie = 'csrf_token=; Max-Age=0; path=/' })
+  afterEach(() => { vi.unstubAllGlobals(); queryClient.clear(); document.cookie = 'csrf_token=; Max-Age=0; path=/' })
 
   it('logs in through the backend and fetches the authenticated user', async () => {
     const mock = vi.fn(async (url: string, init: RequestInit) => {
@@ -90,11 +90,11 @@ describe('server account session', () => {
   it('clears account and cached private data after password change', async () => {
     useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
     setAccessToken('old-access')
-    queryClient.setQueryData(['private-cart'], { items: ['private'] })
+    queryClient.setQueryData(['/api/v1/cart'], { items: ['private'] })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ detail: 'Password changed' })))
     expect((await useAccountStore.getState().changePassword('old-password', 'new-password')).success).toBe(true)
     expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
-    expect(queryClient.getQueryData(['private-cart'])).toBeUndefined()
+    expect(queryClient.getQueryData(['/api/v1/cart'])).toBeUndefined()
   })
 
   it('retains the current session when password change is rejected', async () => {
@@ -118,10 +118,34 @@ describe('server account session', () => {
     await vi.waitFor(() => expect(finish).toBeDefined())
     if (action === 'logout') await useAccountStore.getState().logout()
     else expect((await useAccountStore.getState().login('other', 'password')).success).toBe(true)
-    if (action === 'switch') queryClient.setQueryData(['new-user-private'], 'preserved')
+    if (action === 'switch') queryClient.setQueryData(['/api/v1/cart'], 'new-user-private')
     finish(json({ detail: 'Password changed' }))
     expect((await change).success).toBe(false)
     expect(selectActiveAccount(useAccountStore.getState())?.id ?? null).toBe(action === 'switch' ? '42' : null)
-    if (action === 'switch') expect(queryClient.getQueryData(['new-user-private'])).toBe('preserved')
+    if (action === 'switch') expect(queryClient.getQueryData(['/api/v1/cart'])).toBe('new-user-private')
+  })
+
+  it('treats a missing session cookie as a guest state and keeps public cache', async () => {
+    document.cookie = 'csrf_token=; Max-Age=0; path=/'
+    setAccessToken(null)
+    queryClient.setQueryData(['/api/v1/products'], { items: [1] })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    await useAccountStore.getState().restore()
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
+    expect(queryClient.getQueryData(['/api/v1/products'])).toEqual({ items: [1] })
+  })
+
+  it('drops only private cached data when a stale session is rejected', async () => {
+    document.cookie = 'csrf_token=stale; path=/'
+    useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
+    queryClient.setQueryData(['/api/v1/cart'], { items: ['private'] })
+    queryClient.setQueryData(['/api/v1/products'], { items: [1] })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ detail: 'expired' }, 401)))
+    await useAccountStore.getState().restore()
+    expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
+    expect(queryClient.getQueryData(['/api/v1/cart'])).toBeUndefined()
+    expect(queryClient.getQueryData(['/api/v1/products'])).toEqual({ items: [1] })
   })
 })

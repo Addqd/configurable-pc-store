@@ -94,7 +94,8 @@
       "apply": "Apply",
       "no_products": "No products yet",
       "sale_only": "Sale items only",
-      "sale_hint": "There are no sale items in the current demo catalog."
+      "sale_hint": "There are no sale items in the current demo catalog.",
+      "load_error": "Filters are unavailable. Products are shown without filters."
     },
     "sort": {
       "newest": "Newest first",
@@ -447,6 +448,7 @@
   },
   "common": {
     "load_error": "Could not load data. Please try again.",
+    "retry": "Try again",
     "back": "Back",
     "back_title": "Go back to the previous page",
     "close": "Close",

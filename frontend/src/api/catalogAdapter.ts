@@ -25,17 +25,20 @@ export function productFromDetail(item: ProductDetailOut): EnrichedProduct {
   }
 }
 
-export function catalogParams(filters: FilterState, query: string, page: number, options: FilterOptionsOut): ListProductsApiV1ProductsGetParams {
-  const slugs = (selected: string[], values: { name: string; slug: string }[]) =>
+export function catalogParams(filters: FilterState, query: string, page: number, options?: FilterOptionsOut): ListProductsApiV1ProductsGetParams {
+  // Filter metadata may be unavailable (failed request). Products must still load,
+  // so unknown values are forwarded as-is instead of being dropped: the URL keeps
+  // the user's selection and the request stays explicit about it.
+  const slugs = (selected: string[], values: { name: string; slug: string }[] = []) =>
     selected.flatMap(name => {
       const matches = values.filter(value => value.name === name).map(value => value.slug)
       return matches.length ? matches : [Object.entries(CATEGORY_SLUG_MAP).find(([, label]) => label === name)?.[0] ?? name]
     }).join(',')
   return {
     page, page_size: 49, q: query || undefined,
-    categories: slugs(filters.categories, options.categories) || undefined,
-    types: slugs(filters.types, options.types) || undefined,
-    manufacturers: slugs(filters.manufacturers, options.manufacturers) || undefined,
+    categories: slugs(filters.categories, options?.categories) || undefined,
+    types: slugs(filters.types, options?.types) || undefined,
+    manufacturers: slugs(filters.manufacturers, options?.manufacturers) || undefined,
     colors: filters.colors.join(',') || undefined, sale: filters.saleOnly, sort: filters.sort,
   }
 }
