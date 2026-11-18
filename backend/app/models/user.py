@@ -48,6 +48,14 @@ class User(Base):
         nullable=False,
         server_default=text("CURRENT_TIMESTAMP"),
     )
+    # Added by migration d4e5f6a7b8c9. Allowed values are enforced by the two
+    # CHECK constraints below, not by the ORM, exactly as in PostgreSQL.
+    role: Mapped[str] = mapped_column(String(16), nullable=False, server_default="user")
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, server_default="active"
+    )
+    blocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    blocked_reason: Mapped[str | None] = mapped_column(Text)
 
     __table_args__ = (
         CheckConstraint("length(btrim(email)) > 0", name="ck_users_email_nonempty"),
@@ -55,8 +63,11 @@ class User(Base):
             "length(btrim(username)) > 0 AND position('@' in username) = 0",
             name="ck_users_username_valid",
         ),
+        CheckConstraint("role IN ('user', 'admin', 'owner')", name="ck_users_role"),
+        CheckConstraint("status IN ('active', 'blocked')", name="ck_users_status"),
         Index("uq_users_email_ci", func.lower(email), unique=True),
         Index("uq_users_username_ci", func.lower(username), unique=True),
+        Index("ix_users_role_status", "role", "status"),
     )
 
     auth_sessions: Mapped[list[AuthSession]] = relationship(
