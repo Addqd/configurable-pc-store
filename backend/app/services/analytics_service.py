@@ -9,6 +9,7 @@ counted with `COUNT(DISTINCT source_order_id)`.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -134,35 +135,57 @@ def _monthly_rows(
     return series
 
 
-def _fill_months(
-    series: dict[date, tuple[int, int, Decimal]],
+def _month_bounds(
+    series_group: Sequence[dict[date, tuple[int, int, Decimal]]],
     date_from: date | None,
     date_to: date | None,
-) -> list[MonthlyPointOut]:
+) -> tuple[date, date]:
+    """One calendar-month interval shared by every series of a request.
+
+    An explicit range wins; otherwise the interval is derived from all supplied
+    sales data, so compared products always share the same month sequence.
+    """
+    months = [month for series in series_group for month in series]
     if date_from is not None:
         start = _month_start(date_from)
-    elif series:
-        start = min(series)
+    elif months:
+        start = min(months)
     elif date_to is not None:
         start = _month_start(date_to)
     else:
         start = _month_start(date.today())
     if date_to is not None:
         end = _month_start(date_to)
-    elif series:
-        end = max(series)
+    elif months:
+        end = max(months)
     else:
         end = start
-    end = max(end, start)
+    return start, max(end, start)
+
+
+def _fill_between(
+    series: dict[date, tuple[int, int, Decimal]], start: date, end: date
+) -> list[MonthlyPointOut]:
+    """Zero-fill `series` over the given inclusive month interval."""
+    empty = (0, 0, Decimal("0.00"))
     return [
         MonthlyPointOut(
             month=month,
-            orders_count=series.get(month, (0, 0, Decimal("0.00")))[0],
-            units_count=series.get(month, (0, 0, Decimal("0.00")))[1],
-            amount=series.get(month, (0, 0, Decimal("0.00")))[2],
+            orders_count=series.get(month, empty)[0],
+            units_count=series.get(month, empty)[1],
+            amount=series.get(month, empty)[2],
         )
         for month in _month_sequence(start, end)
     ]
+
+
+def _fill_months(
+    series: dict[date, tuple[int, int, Decimal]],
+    date_from: date | None,
+    date_to: date | None,
+) -> list[MonthlyPointOut]:
+    start, end = _month_bounds([series], date_from, date_to)
+    return _fill_between(series, start, end)
 
 
 def _top_selling(
@@ -531,8 +554,10 @@ def comparison_timeline(
             money(amount),
         )
 
-    # `_fill_months` derives the visible span from the data when no explicit
-    # range was requested, so every compared series stays aligned.
+    # One shared interval for the whole request: every compared series returns
+    # exactly the same ordered month labels, zero-filled where a product had no
+    # sales. `_month_bounds` uses the explicit range when it was supplied.
+    start, end = _month_bounds(list(series_by_product.values()), date_from, date_to)
     return AdminComparisonTimelineOut(
         date_from=date_from,
         date_to=date_to,
@@ -541,7 +566,7 @@ def comparison_timeline(
                 product_id=product_id,
                 name=found[product_id].name,
                 sku=found[product_id].sku,
-                monthly=_fill_months(series_by_product[product_id], date_from, date_to),
+                monthly=_fill_between(series_by_product[product_id], start, end),
             )
             for product_id in selected
         ],

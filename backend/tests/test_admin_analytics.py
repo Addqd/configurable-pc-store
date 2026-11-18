@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models import SaleLineFact
 
 
 def _overview(api_client: TestClient, admin_user: dict, **params) -> dict:
@@ -217,6 +221,100 @@ def test_product_stats_table_and_detail(
         ).status_code
         == 404
     )
+
+
+def test_comparison_timeline_aligns_products_with_different_periods(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """F6: every compared product returns the same ordered month labels."""
+    older = sample_products["cpu"]
+    newer = sample_products["gpu"]
+    test_db_session.add_all(
+        [
+            SaleLineFact(
+                source_order_item_id=uuid4().int % 10**17,
+                source_order_id=uuid4().int % 10**17,
+                product_id=older.id,
+                kind="product",
+                sku_snapshot=older.sku,
+                name_snapshot=older.name,
+                unit_price=Decimal("100.00"),
+                quantity=2,
+                line_total=Decimal("200.00"),
+                ordered_at=datetime(2025, 8, 12, 9, 30, tzinfo=UTC),
+            ),
+            SaleLineFact(
+                source_order_item_id=uuid4().int % 10**17,
+                source_order_id=uuid4().int % 10**17,
+                product_id=newer.id,
+                kind="product",
+                sku_snapshot=newer.sku,
+                name_snapshot=newer.name,
+                unit_price=Decimal("70.00"),
+                quantity=1,
+                line_total=Decimal("70.00"),
+                ordered_at=datetime(2026, 3, 4, 18, 0, tzinfo=UTC),
+            ),
+        ]
+    )
+    test_db_session.flush()
+
+    response = api_client.get(
+        "/api/v1/admin/stats/timeline",
+        headers=admin_user["headers"],
+        params=[("product_ids", older.id), ("product_ids", newer.id)],
+    )
+    assert response.status_code == 200, response.text
+    series = response.json()["series"]
+    assert len(series) == 2
+    by_product = {item["product_id"]: item["monthly"] for item in series}
+    labels = [[point["month"] for point in item] for item in by_product.values()]
+    assert labels[0] == labels[1]
+    assert labels[0][0] == "2025-08-01"
+    assert labels[0][-1] == "2026-03-01"
+    assert len(labels[0]) == 8
+
+    older_points = by_product[older.id]
+    assert older_points[0]["orders_count"] == 1
+    assert older_points[0]["units_count"] == 2
+    assert Decimal(older_points[0]["amount"]) == Decimal("200.00")
+    assert all(
+        point["orders_count"] == 0
+        and point["units_count"] == 0
+        and Decimal(point["amount"]) == Decimal("0.00")
+        for point in older_points[1:]
+    )
+    newer_points = by_product[newer.id]
+    assert all(point["units_count"] == 0 for point in newer_points[:-1])
+    assert newer_points[-1]["orders_count"] == 1
+    assert newer_points[-1]["units_count"] == 1
+    assert Decimal(newer_points[-1]["amount"]) == Decimal("70.00")
+    assert sum(point["units_count"] for point in older_points) == 2
+    assert sum(point["units_count"] for point in newer_points) == 1
+
+    # An explicit range is shared too, including months without any sales.
+    ranged = api_client.get(
+        "/api/v1/admin/stats/timeline",
+        headers=admin_user["headers"],
+        params=[
+            ("product_ids", older.id),
+            ("product_ids", newer.id),
+            ("date_from", date(2025, 7, 15).isoformat()),
+            ("date_to", date(2026, 4, 2).isoformat()),
+        ],
+    )
+    assert ranged.status_code == 200, ranged.text
+    ranged_series = ranged.json()["series"]
+    ranged_labels = [
+        [point["month"] for point in item["monthly"]] for item in ranged_series
+    ]
+    assert ranged_labels[0] == ranged_labels[1]
+    assert ranged_labels[0][0] == "2025-07-01"
+    assert ranged_labels[0][-1] == "2026-04-01"
+    assert len(ranged_labels[0]) == 10
 
 
 def test_account_deletion_does_not_change_historical_metrics(

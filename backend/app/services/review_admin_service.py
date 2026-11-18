@@ -39,6 +39,13 @@ DEFAULT_SORT = "displayed_desc"
 _CONTENT_FIELDS = frozenset({"author_name", "rating", "body"})
 
 
+def _required[T](value: T | None, field: str) -> T:
+    """Narrow a required field; `AdminReviewUpdate` already rejects explicit nulls."""
+    if value is None:  # pragma: no cover - guarded by the request schema
+        raise InvalidInputError(f"{field} cannot be null")
+    return value
+
+
 def reviewer_name(review: Review) -> str:
     if review.source == "admin":
         return review.author_name or "Anonymous"
@@ -182,20 +189,26 @@ def update_review(
             "display date and shop reply are modifiable"
         )
     changed: list[str] = []
-    if "author_name" in provided and data.author_name != review.author_name:
-        # SQLAlchemy's optional `Mapped[str | None]` attribute is seen by mypy as
-        # a descriptor union; the runtime type is `str | None`.
-        review.author_name = data.author_name  # type: ignore[assignment]
-        changed.append("author_name")
-    if "rating" in provided and data.rating != review.rating:
-        review.rating = data.rating  # type: ignore[assignment]
-        changed.append("rating")
-    if "body" in provided and data.body != review.body:
-        review.body = data.body  # type: ignore[assignment]
-        changed.append("body")
-    if "displayed_at" in provided and data.displayed_at != review.displayed_at:
-        review.displayed_at = data.displayed_at  # type: ignore[assignment]
-        changed.append("displayed_at")
+    if "author_name" in provided:
+        author_name = _required(data.author_name, "author_name")
+        if author_name != review.author_name:
+            review.author_name = author_name
+            changed.append("author_name")
+    if "rating" in provided:
+        rating = _required(data.rating, "rating")
+        if rating != review.rating:
+            review.rating = rating
+            changed.append("rating")
+    if "body" in provided:
+        body = _required(data.body, "body")
+        if body != review.body:
+            review.body = body
+            changed.append("body")
+    if "displayed_at" in provided:
+        displayed_at = _required(data.displayed_at, "displayed_at")
+        if displayed_at != review.displayed_at:
+            review.displayed_at = displayed_at
+            changed.append("displayed_at")
     if "store_reply" in provided and data.store_reply != review.store_reply:
         review.store_reply = data.store_reply
         changed.append("store_reply")

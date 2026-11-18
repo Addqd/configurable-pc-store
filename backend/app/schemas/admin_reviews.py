@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -19,6 +19,9 @@ ReviewSort = Literal[
     "id_desc",
     "id_asc",
 ]
+
+# Backed by NOT NULL columns: an explicit null is never a valid update value.
+_NON_NULLABLE_UPDATE_FIELDS = ("author_name", "rating", "body", "displayed_at")
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -90,6 +93,13 @@ class AdminReviewCreate(BaseModel):
 
 
 class AdminReviewUpdate(BaseModel):
+    """Partial update: omitted fields stay unchanged, explicit nulls are invalid.
+
+    `author_name`, `rating`, `body` and `displayed_at` are backed by non-nullable
+    columns, so an explicit `null` is rejected here (422) instead of reaching the
+    database. `store_reply` stays nullable: an administrator may clear it.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     author_name: str | None = Field(default=None, min_length=1, max_length=120)
@@ -122,8 +132,11 @@ class AdminReviewUpdate(BaseModel):
     def normalize_displayed_at(cls, value: datetime | None) -> datetime | None:
         return _as_utc(value)
 
-    @model_validator(mode="after")
-    def reject_null_displayed_at(self) -> AdminReviewUpdate:
-        if "displayed_at" in self.model_fields_set and self.displayed_at is None:
-            raise ValueError("displayed_at cannot be null")
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def reject_explicit_nulls(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            for field in _NON_NULLABLE_UPDATE_FIELDS:
+                if field in data and data[field] is None:
+                    raise ValueError(f"{field} cannot be null")
+        return data

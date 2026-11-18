@@ -65,20 +65,18 @@ def authenticate(db: Session, email_or_username: str, password: str) -> User:
     if user is None or not verify_password(password, user.password_hash):
         # No identifier is journaled: that would be unnecessary personal data
         # and would enable account enumeration from the audit page.
-        event_service.record_event(
+        event_service.record_failure(
             db,
             category=event_service.CATEGORY_AUTH,
             event_type="auth.login_failed",
-            outcome=event_service.OUTCOME_FAILURE,
             reason="Invalid credentials",
         )
         raise ValueError("Invalid credentials")
     if user.status != "active":
-        event_service.record_event(
+        event_service.record_failure(
             db,
             category=event_service.CATEGORY_AUTH,
             event_type="auth.login_blocked",
-            outcome=event_service.OUTCOME_FAILURE,
             actor=user,
             target_type="user",
             target_id=user.id,

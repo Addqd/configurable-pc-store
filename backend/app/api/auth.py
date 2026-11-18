@@ -133,11 +133,10 @@ def refresh(
         # The raise below rolls the request session back, so the revocation must
         # be committed first or a blocked account could keep refreshing.
         db.commit()
-        event_service.record_event(
+        event_service.record_failure(
             db,
             category=event_service.CATEGORY_AUTH,
             event_type="auth.refresh_blocked",
-            outcome=event_service.OUTCOME_FAILURE,
             actor=user,
             target_type="user",
             target_id=user.id,

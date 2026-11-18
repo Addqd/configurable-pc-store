@@ -128,11 +128,10 @@ def _forbidden(
     db: Session, actor: User, target: User, message: str, action: str
 ) -> None:
     """Journal a rejected privilege-boundary attempt, then deny it."""
-    event_service.record_event(
+    event_service.record_failure(
         db,
         category=event_service.CATEGORY_ADMIN,
         event_type="admin.action_forbidden",
-        outcome=event_service.OUTCOME_FAILURE,
         actor=actor,
         target_type="user",
         target_id=target.id,
@@ -172,11 +171,10 @@ def _validate_role_assignment(
     if actor.role != ROLE_OWNER:
         _forbidden(db, actor, target, "Only the owner can change user roles", "role")
     if role == ROLE_OWNER:
-        event_service.record_event(
+        event_service.record_failure(
             db,
             category=event_service.CATEGORY_ADMIN,
             event_type="admin.action_forbidden",
-            outcome=event_service.OUTCOME_FAILURE,
             actor=actor,
             target_type="user",
             target_id=target.id,

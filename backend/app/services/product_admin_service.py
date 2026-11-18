@@ -358,7 +358,11 @@ def create_product(
     product_type = _resolve_type(db, data.product_type_id)
     manufacturer = _resolve_manufacturer(db, data.manufacturer_id)
     technical = spec_service.validate_specifications(
-        db, product_type.id, data.specifications, data.technical_specs
+        db,
+        product_type.id,
+        submitted=data.specifications,
+        technical_specs=data.technical_specs,
+        base=data.technical_specs,
     )
     sku = data.sku or generate_sku(db, product_type.slug, manufacturer.slug)
     if data.sku:
@@ -391,11 +395,10 @@ def create_product(
         db.flush()
     except IntegrityError:
         db.rollback()
-        event_service.record_event(
+        event_service.record_failure(
             db,
             category=event_service.CATEGORY_CATALOG,
             event_type="catalog.product_created",
-            outcome=event_service.OUTCOME_FAILURE,
             actor=actor,
             reason="SKU or slug conflict",
             details={"name": data.name},
@@ -486,12 +489,19 @@ def update_product(
         for field in ("specifications", "technical_specs", "product_type_id")
     )
     if specs_touched:
-        base = product.technical_specs or {}
-        if "technical_specs" in provided and data.technical_specs is not None:
-            base = data.technical_specs
-        submitted = data.specifications if "specifications" in provided else None
+        # A supplied `technical_specs` replaces the stored value, so it becomes the
+        # merge base as well; template codes inside it are validated regardless.
+        replacement = data.technical_specs if "technical_specs" in provided else None
         merged = spec_service.validate_specifications(
-            db, product.product_type_id, submitted, base
+            db,
+            product.product_type_id,
+            submitted=data.specifications if "specifications" in provided else None,
+            technical_specs=replacement,
+            base=(
+                replacement
+                if replacement is not None
+                else (product.technical_specs or {})
+            ),
         )
         if merged != (product.technical_specs or {}):
             product.technical_specs = merged
@@ -504,11 +514,10 @@ def update_product(
         db.flush()
     except IntegrityError:
         db.rollback()
-        event_service.record_event(
+        event_service.record_failure(
             db,
             category=event_service.CATEGORY_CATALOG,
             event_type="catalog.product_updated",
-            outcome=event_service.OUTCOME_FAILURE,
             actor=actor,
             target_type="product",
             target_id=product_id,

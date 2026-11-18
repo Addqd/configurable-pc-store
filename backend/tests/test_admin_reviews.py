@@ -5,6 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
+
+from app.models import Review
 
 
 def _create_admin_review(
@@ -218,3 +221,88 @@ def test_admin_review_creation_requires_product(
 ):
     response = _create_admin_review(api_client, admin_user, 999_999)
     assert response.status_code == 404
+
+
+def test_explicit_null_review_updates_are_rejected(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """F5: explicit nulls are a validation error, never a 500 or a DB change."""
+    product = sample_products["gpu"]
+    created = _create_admin_review(
+        api_client, admin_user, product.id, store_reply="Спасибо за отзыв"
+    )
+    assert created.status_code == 201, created.text
+    review = created.json()
+    path = f"/api/v1/admin/reviews/{review['id']}"
+
+    for field in ("author_name", "rating", "body", "displayed_at"):
+        rejected = api_client.patch(
+            path, headers=admin_user["headers"], json={field: None}
+        )
+        assert rejected.status_code == 422, (field, rejected.text)
+
+    test_db_session.expire_all()
+    stored = test_db_session.get(Review, review["id"])
+    assert stored is not None
+    assert stored.author_name == "Редакция PC Builder"
+    assert stored.rating == 5
+    assert stored.body == "Отличная видеокарта для 1440p"
+    assert stored.displayed_at is not None
+    assert stored.store_reply == "Спасибо за отзыв"
+
+    # Omitted fields stay unchanged and the nullable shop reply can be cleared.
+    cleared = api_client.patch(
+        path, headers=admin_user["headers"], json={"store_reply": None}
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["store_reply"] is None
+    assert cleared.json()["author_name"] == "Редакция PC Builder"
+    assert cleared.json()["rating"] == 5
+    assert cleared.json()["body"] == "Отличная видеокарта для 1440p"
+
+
+def test_explicit_null_customer_review_patch_is_rejected(
+    api_client: TestClient,
+    admin_user: dict,
+    registered_user: dict,
+    sample_products: dict,
+):
+    product = sample_products["cpu"]
+    headers = registered_user["headers"]
+    assert (
+        api_client.post(
+            "/api/v1/cart/products",
+            headers=headers,
+            json={"product_id": product.id, "quantity": 1},
+        ).status_code
+        == 200
+    )
+    assert (
+        api_client.post("/api/v1/cart/checkout", headers=headers, json={}).status_code
+        == 200
+    )
+    created = api_client.post(
+        f"/api/v1/products/{product.id}/reviews",
+        headers=headers,
+        json={"rating": 4, "body": "Хороший процессор"},
+    )
+    assert created.status_code == 201, created.text
+    review_id = created.json()["id"]
+
+    nulled = api_client.patch(
+        f"/api/v1/admin/reviews/{review_id}",
+        headers=admin_user["headers"],
+        json={"body": None},
+    )
+    assert nulled.status_code == 422
+    moderated = api_client.patch(
+        f"/api/v1/admin/reviews/{review_id}",
+        headers=admin_user["headers"],
+        json={"is_published": False},
+    )
+    assert moderated.status_code == 200, moderated.text
+    assert moderated.json()["body"] == "Хороший процессор"
+    assert moderated.json()["source"] == "user"

@@ -7,15 +7,22 @@ helpers (event sanitizing, upload sniffing, media path resolution).
 
 from __future__ import annotations
 
+import contextlib
 import shutil
+from datetime import date
+from decimal import Decimal
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import Session
 
+from app.core.security import get_settings
 from app.main import app
 from app.models import SiteEvent
 from app.schemas.admin_events import AdminEventOut
@@ -26,7 +33,7 @@ from app.schemas.admin_products import (
 )
 from app.schemas.admin_reviews import AdminReviewCreate, AdminReviewUpdate
 from app.schemas.admin_users import AdminUserUpdate
-from app.services import product_image_service
+from app.services import analytics_service, event_service, product_image_service
 from app.services.event_service import sanitize_details
 from app.services.product_admin_service import slugify
 
@@ -101,12 +108,19 @@ def test_admin_review_defaults_are_minimal():
         )
 
 
-def test_admin_review_update_rejects_null_displayed_at():
-    with pytest.raises(ValidationError):
-        AdminReviewUpdate(displayed_at=None)
+def test_admin_review_update_rejects_explicit_nulls():
+    """Required review columns reject null instead of reaching PostgreSQL."""
+    for field in ("author_name", "rating", "body", "displayed_at"):
+        with pytest.raises(ValidationError):
+            AdminReviewUpdate(**{field: None})
+    # Omitted fields mean "unchanged"; only the shop reply is nullable.
+    assert AdminReviewUpdate().model_fields_set == set()
     assert AdminReviewUpdate(store_reply=None).store_reply is None
+    assert AdminReviewUpdate(rating=4).rating == 4
     with pytest.raises(ValidationError):
         AdminReviewUpdate(rating=6)
+    with pytest.raises(ValidationError):
+        AdminReviewUpdate(author_name="   ")
 
 
 def test_product_payload_validation():
@@ -257,3 +271,161 @@ def test_slugify_and_media_safety(monkeypatch):
     finally:
         get_settings.cache_clear()
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+@pytest.fixture()
+def scratch_media(monkeypatch) -> Path:
+    """Workspace-local media root; the system temp directory is never used."""
+    scratch = (
+        Path(__file__).resolve().parents[2] / ".agent" / "tmp" / f"media-{uuid4().hex}"
+    )
+    media_root = scratch / "media"
+    monkeypatch.setenv("MEDIA_ROOT", str(media_root))
+    get_settings.cache_clear()
+    try:
+        yield media_root
+    finally:
+        get_settings.cache_clear()
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def test_media_route_is_served_under_the_api_prefix(scratch_media: Path):
+    """F3: images are reachable through the `/api` frontend proxy path."""
+    directory = scratch_media / "products"
+    directory.mkdir(parents=True)
+    name = "a" * 32 + ".png"
+    (directory / name).write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 8)
+
+    with TestClient(app) as client:
+        served = client.get(f"/api/v1/media/products/{name}")
+        assert served.status_code == 200
+        assert served.headers["content-type"] == "image/png"
+        assert served.headers["x-content-type-options"] == "nosniff"
+        assert served.content.startswith(b"\x89PNG")
+
+        # Image URLs stored before the route moved stay readable.
+        assert client.get(f"/media/products/{name}").status_code == 200
+
+        for path in (
+            "/api/v1/media/products/" + "b" * 32 + ".png",
+            "/api/v1/media/products/" + "a" * 32 + ".exe",
+            "/api/v1/media/products/" + "a" * 31 + ".png",
+            "/api/v1/media/products/nested/" + name,
+        ):
+            assert client.get(path).status_code == 404, path
+
+
+def test_openapi_exposes_only_the_api_media_route():
+    paths = app.openapi()["paths"]
+    assert "/api/v1/media/products/{filename}" in paths
+    # The compatibility alias stays out of the published contract.
+    assert "/media/products/{filename}" not in paths
+
+
+class _RecordingSession:
+    """Stand-in recording how `record_event` uses the caller's transaction."""
+
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.info: dict[str, Any] = {}
+
+    def flush(self) -> None:
+        self.calls.append("flush")
+
+    @contextlib.contextmanager
+    def begin_nested(self):
+        self.calls.append("begin_nested")
+        yield self
+
+    def scalar(self, statement: Any) -> int:
+        self.calls.append("scalar")
+        return 1
+
+    def commit(self) -> None:
+        self.calls.append("commit")
+
+
+def test_success_event_never_commits_its_own_transaction():
+    """F1: a success entry is written through the caller's transaction only."""
+    db = _RecordingSession()
+    recorded = event_service.record_event(
+        db,
+        category=event_service.CATEGORY_CATALOG,
+        event_type="catalog.probe",
+    )
+    assert recorded is True
+    assert db.calls == ["flush", "begin_nested", "scalar"]
+    assert "commit" not in db.calls
+
+
+def test_managed_image_files_follow_the_session_transaction(scratch_media: Path):
+    """F2: uploads are removed on rollback, deletions only happen on commit."""
+    directory = scratch_media / "products"
+    directory.mkdir(parents=True)
+    session = Session()
+    try:
+        rolled_back = directory / ("c" * 32 + ".jpg")
+        rolled_back.write_bytes(b"\xff\xd8\xffdata")
+        product_image_service.queue_created_file(session, rolled_back)
+        session.begin()
+        session.rollback()
+        assert not rolled_back.exists()
+
+        kept = directory / ("d" * 32 + ".jpg")
+        kept.write_bytes(b"\xff\xd8\xffdata")
+        product_image_service.queue_created_file(session, kept)
+        session.begin()
+        session.commit()
+        assert kept.exists()
+
+        # A rolled back deletion keeps the file the surviving row points at.
+        product_image_service.queue_managed_file_deletion(
+            session, f"/api/v1/media/products/{kept.name}"
+        )
+        session.begin()
+        session.rollback()
+        assert kept.exists()
+
+        # A committed deletion removes it; legacy URLs are recognised as well.
+        product_image_service.queue_managed_file_deletion(
+            session, f"/media/products/{kept.name}"
+        )
+        session.begin()
+        session.commit()
+        assert not kept.exists()
+    finally:
+        session.close()
+
+
+def test_comparison_monthly_series_share_one_month_interval():
+    """F6: compared products return identically aligned month labels."""
+    august = date(2025, 8, 1)
+    march = date(2026, 3, 1)
+    older = {august: (1, 2, Decimal("200.00")), march: (2, 3, Decimal("250.50"))}
+    newer = {date(2026, 1, 1): (1, 1, Decimal("70.00"))}
+
+    start, end = analytics_service._month_bounds([older, newer], None, None)
+    assert (start, end) == (august, march)
+
+    left = analytics_service._fill_between(older, start, end)
+    right = analytics_service._fill_between(newer, start, end)
+    assert [point.month for point in left] == [point.month for point in right]
+    assert len(left) == 8
+    assert left[0].month == august
+    assert left[-1].month == march
+    assert left[0].orders_count == 1
+    assert left[0].units_count == 2
+    assert sum(point.units_count for point in left) == 5
+    assert sum(Decimal(point.amount) for point in left) == Decimal("450.50")
+    assert [point.units_count for point in right] == [0, 0, 0, 0, 0, 1, 0, 0]
+    assert right[0].orders_count == 0
+    assert Decimal(right[0].amount) == Decimal("0.00")
+
+    # An explicit range wins for every series.
+    start, end = analytics_service._month_bounds(
+        [older, newer], date(2026, 2, 3), date(2026, 3, 9)
+    )
+    assert (start, end) == (date(2026, 2, 1), march)
+    assert [
+        point.month for point in analytics_service._fill_between(newer, start, end)
+    ] == [date(2026, 2, 1), march]

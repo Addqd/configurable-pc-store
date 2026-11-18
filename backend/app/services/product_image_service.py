@@ -3,18 +3,27 @@
 Every uploaded file is identified by its real content (magic bytes), stored under
 a server-generated random name, and served only through the strict media route.
 The original filename and client content type are never trusted.
+
+Files follow the database transaction: an uploaded file is removed again when
+the transaction that stored its row rolls back, and a deleted image file is only
+unlinked after the surrounding transaction commits. The staging file and the
+final file both live inside the configured media root, never in a system
+temporary directory.
 """
 
 from __future__ import annotations
 
+import logging
 import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NoReturn
 from uuid import uuid4
 
 from fastapi import UploadFile
+from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, SessionTransaction
 
 from app.core.security import get_settings
 from app.models import Product, ProductImage, User
@@ -27,12 +36,71 @@ from app.services.errors import (
     PayloadTooLargeError,
 )
 
-MEDIA_URL_PREFIX = "/media/products"
+MEDIA_URL_PREFIX = "/api/v1/media/products"
+# Rows stored before the media route moved under `/api/v1` keep working, and
+# their files are still cleaned up when such a row is deleted.
+LEGACY_MEDIA_URL_PREFIX = "/media/products"
+_MEDIA_URL_PREFIXES = (MEDIA_URL_PREFIX + "/", LEGACY_MEDIA_URL_PREFIX + "/")
 MEDIA_SUBDIRECTORY = "products"
 MAX_IMAGE_BYTES = 5 * 1024 * 1024
 _CHUNK_SIZE = 64 * 1024
 FILENAME_RE = re.compile(r"[0-9a-f]{32}\.(?:jpg|png|webp)")
 _EXTENSIONS = {"jpg": "image/jpeg", "png": "image/png", "webp": "image/webp"}
+_PENDING_FILES_KEY = "product_image_files"
+
+log = logging.getLogger(__name__)
+
+
+@dataclass
+class _PendingFiles:
+    """Managed files whose fate depends on how the transaction ends."""
+
+    created: list[Path] = field(default_factory=list)
+    deletions: list[Path] = field(default_factory=list)
+
+
+def _pending_files(db: Session) -> _PendingFiles:
+    pending = db.info.get(_PENDING_FILES_KEY)
+    if not isinstance(pending, _PendingFiles):
+        pending = _PendingFiles()
+        db.info[_PENDING_FILES_KEY] = pending
+    return pending
+
+
+def _unlink_quietly(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:  # pragma: no cover - leftover file must not fail a response
+        log.warning("product image file %s could not be removed", path, exc_info=True)
+
+
+@event.listens_for(Session, "after_commit")
+def _apply_deferred_deletions(session: Session) -> None:
+    """Unlink images only once the transaction that removed their row committed."""
+    # Releasing a SAVEPOINT also emits `after_commit`; only the outermost commit
+    # is a real transaction boundary.
+    if session.get_nested_transaction() is not None:
+        return
+    pending = session.info.pop(_PENDING_FILES_KEY, None)
+    if not isinstance(pending, _PendingFiles):
+        return
+    for path in pending.deletions:
+        _unlink_quietly(path)
+
+
+@event.listens_for(Session, "after_soft_rollback")
+def _discard_files_of_rolled_back_transaction(
+    session: Session, previous_transaction: SessionTransaction | None
+) -> None:
+    """Remove files created by a transaction that did not commit."""
+    # A nested (SAVEPOINT) rollback must not decide the outer transaction's fate.
+    if previous_transaction is not None and previous_transaction.parent is not None:
+        return
+    pending = session.info.pop(_PENDING_FILES_KEY, None)
+    if not isinstance(pending, _PendingFiles):
+        return
+    for path in pending.created:
+        _unlink_quietly(path)
 
 
 def media_root() -> Path:
@@ -71,16 +139,28 @@ def resolve_media_path(filename: str) -> Path | None:
     return target
 
 
-def _remove_managed_file(url: str) -> None:
-    prefix = MEDIA_URL_PREFIX + "/"
-    if not url.startswith(prefix):
-        return
-    filename = url[len(prefix) :]
-    if FILENAME_RE.fullmatch(filename) is None:
+def queue_created_file(db: Session, path: Path) -> None:
+    """Remove `path` again if the surrounding transaction does not commit."""
+    _pending_files(db).created.append(path)
+
+
+def _managed_filename(url: str) -> str | None:
+    """Return the strict filename of a managed media URL, if it is one."""
+    for prefix in _MEDIA_URL_PREFIXES:
+        if url.startswith(prefix):
+            filename = url[len(prefix) :]
+            return filename if FILENAME_RE.fullmatch(filename) else None
+    return None
+
+
+def queue_managed_file_deletion(db: Session, url: str) -> None:
+    """Unlink the managed file behind `url` only after the transaction commits."""
+    filename = _managed_filename(url)
+    if filename is None:
         return
     path = resolve_media_path(filename)
     if path is not None:
-        path.unlink(missing_ok=True)
+        _pending_files(db).deletions.append(path)
 
 
 def _sorted_rows(product: Product) -> list[ProductImage]:
@@ -123,11 +203,10 @@ def _reject_upload(
     reason: str,
     error: ConflictError | InvalidInputError | PayloadTooLargeError,
 ) -> NoReturn:
-    event_service.record_event(
+    event_service.record_failure(
         db,
         category=event_service.CATEGORY_CATALOG,
         event_type="catalog.product_image_upload_failed",
-        outcome=event_service.OUTCOME_FAILURE,
         actor=actor,
         target_type="product",
         target_id=product.id,
@@ -203,6 +282,8 @@ def save_upload(
                     )
                 handle.write(chunk)
         temporary.replace(target)
+        # Removed again if the surrounding transaction does not commit.
+        queue_created_file(db, target)
     except PayloadTooLargeError:
         temporary.unlink(missing_ok=True)
         raise
@@ -252,7 +333,9 @@ def delete_image(db: Session, actor: User, product: Product, image_id: int) -> N
     url = image.image_url
     db.delete(image)
     db.flush()
-    _remove_managed_file(url)
+    # The row is only really gone after the commit: keep the file until then so a
+    # rolled back transaction cannot leave a row pointing at a missing image.
+    queue_managed_file_deletion(db, url)
     event_service.record_event(
         db,
         category=event_service.CATEGORY_CATALOG,

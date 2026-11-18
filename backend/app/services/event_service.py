@@ -1,10 +1,21 @@
-"""Audit journal with an independent transaction.
+"""Audit journal with two explicit transaction paths.
 
 `site_events` deliberately has no foreign key to `users`/`orders`, so the journal
-survives account deletion. Events are written through a short-lived session of
-their own: a rejected business operation (which rolls the request session back)
-must still leave an audit trail, while a failing audit write must never break a
-business operation. `event_key` de-duplicates retried idempotent operations.
+survives account deletion. `event_key` de-duplicates retried idempotent
+operations.
+
+Success and failure entries have opposite transaction requirements, so they use
+separate functions instead of one ambiguous helper:
+
+* `record_event()` describes a committed business operation. The row is written
+  through the caller's session and therefore participates in the business
+  transaction: a rolled-back mutation never leaves a successful audit entry
+  behind. The write happens inside a SAVEPOINT so a failing audit insert can
+  never abort the business transaction.
+* `record_failure()` describes a rejected attempt. It is written through an
+  isolated session on its own connection (never a SAVEPOINT of the caller's
+  connection) and committed immediately, because the business transaction rolls
+  back right after the rejection and would otherwise erase the audit trail.
 
 Never store credentials, tokens, cookies or unnecessary personal data here.
 """
@@ -18,6 +29,7 @@ from typing import Any
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
@@ -107,33 +119,20 @@ def sanitize_details(details: dict[str, Any] | None) -> dict[str, object]:
     return _sanitize_mapping(details, 0)
 
 
-def _event_session(db: Session) -> Session:
-    # Bound to the request session's bind: a separate connection (and therefore
-    # a separate transaction) against an Engine, a separate SAVEPOINT when the
-    # application is bound to an existing test connection.
-    return Session(
-        bind=db.get_bind(),
-        join_transaction_mode="create_savepoint",
-        expire_on_commit=False,
-    )
-
-
-def record_event(
-    db: Session,
+def _event_values(
     *,
     category: str,
     event_type: str,
-    outcome: str = OUTCOME_SUCCESS,
-    actor: User | None = None,
-    actor_user_id: int | None = None,
-    actor_role: str | None = None,
-    target_type: str | None = None,
-    target_id: int | None = None,
-    reason: str | None = None,
-    details: dict[str, Any] | None = None,
-    event_key: str | None = None,
-) -> bool:
-    """Persist one journal entry; returns False if the audit write failed."""
+    outcome: str,
+    actor: User | None,
+    actor_user_id: int | None,
+    actor_role: str | None,
+    target_type: str | None,
+    target_id: int | None,
+    reason: str | None,
+    details: dict[str, Any] | None,
+    event_key: str | None,
+) -> dict[str, Any]:
     if category not in EVENT_CATEGORIES:
         raise ValueError(f"Unknown event category: {category}")
     if outcome not in EVENT_OUTCOMES:
@@ -141,7 +140,7 @@ def record_event(
     if actor is not None:
         actor_user_id = actor.id
         actor_role = actor.role
-    values: dict[str, Any] = {
+    return {
         "event_key": event_key,
         "actor_user_id": actor_user_id,
         "actor_role": actor_role,
@@ -153,14 +152,108 @@ def record_event(
         "reason": " ".join(reason.split())[:_MAX_STRING_LENGTH] if reason else None,
         "details": sanitize_details(details),
     }
-    session = _event_session(db)
+
+
+def _insert_event(session: Session, values: dict[str, Any]) -> bool:
+    statement = insert(SiteEvent).values(**values)
+    if values.get("event_key"):
+        # A retried idempotent operation keeps a single journal entry.
+        statement = statement.on_conflict_do_nothing(index_elements=["event_key"])
+    return session.scalar(statement.returning(SiteEvent.id)) is not None
+
+
+def _isolated_engine(db: Session) -> Engine:
+    """Return an Engine that can open a connection of its own.
+
+    When the application session is bound to a `Connection` (the isolated test
+    fixtures), reusing that bind would only create a SAVEPOINT that the business
+    rollback discards, so the owning Engine is used instead.
+    """
+    bind = db.get_bind()
+    return bind.engine if isinstance(bind, Connection) else bind
+
+
+def record_event(
+    db: Session,
+    *,
+    category: str,
+    event_type: str,
+    actor: User | None = None,
+    actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    target_type: str | None = None,
+    target_id: int | None = None,
+    reason: str | None = None,
+    details: dict[str, Any] | None = None,
+    event_key: str | None = None,
+) -> bool:
+    """Record a successful business operation inside the caller's transaction.
+
+    The caller commits or rolls back as usual: the journal entry follows the
+    business data. No commit is issued here.
+    """
+    values = _event_values(
+        category=category,
+        event_type=event_type,
+        outcome=OUTCOME_SUCCESS,
+        actor=actor,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        target_type=target_type,
+        target_id=target_id,
+        reason=reason,
+        details=details,
+        event_key=event_key,
+    )
+    # Pending business changes are flushed first, so an integrity error of the
+    # business operation itself is never mistaken for an audit failure.
+    db.flush()
     try:
-        statement = insert(SiteEvent).values(**values)
-        if event_key:
-            statement = statement.on_conflict_do_nothing(index_elements=["event_key"])
-        written = session.scalar(statement.returning(SiteEvent.id))
+        # SAVEPOINT: an audit failure must never abort the business transaction.
+        with db.begin_nested():
+            return _insert_event(db, values)
+    except SQLAlchemyError:
+        log.warning("site event %s was not recorded", event_type, exc_info=True)
+        return False
+
+
+def record_failure(
+    db: Session,
+    *,
+    category: str,
+    event_type: str,
+    reason: str | None = None,
+    actor: User | None = None,
+    actor_user_id: int | None = None,
+    actor_role: str | None = None,
+    target_type: str | None = None,
+    target_id: int | None = None,
+    details: dict[str, Any] | None = None,
+    event_key: str | None = None,
+) -> bool:
+    """Durably record a rejected or failed attempt in its own transaction.
+
+    The business transaction is rolled back right after a rejection, so this
+    entry is committed through an independent connection instead of joining it.
+    """
+    values = _event_values(
+        category=category,
+        event_type=event_type,
+        outcome=OUTCOME_FAILURE,
+        actor=actor,
+        actor_user_id=actor_user_id,
+        actor_role=actor_role,
+        target_type=target_type,
+        target_id=target_id,
+        reason=reason,
+        details=details,
+        event_key=event_key,
+    )
+    session = Session(bind=_isolated_engine(db), expire_on_commit=False)
+    try:
+        written = _insert_event(session, values)
         session.commit()
-        return written is not None
+        return written
     except SQLAlchemyError:
         session.rollback()
         # Audit problems are logged, never surfaced as business failures.

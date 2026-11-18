@@ -8,8 +8,18 @@ from fastapi.testclient import TestClient
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import SiteEvent, User
+from app.models import Product, SiteEvent, User
+from app.services import event_service
 from tests.conftest import create_account
+
+
+def _event_count(session: Session, event_type: str) -> int:
+    return int(
+        session.scalar(
+            select(func.count(SiteEvent.id)).where(SiteEvent.event_type == event_type)
+        )
+        or 0
+    )
 
 
 def _events(api_client: TestClient, admin_user: dict, **params) -> dict:
@@ -202,3 +212,142 @@ def test_read_requests_are_not_journaled(
     test_db_session.expire_all()
     after = test_db_session.scalar(select(func.count(SiteEvent.id)))
     assert after == before
+
+
+def test_success_event_rolls_back_with_the_business_operation(
+    isolated_connection, test_db_session: Session, sample_products: dict
+):
+    """F1: a rolled back operation must not leave a success entry behind."""
+    event_type = "catalog.rollback_probe"
+    with Session(
+        bind=isolated_connection,
+        join_transaction_mode="create_savepoint",
+        expire_on_commit=False,
+    ) as db:
+        product = db.get(Product, sample_products["gpu"].id)
+        assert event_service.record_event(
+            db,
+            category=event_service.CATEGORY_CATALOG,
+            event_type=event_type,
+            target_type="product",
+            target_id=product.id,
+        )
+        db.flush()
+        # Written inside the caller's transaction ...
+        assert _event_count(db, event_type) == 1
+        db.rollback()
+        # ... and gone together with the business change of that transaction.
+        assert _event_count(db, event_type) == 0
+    test_db_session.expire_all()
+    assert _event_count(test_db_session, event_type) == 0
+
+
+def test_success_event_commits_with_the_business_operation(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """F1: a committed operation keeps exactly one matching success entry."""
+    created = api_client.post(
+        "/api/v1/admin/products",
+        headers=admin_user["headers"],
+        json={
+            "name": "Журнал успеха",
+            "product_type_id": sample_products["gpu"].product_type_id,
+            "manufacturer_id": sample_products["gpu"].manufacturer_id,
+            "price": "199.99",
+        },
+    )
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+
+    test_db_session.expire_all()
+    events = test_db_session.scalars(
+        select(SiteEvent).where(
+            SiteEvent.event_type == "catalog.product_created",
+            SiteEvent.outcome == "success",
+            SiteEvent.target_type == "product",
+            SiteEvent.target_id == product_id,
+        )
+    ).all()
+    assert len(events) == 1
+    assert events[0].actor_user_id == admin_user["id"]
+
+
+def test_rejected_operation_is_journaled_only_as_a_failure(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """F1: the rejected attempt is recorded independently, the success is not."""
+    headers = admin_user["headers"]
+    base = {
+        "product_type_id": sample_products["gpu"].product_type_id,
+        "manufacturer_id": sample_products["gpu"].manufacturer_id,
+        "price": "99.99",
+    }
+    first = api_client.post(
+        "/api/v1/admin/products", headers=headers, json={**base, "name": "Регресс А"}
+    )
+    assert first.status_code == 201, first.text
+    duplicate = api_client.post(
+        "/api/v1/admin/products",
+        headers=headers,
+        json={**base, "name": "Регресс Б", "sku": first.json()["sku"]},
+    )
+    assert duplicate.status_code == 409
+
+    test_db_session.expire_all()
+    events = test_db_session.scalars(
+        select(SiteEvent).where(
+            SiteEvent.event_type == "catalog.product_created",
+            SiteEvent.actor_user_id == admin_user["id"],
+        )
+    ).all()
+    rejected = [
+        event
+        for event in events
+        if event.outcome == "failure"
+        and (event.details or {}).get("name") == "Регресс Б"
+    ]
+    assert rejected, "the rejected attempt must be recorded in its own transaction"
+    assert not [
+        event
+        for event in events
+        if event.outcome == "success"
+        and (event.details or {}).get("name") == "Регресс Б"
+    ]
+
+
+def test_event_key_is_idempotent_inside_one_transaction(isolated_connection):
+    """F1: a retried idempotent operation keeps a single success entry."""
+    key = f"probe:{uuid4().hex}"
+    with Session(
+        bind=isolated_connection,
+        join_transaction_mode="create_savepoint",
+        expire_on_commit=False,
+    ) as db:
+        first = event_service.record_event(
+            db,
+            category=event_service.CATEGORY_SYSTEM,
+            event_type="system.probe",
+            event_key=key,
+        )
+        second = event_service.record_event(
+            db,
+            category=event_service.CATEGORY_SYSTEM,
+            event_type="system.probe",
+            event_key=key,
+        )
+        db.flush()
+        assert first is True
+        assert second is False
+        assert (
+            db.scalar(
+                select(func.count(SiteEvent.id)).where(SiteEvent.event_key == key)
+            )
+            == 1
+        )
+        db.rollback()

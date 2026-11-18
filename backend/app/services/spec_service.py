@@ -5,6 +5,12 @@ only configured codes are accepted, required fields must be present, and fields
 that declare dropdown options accept only those values. The validated values are
 merged into `products.technical_specs`, which the compatibility engine and the
 public catalog already consume, so no schema or JSON shape change is required.
+
+`technical_specs` also carries legitimate non-template keys used by the catalog
+and the compatibility engine. Template codes are therefore validated wherever
+they appear in a request: the same allowed-value and length rules apply whether
+the value arrived through `specifications` or through `technical_specs`, and a
+conflict between the two inputs is rejected instead of silently resolved.
 """
 
 from __future__ import annotations
@@ -61,25 +67,68 @@ def specifications_view(
     return view
 
 
+def _template_text(field: ProductSpecField, raw: object) -> str:
+    """Normalize one raw `technical_specs` value for a template field."""
+    if raw is None or isinstance(raw, bool):
+        return ""
+    if isinstance(raw, str | int | float):
+        return str(raw).strip()
+    raise InvalidInputError(
+        f"Specification '{field.label}' must be a single scalar value"
+    )
+
+
 def validate_specifications(
     db: Session,
     product_type_id: int,
-    submitted: dict[str, str] | None,
-    existing: dict[str, Any] | None = None,
+    submitted: dict[str, str] | None = None,
+    technical_specs: dict[str, Any] | None = None,
+    base: dict[str, Any] | None = None,
     *,
     require_complete: bool = True,
 ) -> dict[str, Any]:
-    """Validate submitted codes/values and return the merged technical specs."""
+    """Validate submitted codes/values and return the merged technical specs.
+
+    `submitted` is the `specifications` property (template codes only).
+    `technical_specs` is the raw property from the same request: its template
+    codes are validated exactly like `submitted`, while its other keys remain
+    legitimate non-template specifications. `base` is the raw `technical_specs`
+    the result is merged onto (the request payload when it replaces the stored
+    value, otherwise the stored specs).
+    """
     fields, options = template_fields(db, product_type_id)
     by_code = {field.code: field for field in fields}
-    merged: dict[str, Any] = dict(existing or {})
 
+    submitted_values: dict[str, str] = {}
     for raw_code, raw_value in (submitted or {}).items():
         code = raw_code.strip()
         field = by_code.get(code)
         if field is None:
             raise InvalidInputError(f"Unknown specification field: {code}")
-        text = str(raw_value).strip()
+        submitted_values[code] = str(raw_value).strip()
+
+    technical_values: dict[str, str] = {}
+    for code, field in by_code.items():
+        if technical_specs is not None and code in technical_specs:
+            technical_values[code] = _template_text(field, technical_specs[code])
+
+    merged: dict[str, Any] = dict(base or {})
+    for code, field in by_code.items():
+        provided = [
+            value
+            for value in (
+                submitted_values.get(code),
+                technical_values.get(code),
+            )
+            if value is not None
+        ]
+        if not provided:
+            continue
+        if len(set(provided)) > 1:
+            raise InvalidInputError(
+                f"Conflicting values submitted for specification '{field.label}'"
+            )
+        text = provided[0]
         if len(text) > MAX_FIELD_VALUE_LENGTH:
             raise InvalidInputError(
                 f"Specification '{field.label}' is longer than "

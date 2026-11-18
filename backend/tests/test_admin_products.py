@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import shutil
+from io import BytesIO
 from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from fastapi import UploadFile
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.security import get_settings
-from app.models import ProductSpecField, ProductSpecOption
+from app.models import ProductImage, ProductSpecField, ProductSpecOption, User
+from app.services import product_admin_service, product_image_service
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
+MEDIA_URL_PREFIX = "/api/v1/media/products"
 
 
 def _payload(sample_products: dict, **overrides) -> dict:
@@ -52,6 +56,51 @@ def media_root(monkeypatch):
     yield scratch / "media"
     get_settings.cache_clear()
     shutil.rmtree(scratch, ignore_errors=True)
+
+
+@pytest.fixture()
+def chipset_template(test_db_session: Session, sample_products: dict) -> int:
+    """A required GPU template field with a closed dropdown list."""
+    type_id = sample_products["gpu"].product_type_id
+    field = ProductSpecField(
+        product_type_id=type_id,
+        code="chipset",
+        label="Чипсет",
+        sort_order=0,
+        is_required=True,
+    )
+    test_db_session.add(field)
+    test_db_session.flush()
+    test_db_session.add_all(
+        [
+            ProductSpecOption(field_id=field.id, value="GeForce", sort_order=0),
+            ProductSpecOption(field_id=field.id, value="Radeon", sort_order=1),
+        ]
+    )
+    test_db_session.flush()
+    return type_id
+
+
+@pytest.fixture()
+def cpu_socket_template(test_db_session: Session, sample_products: dict) -> int:
+    type_id = sample_products["cpu"].product_type_id
+    field = ProductSpecField(
+        product_type_id=type_id,
+        code="socket",
+        label="Сокет",
+        sort_order=0,
+        is_required=True,
+    )
+    test_db_session.add(field)
+    test_db_session.flush()
+    test_db_session.add_all(
+        [
+            ProductSpecOption(field_id=field.id, value="AM5", sort_order=0),
+            ProductSpecOption(field_id=field.id, value="LGA1700", sort_order=1),
+        ]
+    )
+    test_db_session.flush()
+    return type_id
 
 
 def test_create_generates_unique_sku_and_slug(
@@ -116,24 +165,9 @@ def test_specification_template_and_validation(
     admin_user: dict,
     sample_products: dict,
     test_db_session: Session,
+    chipset_template: int,
 ):
-    type_id = sample_products["gpu"].product_type_id
-    field = ProductSpecField(
-        product_type_id=type_id,
-        code="chipset",
-        label="Чипсет",
-        sort_order=0,
-        is_required=True,
-    )
-    test_db_session.add(field)
-    test_db_session.flush()
-    test_db_session.add_all(
-        [
-            ProductSpecOption(field_id=field.id, value="GeForce", sort_order=0),
-            ProductSpecOption(field_id=field.id, value="Radeon", sort_order=1),
-        ]
-    )
-    test_db_session.flush()
+    type_id = chipset_template
 
     template = api_client.get(
         f"/api/v1/admin/product-types/{type_id}/spec-fields",
@@ -295,7 +329,7 @@ def test_image_upload_order_delete_and_limits(
     )
     assert first.status_code == 201, first.text
     cover = first.json()
-    assert cover["url"].startswith("/media/products/")
+    assert cover["url"].startswith(MEDIA_URL_PREFIX + "/")
     assert cover["alt_text"] == "Вид спереди"
     assert cover["is_cover"] is True
     assert cover["sort_order"] == 0
@@ -376,3 +410,264 @@ def test_image_upload_order_delete_and_limits(
     )
     assert eleventh.status_code == 409
     assert len(api_client.get(images_path, headers=headers).json()) == 10
+
+
+def test_media_urls_are_served_through_the_api_prefix(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    media_root: Path,
+):
+    """F3: stored URLs work through the existing `/api` proxy prefix."""
+    created = _create(api_client, admin_user, sample_products)
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+    upload = api_client.post(
+        f"/api/v1/admin/products/{product_id}/images",
+        headers=admin_user["headers"],
+        files={"file": ("cover.jpg", JPEG, "image/jpeg")},
+    )
+    assert upload.status_code == 201, upload.text
+    url = upload.json()["url"]
+    filename = url.rsplit("/", 1)[-1]
+    assert url == f"{MEDIA_URL_PREFIX}/{filename}"
+
+    served = api_client.get(url)
+    assert served.status_code == 200
+    assert served.headers["content-type"] == "image/jpeg"
+    assert served.headers["x-content-type-options"] == "nosniff"
+
+    detail = api_client.get(
+        f"/api/v1/admin/products/{product_id}", headers=admin_user["headers"]
+    ).json()
+    assert detail["cover_image_url"] == url
+    assert [image["url"] for image in detail["images"]] == [url]
+    public = api_client.get(f"/api/v1/products/{detail['slug']}").json()
+    assert public["cover_image_url"] == url
+    assert [image["url"] for image in public["images"]] == [url]
+
+    # Already stored legacy URLs keep resolving.
+    assert api_client.get(f"/media/products/{filename}").status_code == 200
+
+    for path in (
+        f"{MEDIA_URL_PREFIX}/" + "b" * 32 + ".jpg",
+        f"{MEDIA_URL_PREFIX}/" + "b" * 32 + ".exe",
+        f"{MEDIA_URL_PREFIX}/" + "b" * 31 + ".jpg",
+        f"{MEDIA_URL_PREFIX}/nested/{filename}",
+    ):
+        assert api_client.get(path).status_code == 404, path
+
+
+def test_technical_specs_cannot_bypass_template_validation(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    chipset_template: int,
+):
+    """F4: the same dropdown/required rules apply to both input properties."""
+    headers = admin_user["headers"]
+
+    disallowed = _create(
+        api_client, admin_user, sample_products, technical_specs={"chipset": "Intel"}
+    )
+    assert disallowed.status_code == 422
+    assert "not allowed" in disallowed.json()["detail"]
+
+    conflict = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        technical_specs={"chipset": "Intel"},
+        specifications={"chipset": "GeForce"},
+    )
+    assert conflict.status_code == 422
+    assert "Conflicting" in conflict.json()["detail"]
+
+    missing = _create(
+        api_client, admin_user, sample_products, technical_specs={"tdp": 250}
+    )
+    assert missing.status_code == 422
+    assert "Чипсет" in missing.json()["detail"]
+
+    valid = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        technical_specs={"chipset": "Radeon", "tdp": 250},
+    )
+    assert valid.status_code == 201, valid.text
+    body = valid.json()
+    assert body["technical_specs"] == {"chipset": "Radeon", "tdp": 250}
+    assert body["specifications"] == {"chipset": "Radeon"}
+
+    path = f"/api/v1/admin/products/{body['id']}"
+    bypass = api_client.patch(
+        path, headers=headers, json={"technical_specs": {"chipset": "Intel"}}
+    )
+    assert bypass.status_code == 422
+    cleared = api_client.patch(
+        path, headers=headers, json={"technical_specs": {"chipset": "", "tdp": 250}}
+    )
+    assert cleared.status_code == 422
+
+    updated = api_client.patch(
+        path,
+        headers=headers,
+        json={"technical_specs": {"chipset": "GeForce", "tdp": 250}},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["technical_specs"] == {"chipset": "GeForce", "tdp": 250}
+
+    # `technical_specs` replaces the stored value, so dropping the required
+    # template code is refused instead of silently removing it.
+    dropped = api_client.patch(
+        path, headers=headers, json={"technical_specs": {"tdp": 300}}
+    )
+    assert dropped.status_code == 422
+    assert "Чипсет" in dropped.json()["detail"]
+
+    # Non-template legacy specifications keep working and stay readable.
+    legacy = api_client.patch(
+        path,
+        headers=headers,
+        json={"technical_specs": {"chipset": "GeForce", "tdp": 300, "length_mm": 320}},
+    )
+    assert legacy.status_code == 200, legacy.text
+    assert legacy.json()["technical_specs"] == {
+        "chipset": "GeForce",
+        "tdp": 300,
+        "length_mm": 320,
+    }
+    assert legacy.json()["specifications"] == {"chipset": "GeForce"}
+
+
+def test_product_type_change_revalidates_specifications(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    chipset_template: int,
+    cpu_socket_template: int,
+):
+    created = _create(
+        api_client, admin_user, sample_products, specifications={"chipset": "GeForce"}
+    )
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+    path = f"/api/v1/admin/products/{product_id}"
+    headers = admin_user["headers"]
+
+    without_socket = api_client.patch(
+        path, headers=headers, json={"product_type_id": cpu_socket_template}
+    )
+    assert without_socket.status_code == 422
+    assert "Сокет" in without_socket.json()["detail"]
+
+    bypass_attempt = api_client.patch(
+        path,
+        headers=headers,
+        json={
+            "product_type_id": cpu_socket_template,
+            "technical_specs": {"socket": "AM4"},
+        },
+    )
+    assert bypass_attempt.status_code == 422
+    assert "not allowed" in bypass_attempt.json()["detail"]
+
+    switched = api_client.patch(
+        path,
+        headers=headers,
+        json={
+            "product_type_id": cpu_socket_template,
+            "specifications": {"socket": "AM5"},
+        },
+    )
+    assert switched.status_code == 200, switched.text
+    body = switched.json()
+    assert body["product_type"]["id"] == cpu_socket_template
+    assert body["specifications"] == {"socket": "AM5"}
+    # Non-template legacy keys survive a product-type change.
+    assert body["technical_specs"]["chipset"] == "GeForce"
+    assert body["technical_specs"]["socket"] == "AM5"
+
+
+def _service_session(isolated_connection) -> Session:
+    return Session(
+        bind=isolated_connection,
+        join_transaction_mode="create_savepoint",
+        expire_on_commit=False,
+    )
+
+
+def _jpeg_upload(name: str = "probe.jpg") -> UploadFile:
+    return UploadFile(file=BytesIO(JPEG), filename=name)
+
+
+def test_rolled_back_upload_removes_the_new_file(
+    isolated_connection,
+    media_root: Path,
+    sample_products: dict,
+    admin_user: dict,
+):
+    """F2: an upload that never commits leaves no orphaned managed file."""
+    product_id = sample_products["gpu"].id
+    with _service_session(isolated_connection) as db:
+        product = product_admin_service.load_product(db, product_id)
+        actor = db.get(User, admin_user["id"])
+        stored = product_image_service.save_upload(db, actor, product, _jpeg_upload())
+        path = media_root / "products" / stored.url.rsplit("/", 1)[-1]
+        assert stored.url.startswith(MEDIA_URL_PREFIX + "/")
+        assert path.is_file()
+        db.rollback()
+    assert not path.exists()
+
+
+def test_deleted_image_file_survives_a_rolled_back_transaction(
+    isolated_connection,
+    media_root: Path,
+    sample_products: dict,
+    admin_user: dict,
+):
+    """F2: the file outlives a rolled back delete; the row does too."""
+    product_id = sample_products["gpu"].id
+    with _service_session(isolated_connection) as db:
+        product = product_admin_service.load_product(db, product_id)
+        actor = db.get(User, admin_user["id"])
+        stored = product_image_service.save_upload(db, actor, product, _jpeg_upload())
+        db.flush()
+        path = media_root / "products" / stored.url.rsplit("/", 1)[-1]
+        assert path.is_file()
+
+        savepoint = db.begin_nested()
+        product_image_service.delete_image(db, actor, product, stored.id)
+        db.flush()
+        assert path.is_file(), "the file must never be unlinked before the commit"
+        savepoint.rollback()
+        db.flush()
+        assert db.get(ProductImage, stored.id) is not None
+        assert path.is_file()
+        db.rollback()
+    assert not path.exists(), "the file still follows the transaction that made it"
+
+
+def test_deleted_image_file_is_removed_after_commit(
+    isolated_connection,
+    media_root: Path,
+    sample_products: dict,
+    admin_user: dict,
+):
+    """F2: a committed delete unlinks the file, a committed upload keeps it."""
+    product_id = sample_products["gpu"].id
+    with _service_session(isolated_connection) as db:
+        product = product_admin_service.load_product(db, product_id)
+        actor = db.get(User, admin_user["id"])
+        stored = product_image_service.save_upload(db, actor, product, _jpeg_upload())
+        db.commit()
+        path = media_root / "products" / stored.url.rsplit("/", 1)[-1]
+        assert path.is_file(), "a committed upload keeps its file"
+
+        product = product_admin_service.load_product(db, product_id)
+        product_image_service.delete_image(db, actor, product, stored.id)
+        db.flush()
+        assert path.is_file(), "the file must survive until the commit"
+        db.commit()
+        assert not path.exists()
