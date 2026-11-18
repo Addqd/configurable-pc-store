@@ -14,7 +14,10 @@ describe('Product details', () => {
 
   it('uses the actual product image once, not five fake placeholder views', () => {
     const product = mockProducts[6]
-    expect(getProductDetail(product.slug)?.gallery).toEqual([product.image])
+    const gallery = getProductDetail(product.slug)?.gallery ?? []
+    expect(gallery.map((image) => image.url)).toEqual([product.image])
+    expect(gallery).toHaveLength(1)
+    expect(gallery[0].alt).toBe(product.name)
   })
 
   it('provides no fabricated technical specifications or empty rows', () => {

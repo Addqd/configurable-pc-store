@@ -56,13 +56,15 @@ export function HomePage() {
             />
           </div>
 
-          {/* Product Sections */}
-          {[prebuilts, gpus, cpus, mobos].some(result => result.isError) && <p role="alert" className="text-sm text-red-500">{t('common.load_error')}</p>}
+          {/* Product Sections: each section owns its request and its own state. */}
           <ProductSection
             titleKey="home.categories.prebuilt"
             icon={HiMiniCube}
             products={(prebuilts.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=prebuilt"
+            isLoading={prebuilts.isLoading}
+            isError={prebuilts.isError}
+            onRetry={() => void prebuilts.refetch()}
           />
 
           <ProductSection
@@ -70,6 +72,9 @@ export function HomePage() {
             icon={HiMiniCpuChip}
             products={(gpus.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=gpu"
+            isLoading={gpus.isLoading}
+            isError={gpus.isError}
+            onRetry={() => void gpus.refetch()}
           />
 
           <ProductSection
@@ -77,6 +82,9 @@ export function HomePage() {
             icon={HiMiniCpuChip}
             products={(cpus.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=cpu"
+            isLoading={cpus.isLoading}
+            isError={cpus.isError}
+            onRetry={() => void cpus.refetch()}
           />
 
           <ProductSection
@@ -84,6 +92,9 @@ export function HomePage() {
             icon={HiMiniCubeTransparent}
             products={(mobos.data?.items ?? []).map(productFromSummary)}
             catalogUrl="/catalog?category=mobo"
+            isLoading={mobos.isLoading}
+            isError={mobos.isError}
+            onRetry={() => void mobos.refetch()}
           />
 
           {/* Why Choose Us */}

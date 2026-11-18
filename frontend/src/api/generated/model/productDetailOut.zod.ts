@@ -9,6 +9,7 @@ import * as zod from 'zod';
 export const productDetailOutSpecLinesDefault = [];
 export const productDetailOutShortSpecsDefault = [];
 export const productDetailOutTechnicalSpecsDefault = {};
+export const productDetailOutDisplaySpecsDefault = [];
 export const productDetailOutImagesDefault = [];
 export const productDetailOutAverageRatingDefault = 0;
 export const productDetailOutReviewCountDefault = 0;
@@ -25,6 +26,10 @@ export const ProductDetailOut = zod.object({
   "spec_lines": zod.array(zod.string()).default(productDetailOutSpecLinesDefault),
   "short_specs": zod.array(zod.string()).default(productDetailOutShortSpecsDefault),
   "technical_specs": zod.record(zod.string(), zod.unknown()).default(productDetailOutTechnicalSpecsDefault),
+  "display_specs": zod.array(zod.object({
+  "label": zod.string(),
+  "value": zod.string()
+}).describe('Customer-facing specification row; internal evidence metadata is not exposed.')).default(productDetailOutDisplaySpecsDefault),
   "on_sale": zod.boolean(),
   "is_active": zod.boolean(),
   "listed_at": zod.iso.date(),

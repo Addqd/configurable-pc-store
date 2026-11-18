@@ -2,23 +2,35 @@ import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
 import { useUIStore } from '../stores/uiStore'
 import { useListProductsApiV1ProductsGet, useSearchSuggestionsApiV1ProductsSearchSuggestionsGet } from '../api/generated/client'
+import { useDebouncedValue } from '../utils/useDebouncedValue'
 import { HiMiniChevronRight } from 'react-icons/hi2'
 import { formatPrice } from '../utils/formatPrice'
+
+/** Typing must not issue a request per keystroke. */
+const SEARCH_DEBOUNCE_MS = 250
 
 export function SearchDropdown() {
   const { t } = useTranslation()
   const { searchQuery, closeSearch } = useUIStore()
   const trimmed = searchQuery.trim()
-  const suggestions = useSearchSuggestionsApiV1ProductsSearchSuggestionsGet({ q: trimmed, limit: 5 }, { query: { enabled: !!trimmed } })
-  const count = useListProductsApiV1ProductsGet({ q: trimmed, page_size: 1 }, { query: { enabled: !!trimmed } })
-  const results = suggestions.data ?? []
-  if (results.length === 0 && !trimmed) return null
+  const debouncedQuery = useDebouncedValue(trimmed, SEARCH_DEBOUNCE_MS)
+  // Both requests always share the same settled term. Each term is its own query
+  // key, so a slow response for an older term can never overwrite newer results.
+  const enabled = !!debouncedQuery
+  const suggestions = useSearchSuggestionsApiV1ProductsSearchSuggestionsGet({ q: debouncedQuery, limit: 5 }, { query: { enabled } })
+  const count = useListProductsApiV1ProductsGet({ q: debouncedQuery, page_size: 1 }, { query: { enabled } })
+  // While a newer term is still being debounced the settled term's data does not
+  // describe what the input shows, so results and counts are hidden until it settles.
+  const isSettling = trimmed !== debouncedQuery
+  const results = isSettling ? [] : suggestions.data ?? []
+  const total = isSettling ? null : count.data?.total ?? null
+  if (!trimmed) return null
   return (
     <div className="w-full bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] py-4" onMouseDown={(e) => e.stopPropagation()} onMouseUp={(e) => e.stopPropagation()}>
       <div className="px-4 mb-2 flex items-center justify-between">
         <span className="text-sm font-medium text-text-primary">{t('header.search_results')}</span>
         <a href={`/catalog?q=${encodeURIComponent(searchQuery)}`} className="text-sm text-primary hover:underline" onClick={closeSearch}>
-          {t('header.show_all', { count: count.data?.total ?? 0 })} <HiMiniChevronRight className="w-3.5 h-3.5 inline" />
+          {total === null ? t('header.show_all_no_count') : t('header.show_all', { count: total })} <HiMiniChevronRight className="w-3.5 h-3.5 inline" />
         </a>
       </div>
       <div className="px-2 space-y-1">
@@ -31,7 +43,7 @@ export function SearchDropdown() {
             <span className="text-sm font-semibold text-text-primary shrink-0">{formatPrice(Number(product.price))}</span>
           </a>
         ))}
-        {suggestions.isError ? <div role="alert" className="px-4 py-6 text-center text-text-muted text-sm">{t('common.load_error')}</div> : suggestions.isLoading ? <div role="status" className="px-4 py-6 text-center text-text-muted text-sm">{t('common.loading')}</div> : results.length === 0 && <div className="px-4 py-6 text-center text-text-muted text-sm">{t('header.search_empty')}</div>}
+        {isSettling || suggestions.isLoading ? <div role="status" className="px-4 py-6 text-center text-text-muted text-sm">{t('common.loading')}</div> : suggestions.isError ? <div role="alert" className="px-4 py-6 text-center text-text-muted text-sm">{t('common.load_error')}</div> : results.length === 0 && <div className="px-4 py-6 text-center text-text-muted text-sm">{t('header.search_empty')}</div>}
       </div>
     </div>
   )

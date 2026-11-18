@@ -23,6 +23,20 @@ describe('server product page', () => {
     expect(availability.className).toContain('text-emerald-500')
     expect(availability.querySelector('span')?.className).toContain('bg-emerald-500')
   })
+  it('renders the imported display_specs label/value pairs and never the evidence metadata', async () => {
+    setup()
+    expect(await screen.findByText('Кэш L3')).toBeTruthy()
+    expect(screen.getByText('32 МБ')).toBeTruthy()
+    expect(screen.getByText('Техпроцесс')).toBeTruthy()
+    expect(screen.queryByText(/test-fixture-must-not-render/)).toBeNull()
+    // Technical (compatibility-engine) keys must not be shown as customer specs.
+    expect(screen.queryByText('socket')).toBeNull()
+    // The section keeps its collapse/expand behaviour with more than four rows.
+    expect(screen.queryByText('Максимальная температура')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Все характеристики' }))
+    expect(screen.getByText('Максимальная температура')).toBeTruthy()
+    expect(screen.getByText('95 °C')).toBeTruthy()
+  })
   it('shows and copies the server SKU', async () => {
     const writeText = vi.fn().mockResolvedValue(undefined)
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } })

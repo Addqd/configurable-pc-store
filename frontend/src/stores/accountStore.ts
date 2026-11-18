@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { queryClient } from '../api/queryClient'
+import { clearPrivateQueryCache } from '../api/queryClient'
 import { ApiError, onSessionExpired, refreshSession, setAccessToken, waitForRefresh } from '../api/transport'
 import {
   registerApiV1AuthRegisterPost, loginApiV1AuthLoginPost, getMeApiV1AuthMeGet,
@@ -59,11 +59,14 @@ function convert(user: UserOut): Account {
   }
 }
 
+/**
+ * Ends the local session. Only authenticated data is dropped: public catalog
+ * queries keep their data and in-flight requests for anonymous visitors.
+ */
 function clearSession() {
   epoch += 1
   setAccessToken(null)
-  void queryClient.cancelQueries()
-  queryClient.clear()
+  clearPrivateQueryCache()
   useAccountStore.setState({ accounts: {}, activeAccountId: null })
 }
 
@@ -78,12 +81,13 @@ export const useAccountStore = create<AccountState>()((_set, get) => ({
     if (restorePromise) return restorePromise
     const version = epoch
     const pending = (async () => {
-      try {
-        await refreshSession()
-        const user = await getMeApiV1AuthMeGet()
-        if (version === epoch) acceptUser(user)
-      } catch { if (version === epoch) clearSession() }
-    })()
+      // `null` means the visitor simply has no session cookie: stay a guest and
+      // leave public queries alone instead of treating it as an expired session.
+      const restored = await refreshSession()
+      if (restored === null) return
+      const user = await getMeApiV1AuthMeGet()
+      if (version === epoch) acceptUser(user)
+    })().catch(() => { if (version === epoch) clearSession() })
     restorePromise = pending
     try { await pending } finally { if (restorePromise === pending) restorePromise = null }
   },

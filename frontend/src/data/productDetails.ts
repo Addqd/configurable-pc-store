@@ -16,6 +16,12 @@ export interface DetailedSpec {
   value: string
 }
 
+/** One gallery image: `alt` is the server `alt_text`, falling back to the product name. */
+export interface GalleryImage {
+  url: string
+  alt?: string
+}
+
 export interface EnrichedProduct extends Product {
   stockQuantity?: number
   article: string
@@ -24,7 +30,7 @@ export interface EnrichedProduct extends Product {
   description: string
   detailedSpecs: DetailedSpec[]
   reviews: Review[]
-  gallery: string[]
+  gallery: GalleryImage[]
 }
 
 // Demo feedback, not real customer testimonials or verified purchases.
@@ -125,7 +131,7 @@ function enrich(product: Product): EnrichedProduct {
     description: description(product),
     detailedSpecs: detailSpecs(product),
     reviews,
-    gallery: [product.image || placeholder], // Do not invent or duplicate photo angles
+    gallery: [{ url: product.image || placeholder, alt: product.name }], // Do not invent or duplicate photo angles
   }
 }
 

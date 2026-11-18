@@ -11,15 +11,16 @@ interface ProductGalleryProps {
 export function ProductGallery({ product }: ProductGalleryProps) {
   const { t } = useTranslation()
   const [active, setActive] = useState(0)
-  const images = product.gallery.length > 0 ? product.gallery : [placeholder]
+  // Server order is already sorted by sort_order; the first image is the cover.
+  const images = product.gallery.length > 0 ? product.gallery : [{ url: placeholder }]
   const current = images[active] ?? images[0]
 
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
       <div className="min-w-0 flex-1 overflow-hidden rounded-2xl border border-border bg-surface">
         <img
-          src={current}
-          alt={catalogDisplay(product.name)}
+          src={current.url}
+          alt={current.alt?.trim() || catalogDisplay(product.name)}
           className="aspect-square w-full object-contain"
           onError={(event) => { if (!event.currentTarget.src.endsWith(placeholder)) event.currentTarget.src = placeholder }}
         />
@@ -34,7 +35,7 @@ export function ProductGallery({ product }: ProductGalleryProps) {
             aria-pressed={active === index}
             className={`h-16 w-16 shrink-0 overflow-hidden rounded-lg border bg-surface p-1 transition-colors sm:h-20 sm:w-20 ${index === active ? 'border-primary' : 'border-border hover:border-border-hover'}`}
           >
-            <img src={image} alt="" className="h-full w-full object-contain" onError={(event) => { if (!event.currentTarget.src.endsWith(placeholder)) event.currentTarget.src = placeholder }} />
+            <img src={image.url} alt="" className="h-full w-full object-contain" onError={(event) => { if (!event.currentTarget.src.endsWith(placeholder)) event.currentTarget.src = placeholder }} />
           </button>
         ))}
       </div>

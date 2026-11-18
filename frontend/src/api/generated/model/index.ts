@@ -49,6 +49,7 @@ export * from './paginatedProductsOut.zod';
 export * from './paginatedReviewsOut.zod';
 export * from './passwordChange.zod';
 export * from './productDetailOut.zod';
+export * from './productDisplaySpecOut.zod';
 export * from './productImageOut.zod';
 export * from './productSummaryOut.zod';
 export * from './productTypeOut.zod';

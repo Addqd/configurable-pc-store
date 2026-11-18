@@ -40,6 +40,13 @@ class ProductImageOut(BaseModel):
     sort_order: int
 
 
+class ProductDisplaySpecOut(BaseModel):
+    """Customer-facing specification row; internal evidence metadata is not exposed."""
+
+    label: str
+    value: str
+
+
 class ProductDetailOut(BaseModel):
     id: int
     sku: str | None = None
@@ -53,6 +60,7 @@ class ProductDetailOut(BaseModel):
     spec_lines: list[str] = []
     short_specs: list[str] = []
     technical_specs: dict[str, Any] = {}
+    display_specs: list[ProductDisplaySpecOut] = []
     on_sale: bool
     is_active: bool
     listed_at: date
