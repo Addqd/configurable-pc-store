@@ -27,6 +27,8 @@ from app.schemas.auth import (
     UserOut,
 )
 from app.services import auth_service as auth_svc
+from app.services import event_service
+from app.services.errors import ForbiddenError
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -92,6 +94,8 @@ def login(
 ) -> TokenResponse:
     try:
         user = auth_svc.authenticate(db, body.email_or_username, body.password)
+    except auth_svc.AccountBlockedError:
+        raise HTTPException(status_code=403, detail="Account is blocked") from None
     except ValueError:
         raise HTTPException(status_code=401, detail="Invalid credentials") from None
     refresh = create_refresh_token(str(user.id))
@@ -123,6 +127,23 @@ def refresh(
     user = db.get(User, uid)
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid refresh token")
+    if user.status != "active":
+        # A block takes effect immediately, including for already issued cookies.
+        auth_svc.revoke_all_sessions(db, uid)
+        # The raise below rolls the request session back, so the revocation must
+        # be committed first or a blocked account could keep refreshing.
+        db.commit()
+        event_service.record_event(
+            db,
+            category=event_service.CATEGORY_AUTH,
+            event_type="auth.refresh_blocked",
+            outcome=event_service.OUTCOME_FAILURE,
+            actor=user,
+            target_type="user",
+            target_id=user.id,
+            reason="Account is blocked",
+        )
+        raise HTTPException(status_code=403, detail="Account is blocked")
     new_refresh = create_refresh_token(str(uid))
     expires = datetime.now(UTC) + timedelta(days=get_settings().refresh_token_days)
     try:
@@ -157,6 +178,14 @@ def logout(
     ):
         raise HTTPException(status_code=401, detail="Invalid refresh token")
     auth_svc.revoke_session(db, current_user.id, refresh_token)
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_AUTH,
+        event_type="auth.logged_out",
+        actor=current_user,
+        target_type="user",
+        target_id=current_user.id,
+    )
     _clear_cookies(response)
     return {"detail": "Logged out"}
 
@@ -226,4 +255,7 @@ def delete_account(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session, scope="function"),
 ) -> None:
-    auth_svc.delete_user(db, current_user)
+    try:
+        auth_svc.delete_user(db, current_user)
+    except ForbiddenError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc

@@ -122,9 +122,10 @@ def _search_expressions(q: str):
 def _ratings(db: Session, ids: list[int]) -> dict[int, tuple[float, int]]:
     if not ids:
         return {}
+    # Only published reviews contribute to public rating aggregates.
     rows = db.execute(
         select(Review.product_id, func.avg(Review.rating), func.count(Review.id))
-        .where(Review.product_id.in_(ids))
+        .where(Review.product_id.in_(ids), Review.is_published.is_(True))
         .group_by(Review.product_id)
     ).all()
     return {pid: (round(float(avg), 2), count) for pid, avg, count in rows}

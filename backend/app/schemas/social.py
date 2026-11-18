@@ -25,13 +25,19 @@ class FavoriteListOut(BaseModel):
 
 class ReviewOut(BaseModel):
     id: int
-    user_id: int
+    # Administrative reviews have no linked account, so this is nullable.
+    user_id: int | None = None
     product_id: int
     rating: int
     body: str
     created_at: datetime
     updated_at: datetime | None = None
     reviewer_name: str
+    source: str = "user"
+    author_name: str | None = None
+    is_published: bool = True
+    store_reply: str | None = None
+    displayed_at: datetime | None = None
 
 
 class ReviewCreate(BaseModel):

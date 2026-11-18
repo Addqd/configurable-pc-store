@@ -31,6 +31,12 @@ def _favorite(fav) -> FavoriteOut:
 
 
 def _review(r: Review) -> ReviewOut:
+    if r.source == "admin":
+        reviewer_name = r.author_name or "Anonymous"
+    elif r.user is not None:
+        reviewer_name = r.user.display_name
+    else:
+        reviewer_name = "Anonymous"
     return ReviewOut(
         id=r.id,
         user_id=r.user_id,
@@ -39,7 +45,12 @@ def _review(r: Review) -> ReviewOut:
         body=r.body,
         created_at=r.created_at,
         updated_at=r.updated_at,
-        reviewer_name=r.user.display_name if r.user else "Anonymous",
+        reviewer_name=reviewer_name,
+        source=r.source,
+        author_name=r.author_name,
+        is_published=r.is_published,
+        store_reply=r.store_reply,
+        displayed_at=r.displayed_at,
     )
 
 
@@ -157,7 +168,9 @@ def update_review(
     if review is None:
         raise HTTPException(status_code=404, detail="Review not found")
     try:
-        return _review(svc.update_review(db, review, body.rating, body.body))
+        return _review(
+            svc.update_review(db, review, body.rating, body.body, current_user)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -171,7 +184,7 @@ def delete_review(
     review = svc.get_user_review(db, current_user, product_id)
     if review is None:
         raise HTTPException(status_code=404, detail="Review not found")
-    svc.delete_review(db, review)
+    svc.delete_review(db, review, current_user)
 
 
 @router.get("/profile")
