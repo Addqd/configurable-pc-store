@@ -268,6 +268,165 @@ def test_legacy_urls_are_recognised_when_deleting(media_root: Path):
         session.close()
 
 
+# Abandoned transaction: Session.close() without an explicit rollback
+
+
+def test_uncommitted_upload_is_removed_when_the_session_is_closed(media_root: Path):
+    """Closing an uncommitted transaction must not leave its upload on disk."""
+    path, _ = _managed_file(media_root)
+    session = Session()
+    try:
+        session.begin()
+        product_image_service.queue_created_file(session, path)
+        assert path.exists()
+        session.close()
+        assert not path.exists()
+    finally:
+        session.close()
+
+
+def test_pending_deletion_is_cancelled_when_the_session_is_closed(media_root: Path):
+    """A deletion only applies on commit, so closing must keep the file."""
+    path, url = _managed_file(media_root)
+    session = Session()
+    try:
+        session.begin()
+        product_image_service.queue_managed_file_deletion(session, url)
+        session.close()
+        assert path.exists()
+    finally:
+        session.close()
+
+
+def test_committed_upload_survives_the_session_close(media_root: Path):
+    path, _ = _managed_file(media_root)
+    session = Session()
+    try:
+        session.begin()
+        product_image_service.queue_created_file(session, path)
+        session.commit()
+        session.close()
+        assert path.exists()
+    finally:
+        session.close()
+
+
+def test_committed_deletion_is_applied_before_the_session_close(media_root: Path):
+    path, url = _managed_file(media_root)
+    session = Session()
+    try:
+        session.begin()
+        product_image_service.queue_managed_file_deletion(session, url)
+        session.commit()
+        assert not path.exists()
+        session.close()
+        assert not path.exists()
+    finally:
+        session.close()
+
+
+def test_closing_a_session_settles_an_open_savepoint_too(media_root: Path):
+    """`close()` unwinds every open transaction, the SAVEPOINT included."""
+    path, _ = _managed_file(media_root)
+    session = Session()
+    try:
+        session.begin()
+        session.begin_nested()
+        product_image_service.queue_created_file(session, path)
+        session.close()
+        assert not path.exists()
+    finally:
+        session.close()
+
+
+def test_rolled_back_savepoint_cleans_only_its_own_files(media_root: Path):
+    nested_path, _ = _managed_file(media_root)
+    nested_deleted_path, nested_deleted_url = _managed_file(media_root)
+    parent_path, _ = _managed_file(media_root)
+    parent_deleted_path, parent_deleted_url = _managed_file(media_root)
+
+    session = Session()
+    try:
+        session.begin()
+        product_image_service.queue_created_file(session, parent_path)
+        product_image_service.queue_managed_file_deletion(session, parent_deleted_url)
+
+        savepoint = session.begin_nested()
+        product_image_service.queue_created_file(session, nested_path)
+        product_image_service.queue_managed_file_deletion(session, nested_deleted_url)
+        savepoint.rollback()
+
+        assert not nested_path.exists()
+        assert nested_deleted_path.exists()
+        assert parent_path.exists(), "the enclosing transaction is still open"
+        assert parent_deleted_path.exists()
+
+        session.close()
+        assert not parent_path.exists()
+        assert parent_deleted_path.exists()
+    finally:
+        session.close()
+
+
+def test_released_savepoint_is_discarded_by_the_outer_close(media_root: Path):
+    path, _ = _managed_file(media_root)
+    deleted_path, deleted_url = _managed_file(media_root)
+    session = Session()
+    try:
+        session.begin()
+        savepoint = session.begin_nested()
+        product_image_service.queue_created_file(session, path)
+        product_image_service.queue_managed_file_deletion(session, deleted_url)
+        savepoint.commit()
+        assert path.exists(), "a SAVEPOINT release must not settle the file"
+
+        session.close()
+        assert not path.exists()
+        assert deleted_path.exists(), "the outer transaction never committed"
+    finally:
+        session.close()
+
+
+def test_operations_queued_before_the_transaction_are_cleaned_on_close(
+    media_root: Path,
+):
+    path, _ = _managed_file(media_root)
+    deleted_path, deleted_url = _managed_file(media_root)
+    session = Session()
+    try:
+        product_image_service.queue_created_file(session, path)
+        product_image_service.queue_managed_file_deletion(session, deleted_url)
+        session.begin()
+        session.close()
+        assert not path.exists()
+        assert deleted_path.exists()
+    finally:
+        session.close()
+
+
+def test_reused_session_carries_no_stale_file_operations(media_root: Path):
+    path, _ = _managed_file(media_root)
+    deleted_path, deleted_url = _managed_file(media_root)
+    fresh_path, _ = _managed_file(media_root)
+    session = Session()
+    try:
+        session.begin()
+        product_image_service.queue_created_file(session, path)
+        product_image_service.queue_managed_file_deletion(session, deleted_url)
+        session.close()
+        assert not path.exists()
+        assert deleted_path.exists()
+
+        session.begin()
+        product_image_service.queue_created_file(session, fresh_path)
+        session.commit()
+        assert fresh_path.exists()
+        assert not path.exists(), "the discarded upload must not come back"
+        assert deleted_path.exists(), "the discarded deletion must not be applied"
+    finally:
+        session.close()
+
+
 # Stored URL normalization
 
 

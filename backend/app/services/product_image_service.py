@@ -8,9 +8,11 @@ Files follow the database transaction that owns them: an uploaded file is
 removed again when that transaction rolls back, and a deleted image file is only
 unlinked after the outermost transaction commits. Nested SAVEPOINTs keep their
 own file operations, so rolling back a SAVEPOINT neither deletes the image an
-outer commit keeps nor keeps the file whose row the SAVEPOINT discarded. The
-staging file and the final file both live inside the configured media root,
-never in a system temporary directory.
+outer commit keeps nor keeps the file whose row the SAVEPOINT discarded. A
+transaction that ends without committing — rolled back, or abandoned by
+`Session.close()` without an explicit rollback — leaves no uploaded file behind
+and applies no queued deletion. The staging file and the final file both live
+inside the configured media root, never in a system temporary directory.
 """
 
 from __future__ import annotations
@@ -91,6 +93,26 @@ def _current_transaction(db: Session) -> SessionTransaction | None:
     return db.get_nested_transaction() or db.get_transaction()
 
 
+def _discard_pending_files(
+    buckets: _FileBuckets, transaction: SessionTransaction
+) -> None:
+    """Drop the file state of a transaction that never reached `after_commit`.
+
+    The bucket is popped before anything is unlinked, so the rollback hook and the
+    `after_transaction_end` fallback may both call this and still handle every
+    operation exactly once.
+    """
+    discarded = [buckets.pop(transaction, None)]
+    if transaction.parent is None:
+        # Operations queued before the transaction started belong to its work.
+        discarded.append(buckets.pop(None, None))
+    for pending in discarded:
+        if pending is None:
+            continue
+        for path in pending.created:
+            _unlink_quietly(path)
+
+
 def _merge_files(target: _PendingFiles, source: _PendingFiles | None) -> None:
     if source is None:
         return
@@ -150,15 +172,28 @@ def _discard_files_of_rolled_back_transaction(
     buckets = session.info.get(_PENDING_FILES_KEY)
     if not isinstance(buckets, dict) or previous_transaction is None:
         return
-    rolled_back = [buckets.pop(previous_transaction, None)]
-    if previous_transaction.parent is None:
-        # The outermost rollback also discards pre-transaction operations.
-        rolled_back.append(buckets.pop(None, None))
-    for pending in rolled_back:
-        if pending is None:
-            continue
-        for path in pending.created:
-            _unlink_quietly(path)
+    _discard_pending_files(buckets, previous_transaction)
+
+
+@event.listens_for(Session, "after_transaction_end")
+def _discard_files_of_abandoned_transaction(
+    session: Session, transaction: SessionTransaction
+) -> None:
+    """Settle a transaction that ends without committing.
+
+    `Session.close()` ends every open transaction of the session without emitting
+    `after_soft_rollback`, so a pending upload would stay on disk and a pending
+    deletion would wait for a commit that can no longer happen. `after_commit`
+    runs before this event and pops the bucket of a committed transaction, so a
+    bucket still present here belongs to a transaction that was rolled back or
+    abandoned by `close()`: its new files are removed, its deletions discarded,
+    and the files of an enclosing transaction are left alone. The rollback hook
+    runs afterwards and finds nothing left to settle.
+    """
+    buckets = session.info.get(_PENDING_FILES_KEY)
+    if not isinstance(buckets, dict):
+        return
+    _discard_pending_files(buckets, transaction)
 
 
 def media_root() -> Path:
