@@ -10,10 +10,17 @@ from uuid import uuid4
 import pytest
 from fastapi import UploadFile
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import get_settings
-from app.models import ProductImage, ProductSpecField, ProductSpecOption, User
+from app.models import (
+    Manufacturer,
+    ProductImage,
+    ProductSpecField,
+    ProductSpecOption,
+    User,
+)
 from app.services import product_admin_service, product_image_service
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
@@ -671,3 +678,131 @@ def test_deleted_image_file_is_removed_after_commit(
         assert path.is_file(), "the file must survive until the commit"
         db.commit()
         assert not path.exists()
+
+
+def test_nested_upload_rolled_back_leaves_no_row_and_no_file(
+    isolated_connection,
+    media_root: Path,
+    sample_products: dict,
+    admin_user: dict,
+):
+    """Scenario B: a SAVEPOINT rollback discards the row and its new file."""
+    product_id = sample_products["gpu"].id
+    with _service_session(isolated_connection) as db:
+        product = product_admin_service.load_product(db, product_id)
+        actor = db.get(User, admin_user["id"])
+        savepoint = db.begin_nested()
+        stored = product_image_service.save_upload(db, actor, product, _jpeg_upload())
+        image_id = stored.id
+        path = media_root / "products" / stored.url.rsplit("/", 1)[-1]
+        assert path.is_file()
+
+        savepoint.rollback()
+        assert db.get(ProductImage, image_id) is None
+        assert not path.exists(), "the file must follow the rolled back SAVEPOINT"
+        db.commit()
+    assert not path.exists()
+
+
+def test_nested_committed_deletion_survives_the_outer_rollback(
+    isolated_connection,
+    media_root: Path,
+    sample_products: dict,
+    admin_user: dict,
+):
+    """Scenario A's counterpart: the outer rollback keeps row and file."""
+    product_id = sample_products["gpu"].id
+    with _service_session(isolated_connection) as db:
+        product = product_admin_service.load_product(db, product_id)
+        actor = db.get(User, admin_user["id"])
+        stored = product_image_service.save_upload(db, actor, product, _jpeg_upload())
+        image_id = stored.id
+        path = media_root / "products" / stored.url.rsplit("/", 1)[-1]
+        db.commit()
+        assert path.is_file()
+
+        product = product_admin_service.load_product(db, product_id)
+        savepoint = db.begin_nested()
+        product_image_service.delete_image(db, actor, product, image_id)
+        savepoint.commit()
+        assert path.is_file(), "a SAVEPOINT release must not unlink the file"
+
+        db.rollback()
+        assert db.get(ProductImage, image_id) is not None
+        assert path.is_file()
+
+
+def test_legacy_stored_image_urls_are_normalized_in_api_responses(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+    media_root: Path,
+):
+    """Stored `/media/products/...` values are exposed through `/api/v1`."""
+    directory = media_root / "products"
+    directory.mkdir(parents=True, exist_ok=True)
+    names = [f"{uuid4().hex}.jpg", f"{uuid4().hex}.png"]
+    for name in names:
+        (directory / name).write_bytes(JPEG)
+    external = "https://cdn.example.com/gpu.png"
+    legacy_url = f"/media/products/{names[0]}"
+    current_url = f"{MEDIA_URL_PREFIX}/{names[1]}"
+    expected = [f"{MEDIA_URL_PREFIX}/{names[0]}", current_url, external]
+
+    product = sample_products["gpu"]
+    rows = [
+        ProductImage(product_id=product.id, image_url=legacy_url, sort_order=0),
+        ProductImage(product_id=product.id, image_url=current_url, sort_order=1),
+        ProductImage(product_id=product.id, image_url=external, sort_order=2),
+    ]
+    test_db_session.add_all(rows)
+    test_db_session.flush()
+    headers = admin_user["headers"]
+
+    admin_detail = api_client.get(
+        f"/api/v1/admin/products/{product.id}", headers=headers
+    )
+    assert admin_detail.status_code == 200, admin_detail.text
+    detail_body = admin_detail.json()
+    assert [image["url"] for image in detail_body["images"]] == expected
+    assert detail_body["cover_image_url"] == expected[0]
+
+    admin_images = api_client.get(
+        f"/api/v1/admin/products/{product.id}/images", headers=headers
+    )
+    assert admin_images.status_code == 200, admin_images.text
+    assert [image["url"] for image in admin_images.json()] == expected
+
+    public_detail = api_client.get(f"/api/v1/products/{product.slug}")
+    assert public_detail.status_code == 200, public_detail.text
+    public_body = public_detail.json()
+    assert [image["url"] for image in public_body["images"]] == expected
+    assert public_body["cover_image_url"] == expected[0]
+
+    public_images = api_client.get(f"/api/v1/products/{product.id}/images")
+    assert public_images.status_code == 200, public_images.text
+    assert [image["url"] for image in public_images.json()["images"]] == expected
+    assert public_images.json()["cover_image_url"] == expected[0]
+
+    maker = test_db_session.get(Manufacturer, product.manufacturer_id)
+    listing = api_client.get("/api/v1/products", params={"manufacturers": maker.slug})
+    assert listing.status_code == 200, listing.text
+    items = listing.json()["items"]
+    summary = next(item for item in items if item["id"] == product.id)
+    assert summary["cover_image_url"] == expected[0]
+    assert [image["url"] for image in summary["images"]] == expected
+    assert not any(
+        image["url"].startswith("/media/products/") for image in summary["images"]
+    )
+
+    # No stored value was rewritten and the legacy endpoint still serves it.
+    test_db_session.expire_all()
+    query = (
+        select(ProductImage.image_url)
+        .where(ProductImage.product_id == product.id)
+        .order_by(ProductImage.sort_order)
+    )
+    stored = list(test_db_session.scalars(query).all())
+    assert stored == [legacy_url, current_url, external]
+    assert api_client.get(legacy_url).status_code == 200

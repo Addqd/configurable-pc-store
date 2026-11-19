@@ -4,11 +4,13 @@ Every uploaded file is identified by its real content (magic bytes), stored unde
 a server-generated random name, and served only through the strict media route.
 The original filename and client content type are never trusted.
 
-Files follow the database transaction: an uploaded file is removed again when
-the transaction that stored its row rolls back, and a deleted image file is only
-unlinked after the surrounding transaction commits. The staging file and the
-final file both live inside the configured media root, never in a system
-temporary directory.
+Files follow the database transaction that owns them: an uploaded file is
+removed again when that transaction rolls back, and a deleted image file is only
+unlinked after the outermost transaction commits. Nested SAVEPOINTs keep their
+own file operations, so rolling back a SAVEPOINT neither deletes the image an
+outer commit keeps nor keeps the file whose row the SAVEPOINT discarded. The
+staging file and the final file both live inside the configured media root,
+never in a system temporary directory.
 """
 
 from __future__ import annotations
@@ -21,7 +23,7 @@ from typing import NoReturn
 from uuid import uuid4
 
 from fastapi import UploadFile
-from sqlalchemy import event
+from sqlalchemy import event, func, select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, SessionTransaction
 
@@ -53,18 +55,51 @@ log = logging.getLogger(__name__)
 
 @dataclass
 class _PendingFiles:
-    """Managed files whose fate depends on how the transaction ends."""
+    """Managed files whose fate depends on how one transaction ends."""
 
     created: list[Path] = field(default_factory=list)
     deletions: list[Path] = field(default_factory=list)
 
 
-def _pending_files(db: Session) -> _PendingFiles:
-    pending = db.info.get(_PENDING_FILES_KEY)
-    if not isinstance(pending, _PendingFiles):
+# Files are tracked per `SessionTransaction`, never per `Session`: a SAVEPOINT
+# decides only about the files it created or deleted itself. `None` collects
+# operations queued before the session's first transaction started; they belong
+# to the first transaction that settles.
+_FileBuckets = dict[SessionTransaction | None, _PendingFiles]
+
+
+def _file_buckets(db: Session) -> _FileBuckets:
+    buckets = db.info.get(_PENDING_FILES_KEY)
+    if not isinstance(buckets, dict):
+        buckets = {}
+        db.info[_PENDING_FILES_KEY] = buckets
+    return buckets
+
+
+def _bucket(
+    buckets: _FileBuckets, transaction: SessionTransaction | None
+) -> _PendingFiles:
+    pending = buckets.get(transaction)
+    if pending is None:
         pending = _PendingFiles()
-        db.info[_PENDING_FILES_KEY] = pending
+        buckets[transaction] = pending
     return pending
+
+
+def _current_transaction(db: Session) -> SessionTransaction | None:
+    """Innermost transaction that owns a new file operation."""
+    return db.get_nested_transaction() or db.get_transaction()
+
+
+def _merge_files(target: _PendingFiles, source: _PendingFiles | None) -> None:
+    if source is None:
+        return
+    for path in source.created:
+        if path not in target.created:
+            target.created.append(path)
+    for path in source.deletions:
+        if path not in target.deletions:
+            target.deletions.append(path)
 
 
 def _unlink_quietly(path: Path) -> None:
@@ -75,16 +110,31 @@ def _unlink_quietly(path: Path) -> None:
 
 
 @event.listens_for(Session, "after_commit")
-def _apply_deferred_deletions(session: Session) -> None:
-    """Unlink images only once the transaction that removed their row committed."""
-    # Releasing a SAVEPOINT also emits `after_commit`; only the outermost commit
-    # is a real transaction boundary.
-    if session.get_nested_transaction() is not None:
+def _settle_files_of_committed_transaction(session: Session) -> None:
+    """Merge a committed SAVEPOINT, settle the outermost commit.
+
+    `after_commit` also fires when a SAVEPOINT is released, including the audit
+    SAVEPOINTs of `event_service.record_event()`. Those only hand their files to
+    the enclosing transaction; created files stay and deletions run once, after
+    the outermost transaction of the session committed.
+    """
+    buckets = session.info.get(_PENDING_FILES_KEY)
+    if not isinstance(buckets, dict):
         return
-    pending = session.info.pop(_PENDING_FILES_KEY, None)
-    if not isinstance(pending, _PendingFiles):
+    # `close()` resets these attributes only after this event, so inside the
+    # event they still point at the transaction that was just committed.
+    transaction = session.get_nested_transaction() or session.get_transaction()
+    if transaction is None:
         return
-    for path in pending.deletions:
+    pending = buckets.pop(transaction, None)
+    if transaction.nested:
+        _merge_files(_bucket(buckets, transaction.parent), pending)
+        return
+    settled = _PendingFiles()
+    _merge_files(settled, pending)
+    # Operations that predate the transaction were part of its unit of work.
+    _merge_files(settled, buckets.pop(None, None))
+    for path in settled.deletions:
         _unlink_quietly(path)
 
 
@@ -92,15 +142,23 @@ def _apply_deferred_deletions(session: Session) -> None:
 def _discard_files_of_rolled_back_transaction(
     session: Session, previous_transaction: SessionTransaction | None
 ) -> None:
-    """Remove files created by a transaction that did not commit."""
-    # A nested (SAVEPOINT) rollback must not decide the outer transaction's fate.
-    if previous_transaction is not None and previous_transaction.parent is not None:
+    """Drop the deletions of a rolled back transaction, remove its new files.
+
+    A nested rollback touches only its own files: the enclosing transaction is
+    still free to commit, and the rows it restores keep their images.
+    """
+    buckets = session.info.get(_PENDING_FILES_KEY)
+    if not isinstance(buckets, dict) or previous_transaction is None:
         return
-    pending = session.info.pop(_PENDING_FILES_KEY, None)
-    if not isinstance(pending, _PendingFiles):
-        return
-    for path in pending.created:
-        _unlink_quietly(path)
+    rolled_back = [buckets.pop(previous_transaction, None)]
+    if previous_transaction.parent is None:
+        # The outermost rollback also discards pre-transaction operations.
+        rolled_back.append(buckets.pop(None, None))
+    for pending in rolled_back:
+        if pending is None:
+            continue
+        for path in pending.created:
+            _unlink_quietly(path)
 
 
 def media_root() -> Path:
@@ -140,8 +198,8 @@ def resolve_media_path(filename: str) -> Path | None:
 
 
 def queue_created_file(db: Session, path: Path) -> None:
-    """Remove `path` again if the surrounding transaction does not commit."""
-    _pending_files(db).created.append(path)
+    """Remove `path` again if its transaction does not reach the outermost commit."""
+    _bucket(_file_buckets(db), _current_transaction(db)).created.append(path)
 
 
 def _managed_filename(url: str) -> str | None:
@@ -154,13 +212,45 @@ def _managed_filename(url: str) -> str | None:
 
 
 def queue_managed_file_deletion(db: Session, url: str) -> None:
-    """Unlink the managed file behind `url` only after the transaction commits."""
+    """Unlink the managed file behind `url` only after the outermost commit."""
     filename = _managed_filename(url)
     if filename is None:
         return
     path = resolve_media_path(filename)
     if path is not None:
-        _pending_files(db).deletions.append(path)
+        pending = _bucket(_file_buckets(db), _current_transaction(db)).deletions
+        if path not in pending:
+            pending.append(path)
+
+
+def normalize_media_url(url: str) -> str:
+    """Return the current media route for a stored managed image URL.
+
+    Rows written before the media route moved under `/api/v1` still hold the
+    legacy prefix, which the frontend proxy does not forward. Only a strict
+    managed filename is rewritten; external URLs, the placeholder and any other
+    path are returned unchanged, and no stored value is modified.
+    """
+    filename = _managed_filename(url)
+    if filename is None:
+        return url
+    return f"{MEDIA_URL_PREFIX}/{filename}"
+
+
+def _shared_managed_url(db: Session, url: str, image_id: int) -> bool:
+    """True while another row still references the same managed file."""
+    filename = _managed_filename(url)
+    if filename is None:
+        return False
+    candidates = [
+        f"{prefix}/{filename}" for prefix in (MEDIA_URL_PREFIX, LEGACY_MEDIA_URL_PREFIX)
+    ]
+    count = db.scalar(
+        select(func.count())
+        .select_from(ProductImage)
+        .where(ProductImage.image_url.in_(candidates), ProductImage.id != image_id)
+    )
+    return bool(count)
 
 
 def _sorted_rows(product: Product) -> list[ProductImage]:
@@ -171,7 +261,7 @@ def list_images(product: Product) -> list[AdminProductImageOut]:
     return [
         AdminProductImageOut(
             id=row.id,
-            url=row.image_url,
+            url=normalize_media_url(row.image_url),
             alt_text=row.alt_text,
             sort_order=row.sort_order,
             is_cover=index == 0,
@@ -335,7 +425,9 @@ def delete_image(db: Session, actor: User, product: Product, image_id: int) -> N
     db.flush()
     # The row is only really gone after the commit: keep the file until then so a
     # rolled back transaction cannot leave a row pointing at a missing image.
-    queue_managed_file_deletion(db, url)
+    # A file another row still points at is never unlinked.
+    if not _shared_managed_url(db, url, image_id):
+        queue_managed_file_deletion(db, url)
     event_service.record_event(
         db,
         category=event_service.CATEGORY_CATALOG,

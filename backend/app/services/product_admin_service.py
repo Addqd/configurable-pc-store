@@ -33,6 +33,7 @@ from app.schemas.catalog import (
 from app.services import catalog as catalog_service
 from app.services import event_service, spec_service
 from app.services.errors import ConflictError, InvalidInputError, NotFoundError
+from app.services.product_image_service import normalize_media_url
 from app.services.sql_utils import like_pattern
 
 _NON_ALNUM = re.compile(r"[^A-Za-z0-9]+")
@@ -119,7 +120,7 @@ def _sorted_images(product: Product) -> list[AdminProductImageOut]:
     return [
         AdminProductImageOut(
             id=row.id,
-            url=row.image_url,
+            url=normalize_media_url(row.image_url),
             alt_text=row.alt_text,
             sort_order=row.sort_order,
             is_cover=index == 0,
