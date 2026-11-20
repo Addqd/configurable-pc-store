@@ -16,8 +16,12 @@ export const ADMIN_USERS_PATH = '/api/v1/admin/users'
 export const ADMIN_EVENTS_PATH = '/api/v1/admin/events'
 export const PUBLIC_CATALOG_PATH = '/api/v1/products'
 
-/** Filter options do not change when a product or a review is edited. */
-const CATALOG_INDEPENDENT_PATHS = [`${PUBLIC_CATALOG_PATH}/filters`]
+/**
+ * Filter options are derived from the product records themselves, so a product
+ * change invalidates them as well. Only review-only changes leave them alone:
+ * reviews modify ratings, not colours, manufacturers or product types.
+ */
+const CATALOG_PATHS_INDEPENDENT_OF_REVIEWS = [`${PUBLIC_CATALOG_PATH}/filters`]
 
 function matchesPath(queryKey: readonly unknown[], base: string, exclude: readonly string[]): boolean {
   const path = queryKey[0]
@@ -44,25 +48,27 @@ export function invalidatePath(
 
 /**
  * Admin product data plus everything the storefront derives from the catalog:
- * product detail, public review lists, ratings and search suggestions.
+ * product detail, public review lists, ratings, search suggestions and the
+ * catalog filter options, which are computed from the product records.
  */
 export function invalidateAfterProductChange(queryClient: QueryClient): Promise<void[]> {
   return Promise.all([
     invalidatePath(queryClient, ADMIN_PRODUCTS_PATH),
     invalidatePath(queryClient, ADMIN_STATS_PATH),
-    invalidatePath(queryClient, PUBLIC_CATALOG_PATH, { exclude: CATALOG_INDEPENDENT_PATHS }),
+    invalidatePath(queryClient, PUBLIC_CATALOG_PATH),
   ])
 }
 
 /**
  * Reviews affect the admin review queue, the product detail counters, analytics
- * and the public product rating/review list.
+ * and the public product rating/review list. Available filter options do not
+ * depend on reviews, so they keep their cached value.
  */
 export function invalidateAfterReviewChange(queryClient: QueryClient): Promise<void[]> {
   return Promise.all([
     invalidatePath(queryClient, ADMIN_REVIEWS_PATH),
     invalidatePath(queryClient, ADMIN_PRODUCTS_PATH),
     invalidatePath(queryClient, ADMIN_STATS_PATH),
-    invalidatePath(queryClient, PUBLIC_CATALOG_PATH, { exclude: CATALOG_INDEPENDENT_PATHS }),
+    invalidatePath(queryClient, PUBLIC_CATALOG_PATH, { exclude: CATALOG_PATHS_INDEPENDENT_OF_REVIEWS }),
   ])
 }

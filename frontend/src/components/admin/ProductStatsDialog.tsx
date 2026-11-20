@@ -7,6 +7,7 @@ import { AdminDialog, AdminDialogClose } from './AdminDialog'
 import { useDialogTitleId } from './useDialogTitleId'
 import { AdminError, AdminLoading } from './AdminFeedback'
 import { LineChart } from './LineChart'
+import { RatingDistributionChart } from './RatingDistribution'
 import { StarsDisplay } from './Stars'
 import { adminCard, adminPrimaryButton, adminSelect } from './adminStyles'
 
@@ -31,7 +32,6 @@ export function ProductStatsDialog({ productId, dateFrom, dateTo, onClose }: Pro
 
   const data = detail.data
   const distribution = data?.rating_distribution ?? []
-  const maxBucket = Math.max(0, ...distribution.map((bucket) => bucket.count))
   const monthly = data?.monthly ?? []
   const monthlyWithYear = spansMultipleYears(monthly.map((point) => point.month))
   const series = [{
@@ -138,23 +138,11 @@ export function ProductStatsDialog({ productId, dateFrom, dateTo, onClose }: Pro
                 </span>
               </div>
 
-              <div className="mt-4 space-y-2">
-                {[5, 4, 3, 2, 1].map((rating) => {
-                  const bucket = distribution.find((item) => item.rating === rating)
-                  const count = bucket?.count ?? 0
-                  const width = maxBucket > 0 ? Math.max(count > 0 ? 2 : 0, (count / maxBucket) * 100) : 0
-                  return (
-                    <div key={rating} className="grid grid-cols-[2rem_1fr_2.5rem] items-center gap-3">
-                      <span className="flex items-center gap-1 text-xs text-text-secondary">
-                        {rating} <span className="text-amber-400" aria-hidden="true">★</span>
-                      </span>
-                      <div className="h-4 overflow-hidden rounded-full bg-surface-3">
-                        <div className="h-full rounded-full bg-amber-400" style={{ width: `${width}%` }} />
-                      </div>
-                      <span className="text-right text-xs text-text-secondary">{count}</span>
-                    </div>
-                  )
-                })}
+              <div className="mt-4">
+                <RatingDistributionChart
+                  distribution={distribution}
+                  categoryLabel={t('admin.analytics.detail_reviews')}
+                />
               </div>
             </section>
 

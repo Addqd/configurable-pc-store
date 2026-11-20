@@ -730,6 +730,9 @@ describe('admin product upload retry cache refresh', () => {
       ['/api/v1/products/7/images'],
       ['/api/v1/admin/stats/overview', { date_from: '2026-06-01' }],
       ['/api/v1/admin/stats/products', { page: 1 }],
+      // The backend derives the available colours, manufacturers and product
+      // types from the product records, so a product change also refreshes them.
+      ['/api/v1/products/filters', {}],
     ] as const,
     // Private user data is unrelated to a product image change.
     private: [
@@ -737,12 +740,10 @@ describe('admin product upload retry cache refresh', () => {
       ['/api/v1/auth/me'],
       ['/api/v1/cart'],
     ] as const,
-    // Filter options do not depend on an individual product.
-    filters: ['/api/v1/products/filters', {}] as const,
   })
 
   const seedCatalog = (client: QueryClient, keys: ReturnType<typeof catalogKeys>) => {
-    for (const key of [...keys.product, ...keys.private, keys.filters]) client.setQueryData(key, { seeded: true })
+    for (const key of [...keys.product, ...keys.private]) client.setQueryData(key, { seeded: true })
   }
 
   const isInvalidated = (client: QueryClient, key: readonly unknown[]) =>
@@ -795,7 +796,6 @@ describe('admin product upload retry cache refresh', () => {
     expect(creation.attempts()).toEqual({ uploads: 2, orders: 1 })
     for (const key of keys.product) expect(isInvalidated(client, key), String(key)).toBe(true)
     for (const key of keys.private) expect(isInvalidated(client, key), String(key)).toBe(false)
-    expect(isInvalidated(client, keys.filters)).toBe(false)
     // Exactly the seeded product families were refreshed, nothing else.
     expect([...new Set(paths)].sort()).toEqual([
       '/api/v1/admin/products',
@@ -804,6 +804,7 @@ describe('admin product upload retry cache refresh', () => {
       '/api/v1/admin/stats/products',
       '/api/v1/products',
       '/api/v1/products/7/images',
+      '/api/v1/products/filters',
       '/api/v1/products/gpu-rtx-5070',
     ].sort())
   })
@@ -840,7 +841,6 @@ describe('admin product upload retry cache refresh', () => {
 
     for (const key of keys.product) expect(isInvalidated(client, key), String(key)).toBe(true)
     for (const key of keys.private) expect(isInvalidated(client, key), String(key)).toBe(false)
-    expect(isInvalidated(client, keys.filters)).toBe(false)
     expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')).toHaveLength(1)
   })
 

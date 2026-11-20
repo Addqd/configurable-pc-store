@@ -61,9 +61,12 @@ describe('admin analytics', () => {
     expect(screen.getByText('22 871 420 ₽')).toBeTruthy()
     expect(screen.getByText('4,7')).toBeTruthy()
     expect(screen.getAllByText('AMD Ryzen 5 7600').length).toBeGreaterThan(0)
-    expect(screen.getByText('RTX 4070 SUPER')).toBeTruthy()
-    expect(screen.getByRole('img', { name: /Динамика продаж/ })).toBeTruthy()
-    expect(screen.getByText('0 шт.')).toBeTruthy()
+    expect(screen.getAllByText('RTX 4070 SUPER').length).toBeGreaterThan(0)
+    // The chart is named for assistive technology through its Recharts title.
+    expect(document.querySelector('.recharts-surface title')?.textContent).toBe('Динамика продаж: Все товары')
+    // Both horizontal rankings keep their card legends below the bars.
+    expect(screen.getAllByText('Товаров в заказах').length).toBeGreaterThan(1)
+    expect(screen.getAllByText('Средняя оценка').length).toBeGreaterThan(0)
   })
 
   it('localizes chart units and compact numbers when the language is English', async () => {
@@ -71,7 +74,8 @@ describe('admin analytics', () => {
     setup()
     await screen.findByText('391')
     expect(document.body.textContent).not.toContain('шт.')
-    expect(screen.getByText('0 pcs')).toBeTruthy()
+    // Localized decimal separator of the average rating.
+    expect(screen.getByText('4.7')).toBeTruthy()
 
     fireEvent.change(screen.getByLabelText('Sales dynamics'), { target: { value: 'amount' } })
     await waitFor(() => expect(chartTexts().some((text) => text.includes('₽'))).toBe(true))

@@ -312,6 +312,7 @@ export function AnalyticsOverview() {
                 value: item.units,
               }))}
               max={topSalesMax}
+              formatValue={formatNumber}
               axisLabels={[
                 t('admin.analytics.axis_units', { value: formatNumber(0) }),
                 t('admin.analytics.axis_units', { value: formatNumber(Math.round(topSalesMax / 2)) }),
