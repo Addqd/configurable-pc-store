@@ -15,15 +15,23 @@ export function StarInput({
   onChange,
   disabled = false,
   id,
+  required = false,
 }: {
   value: number
   onChange: (value: number) => void
   disabled?: boolean
   id?: string
+  required?: boolean
 }) {
   const { t } = useTranslation()
   return (
-    <div className="flex items-center gap-2" id={id} role="radiogroup" aria-label={t('admin.reviews.rating')}>
+    <div
+      className="flex items-center gap-2"
+      id={id}
+      role="radiogroup"
+      aria-label={t('admin.reviews.rating')}
+      aria-required={required ? true : undefined}
+    >
       <div className="flex items-center gap-1">
         {[1, 2, 3, 4, 5].map((star) => {
           const active = star <= value

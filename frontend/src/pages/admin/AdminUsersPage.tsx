@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import {
@@ -12,8 +12,8 @@ import {
 } from '../../api/generated/client'
 import type { AdminUserOut } from '../../api/generated/model'
 import { useAdminSession } from '../../admin/adminSession'
-import { adminErrorText, USER_SORTS, readEnum, readPageSize, readPositiveInt, readText, withParams, type AdminUserSort } from '../../admin/params'
-import { useDebouncedValue } from '../../utils/useDebouncedValue'
+import { adminErrorText, MAX_SEARCH_LENGTH, USER_SORTS, readEnum, readPageSize, readPositiveInt, readSearchQuery, withParams, type AdminUserSort } from '../../admin/params'
+import { ADMIN_EVENTS_PATH, ADMIN_USERS_PATH, invalidatePath } from '../../admin/queryInvalidation'
 import { useSyncedDraft } from '../../utils/useSyncedDraft'
 import { AdminLayout } from '../../components/admin/AdminLayout'
 import { AdminTabs, type AdminTab } from '../../components/admin/AdminTabs'
@@ -34,24 +34,19 @@ const EDIT_ROLE_OPTIONS = ['user', 'admin'] as const
 
 export function AdminUsersPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const session = useAdminSession()
   const queryClient = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const urlQuery = readText(searchParams, 'q')
-  const [searchDraft, setSearchDraft] = useSyncedDraft(urlQuery)
-  const debouncedQuery = useDebouncedValue(searchDraft, 300)
+  const urlQuery = readSearchQuery(searchParams)
+  const [searchDraft, setSearchDraft] = useSyncedDraft(urlQuery, (value) => {
+    setSearchParams((current) => withParams(current, { q: value, page: 1 }), { replace: true })
+  })
   const page = readPositiveInt(searchParams, 'page', 1)
   const pageSize = readPageSize(searchParams)
   const role = readEnum(searchParams, 'role', ROLES, 'all')
   const status = readEnum(searchParams, 'status', STATUSES, 'all')
   const sort = readEnum<AdminUserSort>(searchParams, 'sort', USER_SORTS, 'created_desc')
-
-  useEffect(() => {
-    if (debouncedQuery === urlQuery) return
-    setSearchParams((current) => withParams(current, { q: debouncedQuery, page: 1 }), { replace: true })
-  }, [debouncedQuery, urlQuery, setSearchParams])
 
   const users = useListUsersApiV1AdminUsersGet({
     page,
@@ -100,8 +95,8 @@ export function AdminUsersPage() {
   const updateUser = useUpdateUserApiV1AdminUsersUserIdPatch({
     mutation: {
       onSuccess: () => {
-        void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/users'] })
-        void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/events'] })
+        void invalidatePath(queryClient, ADMIN_USERS_PATH)
+        void invalidatePath(queryClient, ADMIN_EVENTS_PATH)
         setEditing(null)
         setNotice(t('admin.users.saved'))
       },
@@ -110,8 +105,8 @@ export function AdminUsersPage() {
   const deleteUser = useDeleteUserApiV1AdminUsersUserIdDelete({
     mutation: {
       onSuccess: () => {
-        void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/users'] })
-        void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/events'] })
+        void invalidatePath(queryClient, ADMIN_USERS_PATH)
+        void invalidatePath(queryClient, ADMIN_EVENTS_PATH)
         setDeleteTarget(null)
         setNotice(t('admin.users.deleted'))
       },
@@ -185,7 +180,7 @@ export function AdminUsersPage() {
             tabs={tabs}
             activeKey="users"
             label={t('admin.tabs.label')}
-            onSelect={(tab) => navigate(tab.to)}
+            variant="navigation"
           />
         </div>
 
@@ -218,6 +213,7 @@ export function AdminUsersPage() {
               type="search"
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
+              maxLength={MAX_SEARCH_LENGTH}
               placeholder={t('admin.users.search_placeholder')}
               aria-label={t('admin.users.search_label')}
               className={`${adminControl} pl-10`}

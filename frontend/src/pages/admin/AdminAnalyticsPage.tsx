@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { FiBarChart2, FiPackage } from 'react-icons/fi'
 import { AdminLayout } from '../../components/admin/AdminLayout'
 import { AdminTabs, type AdminTab } from '../../components/admin/AdminTabs'
+import { adminTabId, adminTabPanelId } from '../../components/admin/adminTabIds'
 import { AnalyticsOverview } from '../../components/admin/AnalyticsOverview'
 import { AnalyticsProducts } from '../../components/admin/AnalyticsProducts'
 import { BackButton } from '../../components/BackButton'
@@ -10,6 +11,7 @@ import { adminCard } from '../../components/admin/adminStyles'
 import { readEnum } from '../../admin/params'
 
 const VIEWS = ['overview', 'products'] as const
+const TABS_ID = 'analytics-tabs'
 
 export function AdminAnalyticsPage() {
   const { t } = useTranslation()
@@ -35,6 +37,7 @@ export function AdminAnalyticsPage() {
             tabs={tabs}
             activeKey={view}
             label={t('admin.analytics.title')}
+            idPrefix={TABS_ID}
             onSelect={(tab) => setSearchParams((current) => {
               const params = new URLSearchParams(current)
               if (tab.key === 'products') params.set('view', 'products')
@@ -44,7 +47,12 @@ export function AdminAnalyticsPage() {
           />
         </div>
 
-        <div className="mt-6">
+        <div
+          className="mt-6"
+          id={adminTabPanelId(TABS_ID, view)}
+          role="tabpanel"
+          aria-labelledby={adminTabId(TABS_ID, view)}
+        >
           {view === 'overview' ? <AnalyticsOverview /> : <AnalyticsProducts />}
         </div>
       </section>

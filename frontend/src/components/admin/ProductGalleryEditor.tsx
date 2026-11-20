@@ -44,10 +44,45 @@ export function ProductGalleryEditor({
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [overIndex, setOverIndex] = useState<number | null>(null)
+  const [fileDragDepth, setFileDragDepth] = useState(0)
   const canAdd = items.length < max && !disabled
+  const fileDragActive = fileDragDepth > 0 && canAdd
 
   const pickFiles = () => {
     if (canAdd) inputRef.current?.click()
+  }
+
+  /** True when the drag carries operating-system files (e.g. from Explorer). */
+  const carriesFiles = (event: DragEvent<HTMLElement>) =>
+    Array.from(event.dataTransfer?.types ?? []).includes('Files')
+
+  const handleFileDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    if (!canAdd) return
+    setFileDragDepth((depth) => depth + 1)
+  }
+
+  const handleFileDragOver = (event: DragEvent<HTMLDivElement>) => {
+    if (!carriesFiles(event)) return
+    // Required so the browser allows the drop instead of opening the file.
+    event.preventDefault()
+    if (canAdd) event.dataTransfer.dropEffect = 'copy'
+  }
+
+  const handleFileDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    if (!carriesFiles(event)) return
+    setFileDragDepth((depth) => Math.max(0, depth - 1))
+  }
+
+  const handleFileDrop = (event: DragEvent<HTMLDivElement>) => {
+    if (!carriesFiles(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    setFileDragDepth(0)
+    if (!canAdd) return
+    const files = Array.from(event.dataTransfer?.files ?? [])
+    if (files.length > 0) onAddFiles(files)
   }
 
   const handleDrop = (event: DragEvent<HTMLDivElement>, index: number) => {
@@ -79,7 +114,16 @@ export function ProductGalleryEditor({
         <p className="text-sm text-text-secondary">{t('admin.form.gallery_count', { count: items.length })}</p>
       </div>
 
-      <div className="rounded-xl border border-dashed border-border p-3">
+      <div
+        className={`rounded-xl border border-dashed p-3 transition-colors ${
+          fileDragActive ? 'border-primary bg-primary-light/40' : 'border-border'
+        }`}
+        onDragEnter={handleFileDragEnter}
+        onDragOver={handleFileDragOver}
+        onDragLeave={handleFileDragLeave}
+        onDrop={handleFileDrop}
+        data-gallery-dropzone
+      >
         <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
           {items.map((item, index) => {
             const source = item.url ?? item.previewUrl
@@ -192,7 +236,7 @@ export function ProductGalleryEditor({
 
       <p className="mt-3 flex items-center gap-2 text-sm text-text-secondary">
         <FiMove className="h-4 w-4 text-primary" aria-hidden="true" />
-        {t('admin.form.gallery_drag_hint')}
+        {fileDragActive ? t('admin.form.gallery_drop_active') : t('admin.form.gallery_drag_hint')}
       </p>
 
       {error && (

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link, useNavigate, useSearchParams } from 'react-router'
+import { Link, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
 import { FiPackage, FiPlus, FiSearch, FiTrendingUp, FiUsers, FiEdit2, FiTrash2 } from 'react-icons/fi'
@@ -19,34 +19,29 @@ import {
   adminSecondaryButton, adminSelect, adminTableHead, adminTableHeadCell, adminTableCell,
 } from '../../components/admin/adminStyles'
 import {
-  adminErrorText, formatMoney, PRODUCT_SORTS, readEnum, readPageSize, readPositiveInt, readText,
-  withParams, type AdminProductSort,
+  adminErrorText, formatMoney, MAX_SEARCH_LENGTH, PRODUCT_SORTS, readEnum, readPageSize, readPositiveInt,
+  readSearchQuery, readText, withParams, type AdminProductSort,
 } from '../../admin/params'
-import { useDebouncedValue } from '../../utils/useDebouncedValue'
 import { useSyncedDraft } from '../../utils/useSyncedDraft'
+import { invalidateAfterProductChange } from '../../admin/queryInvalidation'
 
 const STATUSES = ['all', 'active', 'inactive'] as const
 
 export function AdminProductsPage() {
   const { t } = useTranslation()
-  const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
   const queryClient = useQueryClient()
 
-  const urlQuery = readText(searchParams, 'q')
-  const [searchDraft, setSearchDraft] = useSyncedDraft(urlQuery)
-  const debouncedQuery = useDebouncedValue(searchDraft, 300)
+  const urlQuery = readSearchQuery(searchParams)
+  const [searchDraft, setSearchDraft] = useSyncedDraft(urlQuery, (value) => {
+    setSearchParams((current) => withParams(current, { q: value, page: 1 }), { replace: true })
+  })
 
   const page = readPositiveInt(searchParams, 'page', 1)
   const pageSize = readPageSize(searchParams)
   const category = readText(searchParams, 'category')
   const status = readEnum(searchParams, 'status', STATUSES, 'all')
   const sort = readEnum<AdminProductSort>(searchParams, 'sort', PRODUCT_SORTS, 'created_desc')
-
-  useEffect(() => {
-    if (debouncedQuery === urlQuery) return
-    setSearchParams((current) => withParams(current, { q: debouncedQuery, page: 1 }), { replace: true })
-  }, [debouncedQuery, urlQuery, setSearchParams])
 
   const list = useListProductsApiV1AdminProductsGet({
     page,
@@ -67,9 +62,7 @@ export function AdminProductsPage() {
     mutation: {
       onSuccess: () => {
         setTarget(null)
-        void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/products'] })
-        void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/stats'] })
-        void queryClient.invalidateQueries({ queryKey: ['/api/v1/products'] })
+        void invalidateAfterProductChange(queryClient)
       },
     },
   })
@@ -107,7 +100,7 @@ export function AdminProductsPage() {
             tabs={tabs}
             activeKey="products"
             label={t('admin.tabs.label')}
-            onSelect={(tab) => navigate(tab.to)}
+            variant="navigation"
           />
         </div>
 
@@ -139,10 +132,16 @@ export function AdminProductsPage() {
               type="search"
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
+              maxLength={MAX_SEARCH_LENGTH}
               placeholder={t('admin.products.search_placeholder')}
               aria-label={t('admin.products.search_label')}
               className={`${adminControl} pl-10`}
             />
+            {searchDraft.length >= MAX_SEARCH_LENGTH && (
+              <p className="mt-1 text-xs text-text-muted">
+                {t('admin.common.search_limit', { max: MAX_SEARCH_LENGTH })}
+              </p>
+            )}
           </div>
           <div className="grid gap-3 md:grid-cols-3">
             <label className="relative">
@@ -181,12 +180,16 @@ export function AdminProductsPage() {
               >
                 <option value="created_desc">{t('admin.products.sort_created_desc')}</option>
                 <option value="created_asc">{t('admin.products.sort_created_asc')}</option>
+                <option value="updated_desc">{t('admin.products.sort_updated_desc')}</option>
+                <option value="updated_asc">{t('admin.products.sort_updated_asc')}</option>
                 <option value="name_asc">{t('admin.products.sort_name_asc')}</option>
                 <option value="name_desc">{t('admin.products.sort_name_desc')}</option>
                 <option value="price_asc">{t('admin.products.sort_price_asc')}</option>
                 <option value="price_desc">{t('admin.products.sort_price_desc')}</option>
                 <option value="stock_asc">{t('admin.products.sort_stock_asc')}</option>
                 <option value="stock_desc">{t('admin.products.sort_stock_desc')}</option>
+                <option value="id_asc">{t('admin.products.sort_id_asc')}</option>
+                <option value="id_desc">{t('admin.products.sort_id_desc')}</option>
               </select>
               <Chevron />
             </label>

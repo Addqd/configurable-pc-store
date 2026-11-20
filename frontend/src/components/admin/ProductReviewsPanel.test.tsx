@@ -25,10 +25,8 @@ function setup() {
   return fetchMock
 }
 
-const editorSection = () => {
-  const heading = screen.getByRole('heading', { name: /Добавление отзыва|Редактирование отзыва/ })
-  return heading.closest('section') as HTMLElement
-}
+/** The editor is a real dialog overlay, not an inline panel above the table. */
+const editorDialog = () => screen.getByRole('dialog')
 
 afterEach(() => {
   cleanup()
@@ -36,12 +34,14 @@ afterEach(() => {
 })
 
 describe('product review administration', () => {
-  it('opens a fresh creation form with current date/time, no delete and the required primary label', async () => {
+  it('opens the creation form inside a modal dialog with current date/time, no delete and the required primary label', async () => {
     setup()
     await screen.findByText('Клиент 1')
     fireEvent.click(screen.getByRole('button', { name: 'Добавить отзыв' }))
 
-    const editor = editorSection()
+    const editor = editorDialog()
+    expect(editor.getAttribute('aria-modal')).toBe('true')
+    expect(within(editor).getByRole('heading', { name: 'Добавление отзыва' })).toBeTruthy()
     expect((within(editor).getByLabelText('Имя клиента') as HTMLInputElement).value).toBe('')
     expect((within(editor).getByLabelText('Текст отзыва') as HTMLTextAreaElement).value).toBe('')
     expect(within(editor).getByText('0 из 5')).toBeTruthy()
@@ -49,13 +49,15 @@ describe('product review administration', () => {
     expect((within(editor).getByLabelText('Время') as HTMLInputElement).value).toMatch(/^\d{2}:\d{2}$/)
     expect(within(editor).getByRole('button', { name: 'Добавить отзыв' })).toBeTruthy()
     expect(within(editor).queryByRole('button', { name: 'Удалить отзыв' })).toBeNull()
+    expect(within(editor).getByLabelText('Имя клиента').getAttribute('aria-required')).toBe('true')
+    expect(within(editor).getByRole('radiogroup').getAttribute('aria-required')).toBe('true')
   })
 
   it('creates an administrative review with the submitted values', async () => {
     const fetchMock = setup()
     await screen.findByText('Клиент 1')
     fireEvent.click(screen.getByRole('button', { name: 'Добавить отзыв' }))
-    const editor = editorSection()
+    const editor = editorDialog()
 
     fireEvent.change(within(editor).getByLabelText('Имя клиента'), { target: { value: 'Новый клиент' } })
     fireEvent.click(within(editor).getByRole('radio', { name: 'Оценка 5 из 5' }))
@@ -73,12 +75,12 @@ describe('product review administration', () => {
     expect(typeof body.displayed_at).toBe('string')
   })
 
-  it('populates edit mode and locks customer-authored content while allowing moderation fields', async () => {
+  it('populates edit mode, locks customer content and keeps the stored timestamp when it was not edited', async () => {
     const fetchMock = setup()
     await screen.findByText('Клиент 1')
     fireEvent.click(screen.getAllByRole('button', { name: 'Изменить' })[0])
 
-    const editor = editorSection()
+    const editor = editorDialog()
     expect((within(editor).getByLabelText('Имя клиента') as HTMLInputElement).value).toBe('Клиент 1')
     expect((within(editor).getByLabelText('Имя клиента') as HTMLInputElement).disabled).toBe(true)
     expect((within(editor).getByLabelText('Текст отзыва') as HTMLTextAreaElement).disabled).toBe(true)
@@ -91,23 +93,44 @@ describe('product review administration', () => {
     expect(await screen.findByText('Изменения отзыва сохранены')).toBeTruthy()
     const patch = callsTo(fetchMock, '/api/v1/admin/reviews/1').find(([, init]) => init.method === 'PATCH')
     const body = requestBody(patch?.[1] ?? {}) as Record<string, unknown>
-    expect(Object.keys(body).sort()).toEqual(['displayed_at', 'is_published', 'store_reply'])
+    // `displayed_at` is omitted so the stored seconds survive an unrelated edit.
+    expect(Object.keys(body).sort()).toEqual(['is_published', 'store_reply'])
     expect(body.store_reply).toBe('Новый ответ')
     expect(body.is_published).toBe(true)
+  })
+
+  it('sends the new timestamp when the date or time control was changed', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Клиент 1')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Изменить' })[0])
+
+    const editor = editorDialog()
+    fireEvent.change(within(editor).getByLabelText('Время'), { target: { value: '09:15' } })
+    fireEvent.click(within(editor).getByRole('button', { name: 'Сохранить изменения' }))
+
+    await waitFor(() => expect(callsTo(fetchMock, '/api/v1/admin/reviews/1').some(([, init]) => init.method === 'PATCH')).toBe(true))
+    const patch = callsTo(fetchMock, '/api/v1/admin/reviews/1').find(([, init]) => init.method === 'PATCH')
+    const body = requestBody(patch?.[1] ?? {}) as Record<string, unknown>
+    expect(typeof body.displayed_at).toBe('string')
+    const sent = new Date(body.displayed_at as string)
+    expect(sent.getHours()).toBe(9)
+    expect(sent.getMinutes()).toBe(15)
   })
 
   it('deletes only after confirming in the shared deletion modal', async () => {
     const fetchMock = setup()
     await screen.findByText('Клиент 1')
     fireEvent.click(screen.getAllByRole('button', { name: 'Изменить' })[0])
-    const editor = editorSection()
+    const editor = editorDialog()
     fireEvent.click(within(editor).getByRole('button', { name: 'Удалить отзыв' }))
 
     expect(screen.getByRole('heading', { name: 'Удалить отзыв?' })).toBeTruthy()
     expect(screen.getByText(/Этот отзыв будет безвозвратно удалён/)).toBeTruthy()
     expect(callsTo(fetchMock, '/api/v1/admin/reviews/1').some(([, init]) => init.method === 'DELETE')).toBe(false)
 
-    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Удалить' }))
+    // The confirmation is the topmost dialog; the editor stays underneath it.
+    const confirmation = screen.getAllByRole('dialog').at(-1) as HTMLElement
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Удалить' }))
     expect(await screen.findByText('Отзыв удалён')).toBeTruthy()
     await waitFor(() => {
       expect(callsTo(fetchMock, '/api/v1/admin/reviews/1').some(([, init]) => init.method === 'DELETE')).toBe(true)

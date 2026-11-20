@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { FiEdit2, FiPlus, FiSearch } from 'react-icons/fi'
 import { useListReviewsApiV1AdminReviewsGet } from '../../api/generated/client'
 import type { AdminReviewOut } from '../../api/generated/model'
-import { adminErrorText, type AdminReviewSort } from '../../admin/params'
+import { adminErrorText, MAX_SEARCH_LENGTH, type AdminReviewSort } from '../../admin/params'
 import { useDebouncedValue } from '../../utils/useDebouncedValue'
 import { AdminEmpty, AdminError, AdminLoading } from './AdminFeedback'
 import { AdminPagination } from './AdminPagination'
@@ -15,7 +15,13 @@ const STATUSES = ['all', 'published', 'unpublished'] as const
 const RATINGS = ['', '5', '4', '3', '2', '1'] as const
 const SORTS: readonly AdminReviewSort[] = ['displayed_desc', 'displayed_asc', 'rating_desc', 'created_desc', 'created_asc']
 
-type EditorState = { mode: 'create' } | { mode: 'edit'; review: AdminReviewOut } | null
+type EditorState =
+  | { id: string; mode: 'create' }
+  | { id: string; mode: 'edit'; review: AdminReviewOut }
+  | null
+
+let editorSequence = 0
+const nextEditorId = () => `review-editor-${++editorSequence}`
 
 export function ProductReviewsPanel({ productId }: { productId: number }) {
   const { t } = useTranslation()
@@ -49,13 +55,26 @@ export function ProductReviewsPanel({ productId }: { productId: number }) {
     setNotice(null)
   }
 
+  const openEditor = (next: { mode: 'create' } | { mode: 'edit'; review: AdminReviewOut }) => {
+    setNotice(null)
+    setEditor({ ...next, id: nextEditorId() })
+  }
+
+  /**
+   * Completion handlers are bound to the editor that started the request: a slow
+   * mutation for review A must not close the editor that was opened for review B.
+   */
+  const closeEditor = (editorId: string) => {
+    setEditor((current) => (current?.id === editorId ? null : current))
+  }
+
   return (
     <div>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold text-text-primary">{t('admin.reviews.title')}</h2>
         <button
           type="button"
-          onClick={() => { setNotice(null); setEditor({ mode: 'create' }) }}
+          onClick={() => openEditor({ mode: 'create' })}
           className={adminPrimaryButton}
         >
           <FiPlus className="h-4 w-4" aria-hidden="true" />
@@ -75,6 +94,7 @@ export function ProductReviewsPanel({ productId }: { productId: number }) {
           <input
             type="search"
             value={search}
+            maxLength={MAX_SEARCH_LENGTH}
             onChange={(event) => { setSearch(event.target.value); setPage(1) }}
             placeholder={t('admin.reviews.search_placeholder')}
             aria-label={t('admin.reviews.search_label')}
@@ -130,16 +150,14 @@ export function ProductReviewsPanel({ productId }: { productId: number }) {
       </div>
 
       {editor && (
-        <div className="mt-4">
-          <ReviewEditor
-            key={editor.mode === 'edit' ? `edit-${editor.review.id}` : 'create'}
-            productId={productId}
-            review={editor.mode === 'edit' ? editor.review : null}
-            onClose={() => setEditor(null)}
-            onSaved={(message) => { setPage(1); setNotice(message) }}
-            onDeleted={() => { setPage(1); setNotice(t('admin.reviews.deleted')) }}
-          />
-        </div>
+        <ReviewEditor
+          key={editor.id}
+          productId={productId}
+          review={editor.mode === 'edit' ? editor.review : null}
+          onClose={() => closeEditor(editor.id)}
+          onSaved={(message) => { setPage(1); setNotice(message) }}
+          onDeleted={() => { setPage(1); setNotice(t('admin.reviews.deleted')) }}
+        />
       )}
 
       <div className="mt-5" aria-busy={reviews.isFetching}>
@@ -177,7 +195,7 @@ export function ProductReviewsPanel({ productId }: { productId: number }) {
                       <td className={adminTableCell}>
                         <button
                           type="button"
-                          onClick={() => { setNotice(null); setEditor({ mode: 'edit', review }) }}
+                          onClick={() => openEditor({ mode: 'edit', review })}
                           className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-surface px-4 text-sm font-medium text-text-primary transition-colors hover:border-border-hover hover:bg-surface-3"
                         >
                           <FiEdit2 className="h-4 w-4" aria-hidden="true" />

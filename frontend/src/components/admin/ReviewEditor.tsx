@@ -7,9 +7,11 @@ import {
   useDeleteReviewApiV1AdminReviewsReviewIdDelete,
   useUpdateReviewApiV1AdminReviewsReviewIdPatch,
 } from '../../api/generated/client'
-import type { AdminReviewOut } from '../../api/generated/model'
+import type { AdminReviewOut, AdminReviewUpdate } from '../../api/generated/model'
 import { adminErrorText, isoDate } from '../../admin/params'
-import { AdminDialogClose } from './AdminDialog'
+import { invalidateAfterReviewChange } from '../../admin/queryInvalidation'
+import { AdminDialog, AdminDialogClose } from './AdminDialog'
+import { useDialogTitleId } from './useDialogTitleId'
 import { DeleteConfirmationModal } from './DeleteConfirmationModal'
 import { StarInput } from './Stars'
 import { TextField, TextareaField, Toggle } from './AdminFields'
@@ -65,31 +67,32 @@ function combineDate(date: string, time: string): string | null {
 }
 
 /**
- * One reusable review form for both modes. Creation starts from empty fields
- * with the current local date/time and no delete action; editing is populated
- * from the selected review and respects customer-authored content limits.
+ * One reusable review form for both modes, presented as a compact dialog.
+ * Creation starts from empty fields with the current local date/time and no
+ * delete action; editing is populated from the selected review and respects
+ * customer-authored content limits. The `displayed_at` timestamp is only sent
+ * when the date/time controls actually changed, so editing other fields keeps
+ * the stored seconds intact.
  */
 export function ReviewEditor({ productId, review, onClose, onSaved, onDeleted }: ReviewEditorProps) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const editing = review !== null
   const lockedContent = review !== null && review.source !== 'admin'
-  const [form, setForm] = useState<ReviewFormState>(() => initialState(review))
+  const [initial] = useState(() => initialState(review))
+  const [form, setForm] = useState<ReviewFormState>(initial)
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [serverError, setServerError] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const titleId = useDialogTitleId('review-editor-dialog')
 
-  const invalidate = () => {
-    void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/reviews'] })
-    void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/products', productId] })
-    void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/stats'] })
-    void queryClient.invalidateQueries({ queryKey: ['/api/v1/products'] })
-  }
+  const invalidate = () => invalidateAfterReviewChange(queryClient)
 
   const createReview = useCreateReviewApiV1AdminProductsProductIdReviewsPost()
   const updateReview = useUpdateReviewApiV1AdminReviewsReviewIdPatch()
   const deleteReview = useDeleteReviewApiV1AdminReviewsReviewIdDelete()
   const pending = createReview.isPending || updateReview.isPending
+  const timestampChanged = form.date !== initial.date || form.time !== initial.time
 
   const setField = <K extends keyof ReviewFormState>(key: K, value: ReviewFormState[K]) => {
     setForm((current) => ({ ...current, [key]: value }))
@@ -113,10 +116,10 @@ export function ReviewEditor({ productId, review, onClose, onSaved, onDeleted }:
     if (pending) return
     setServerError(null)
     if (!validate()) return
-    const displayedAt = combineDate(form.date, form.time)
-    if (!displayedAt) return
     try {
       if (!review) {
+        const displayedAt = combineDate(form.date, form.time)
+        if (!displayedAt) return
         await createReview.mutateAsync({
           productId,
           data: {
@@ -128,30 +131,30 @@ export function ReviewEditor({ productId, review, onClose, onSaved, onDeleted }:
             store_reply: form.storeReply.trim() || null,
           },
         })
-        invalidate()
-        onSaved(t('admin.reviews.created'))
+        void invalidate()
         onClose()
+        onSaved(t('admin.reviews.created'))
         return
       }
 
-      const data = lockedContent
-        ? {
-            is_published: form.isPublished,
-            displayed_at: displayedAt,
-            store_reply: form.storeReply.trim() || null,
-          }
-        : {
-            author_name: form.author.trim(),
-            rating: form.rating,
-            body: form.body.trim(),
-            is_published: form.isPublished,
-            displayed_at: displayedAt,
-            store_reply: form.storeReply.trim() || null,
-          }
+      const data: AdminReviewUpdate = {
+        is_published: form.isPublished,
+        store_reply: form.storeReply.trim() || null,
+      }
+      if (!lockedContent) {
+        data.author_name = form.author.trim()
+        data.rating = form.rating
+        data.body = form.body.trim()
+      }
+      if (timestampChanged) {
+        const displayedAt = combineDate(form.date, form.time)
+        if (!displayedAt) return
+        data.displayed_at = displayedAt
+      }
       await updateReview.mutateAsync({ reviewId: review.id, data })
-      invalidate()
-      onSaved(t('admin.reviews.saved'))
+      void invalidate()
       onClose()
+      onSaved(t('admin.reviews.saved'))
     } catch (error) {
       setServerError(adminErrorText(error))
     }
@@ -163,44 +166,45 @@ export function ReviewEditor({ productId, review, onClose, onSaved, onDeleted }:
     try {
       await deleteReview.mutateAsync({ reviewId: review.id })
       setConfirmDelete(false)
-      invalidate()
-      onDeleted()
+      void invalidate()
       onClose()
+      onDeleted()
     } catch (error) {
       setServerError(adminErrorText(error))
     }
   }
 
-  const titleId = 'review-editor-title'
-
   return (
-    <section
-      aria-labelledby={titleId}
-      className="rounded-xl border border-border bg-surface p-4 sm:p-6"
+    <AdminDialog
+      open
+      onClose={onClose}
+      closeDisabled={pending}
+      labelledBy={titleId}
+      widthClass="max-w-[620px]"
     >
       <div className="flex items-start justify-between gap-4">
-        <div className="flex items-center gap-3">
+        <div className="flex min-w-0 items-center gap-3">
           {editing
-            ? <FiEdit2 className="h-5 w-5 text-primary" aria-hidden="true" />
-            : <FiPlus className="h-5 w-5 text-primary" aria-hidden="true" />}
-          <h3 id={titleId} className="text-base font-semibold text-text-primary sm:text-lg">
+            ? <FiEdit2 className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+            : <FiPlus className="h-5 w-5 shrink-0 text-primary" aria-hidden="true" />}
+          <h2 id={titleId} className="text-lg font-semibold text-text-primary sm:text-xl">
             {editing ? t('admin.reviews.edit_title') : t('admin.reviews.create_title')}
-          </h3>
+          </h2>
         </div>
         <AdminDialogClose onClick={onClose} disabled={pending} />
       </div>
 
-      <div className="mt-4 border-t border-border pt-5">
+      <div className="mt-4 border-t border-border pt-4">
         {lockedContent && (
-          <p className="mb-4 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text-secondary">
+          <p className="mb-3 rounded-lg border border-border bg-surface px-3 py-2 text-xs text-text-secondary">
             {t('admin.reviews.customer_locked')}
           </p>
         )}
         {review?.source === 'admin' && (
-          <p className="mb-4 text-xs text-text-muted">{t('admin.reviews.admin_source')}</p>
+          <p className="mb-3 text-xs text-text-muted">{t('admin.reviews.admin_source')}</p>
         )}
 
-        <div className="space-y-4">
+        <div className="space-y-3.5">
           <TextField
             id="review-author"
             label={t('admin.reviews.author')}
@@ -220,6 +224,7 @@ export function ReviewEditor({ productId, review, onClose, onSaved, onDeleted }:
               value={form.rating}
               onChange={(value) => setField('rating', value)}
               disabled={lockedContent || pending}
+              required
             />
             {errors.rating && <p className="mt-1.5 text-xs text-danger" role="alert">{errors.rating}</p>}
           </div>
@@ -278,12 +283,12 @@ export function ReviewEditor({ productId, review, onClose, onSaved, onDeleted }:
         </div>
 
         {serverError && (
-          <p role="alert" className="mt-4 rounded-lg border border-danger-border bg-danger-surface px-3 py-2 text-sm text-danger">
+          <p role="alert" className="mt-3 rounded-lg border border-danger-border bg-danger-surface px-3 py-2 text-sm text-danger">
             {serverError}
           </p>
         )}
 
-        <div className="mt-6 flex flex-col-reverse gap-3 border-t border-border pt-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mt-5 flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             {editing && (
               <button
@@ -322,6 +327,6 @@ export function ReviewEditor({ productId, review, onClose, onSaved, onDeleted }:
         onCancel={() => { if (!deleteReview.isPending) { setConfirmDelete(false); deleteReview.reset() } }}
         onConfirm={() => void remove()}
       />
-    </section>
+    </AdminDialog>
   )
 }

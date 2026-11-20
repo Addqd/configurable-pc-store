@@ -86,7 +86,7 @@ export function AdminGate() {
 
   if (access.isError) {
     const status = access.error instanceof ApiError ? access.error.status : 0
-    if (status === 403 || status === 404) {
+    if (status === 401 || status === 403 || status === 404) {
       return (
         <AccessPanel
           icon={<FiShieldOff className="h-6 w-6" />}
@@ -100,16 +100,21 @@ export function AdminGate() {
         />
       )
     }
-    return (
-      <AdminLayout>
-        <section className={`${adminCard} p-6`}>
-          <AdminError message={t('admin.access.error_desc')} onRetry={() => void access.refetch()} />
-        </section>
-      </AdminLayout>
-    )
+    // A transient failure after a successful check must not unmount the admin
+    // page: the verified session stays mounted and unsaved forms survive.
+    if (!access.data) {
+      return (
+        <AdminLayout>
+          <section className={`${adminCard} p-6`}>
+            <AdminError message={t('admin.access.error_desc')} onRetry={() => void access.refetch()} />
+          </section>
+        </AdminLayout>
+      )
+    }
   }
 
   if (!access.data) {
+    if (access.isPending) return <AdminLayout><AdminLoading /></AdminLayout>
     // A session without a resolvable account id cannot be an administrator.
     return <Navigate to="/" replace />
   }

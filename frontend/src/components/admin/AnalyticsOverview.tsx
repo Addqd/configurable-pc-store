@@ -6,7 +6,7 @@ import {
   useGetOverviewApiV1AdminStatsOverviewGet,
   useGetProductStatsApiV1AdminStatsProductsGet,
 } from '../../api/generated/client'
-import { adminErrorText, daysAgo, formatMoney, formatNumber, formatRating, isoDate, monthLabel, monthsAgoStart, niceAxisMax, periodRangeLabel } from '../../admin/params'
+import { adminErrorText, daysAgo, formatCompactNumber, formatDecimal, formatMoney, formatNumber, formatRating, isoDate, MAX_SEARCH_LENGTH, monthLabel, monthsAgoStart, niceAxisMax, periodRangeLabel, spansMultipleYears } from '../../admin/params'
 import { useDebouncedValue } from '../../utils/useDebouncedValue'
 import { AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
 import { LineChart } from '../../components/admin/LineChart'
@@ -27,16 +27,13 @@ function rangeFor(period: Period): { date_from?: string; date_to?: string } {
   return { date_from: monthsAgoStart(months), date_to: isoDate(new Date()) }
 }
 
-function compactMoney(value: number): string {
-  return new Intl.NumberFormat('ru-RU', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
-}
-
 export function AnalyticsOverview() {
   const { t } = useTranslation()
   const [period, setPeriod] = useState<Period>('6m')
   const [metric, setMetric] = useState<Metric>('units')
   const [mode, setMode] = useState<Mode>('all')
   const [compareIds, setCompareIds] = useState<number[]>([])
+  const [compareNames, setCompareNames] = useState<Record<number, string>>({})
   const [compareSearch, setCompareSearch] = useState('')
   const compareQuery = useDebouncedValue(compareSearch, 300)
   const range = useMemo(() => rangeFor(period), [period])
@@ -61,14 +58,25 @@ export function AnalyticsOverview() {
     { query: { enabled: mode === 'compare' && compareIds.length > 0, retry: false } },
   )
 
-  const toggleProduct = (id: number) => {
-    setCompareIds((current) => current.includes(id)
-      ? current.filter((value) => value !== id)
-      : current.length >= 5 ? current : [...current, id])
+  const toggleProduct = (id: number, name?: string) => {
+    if (compareIds.includes(id)) {
+      setCompareIds(compareIds.filter((value) => value !== id))
+      setCompareNames((current) => {
+        const next = { ...current }
+        delete next[id]
+        return next
+      })
+      return
+    }
+    if (compareIds.length >= 5) return
+    // Keep the label captured at selection time: the product may drop out of the
+    // current search results later, but the chip must keep a recognisable name.
+    if (name) setCompareNames((current) => (current[id] === name ? current : { ...current, [id]: name }))
+    setCompareIds((current) => [...current, id])
   }
 
   const moneyAxis = metric === 'amount'
-  const formatAxis = (value: number) => moneyAxis ? `${compactMoney(value)} ₽` : formatNumber(value)
+  const formatAxis = (value: number) => moneyAxis ? `${formatCompactNumber(value)} ₽` : formatNumber(value)
 
   if (overview.isError) {
     return <AdminError message={adminErrorText(overview.error)} onRetry={() => void overview.refetch()} />
@@ -79,19 +87,23 @@ export function AnalyticsOverview() {
 
   const data = overview.data
   const monthly = data.monthly ?? []
+  const allMonthsWithYear = spansMultipleYears(monthly.map((point) => point.month))
   const allSeries = [{
     name: t('admin.analytics.mode_all'),
     color: SERIES_COLORS[0],
     points: monthly.map((point) => ({
-      label: monthLabel(point.month),
+      label: monthLabel(point.month, { withYear: allMonthsWithYear }),
       value: metric === 'amount' ? Number(point.amount) : point.units_count,
     })),
   }]
-  const compareSeries = (timeline.data?.series ?? []).map((series, index) => ({
+  const timelineSeries = timeline.data?.series ?? []
+  const compareMonths = timelineSeries.flatMap((series) => (series.monthly ?? []).map((point) => point.month))
+  const compareMonthsWithYear = spansMultipleYears(compareMonths)
+  const compareSeries = timelineSeries.map((series, index) => ({
     name: series.name,
     color: SERIES_COLORS[index % SERIES_COLORS.length],
     points: (series.monthly ?? []).map((point) => ({
-      label: monthLabel(point.month),
+      label: monthLabel(point.month, { withYear: compareMonthsWithYear }),
       value: metric === 'amount' ? Number(point.amount) : point.units_count,
     })),
   }))
@@ -200,6 +212,7 @@ export function AnalyticsOverview() {
             <input
               type="search"
               value={compareSearch}
+              maxLength={MAX_SEARCH_LENGTH}
               onChange={(event) => setCompareSearch(event.target.value)}
               placeholder={t('admin.analytics.compare_search')}
               aria-label={t('admin.analytics.compare_search')}
@@ -224,7 +237,7 @@ export function AnalyticsOverview() {
                             type="checkbox"
                             checked={checked}
                             disabled={disabled}
-                            onChange={() => toggleProduct(product.id)}
+                            onChange={() => toggleProduct(product.id, product.name)}
                             className="h-4 w-4 accent-[var(--color-primary)]"
                           />
                           <span className="min-w-0 flex-1 truncate text-text-primary">{product.name}</span>
@@ -240,6 +253,7 @@ export function AnalyticsOverview() {
               <div className="mt-2 flex flex-wrap gap-2 border-t border-border pt-2">
                 {compareIds.map((id, index) => {
                   const product = compareProducts.data?.items.find((item) => item.id === id)
+                  const label = product?.name ?? compareNames[id] ?? `#${id}`
                   return (
                     <button
                       key={id}
@@ -248,7 +262,7 @@ export function AnalyticsOverview() {
                       className="inline-flex items-center gap-2 rounded-full border border-border bg-surface px-3 py-1 text-xs text-text-primary"
                     >
                       <span className="h-2 w-2 rounded-full" style={{ backgroundColor: SERIES_COLORS[index % SERIES_COLORS.length] }} aria-hidden="true" />
-                      {product?.name ?? `#${id}`}
+                      {label}
                       <span aria-hidden="true">×</span>
                     </button>
                   )
@@ -298,7 +312,11 @@ export function AnalyticsOverview() {
                 value: item.units,
               }))}
               max={topSalesMax}
-              axisLabels={['0 шт.', `${formatNumber(Math.round(topSalesMax / 2))} шт.`, `${formatNumber(topSalesMax)} шт.`]}
+              axisLabels={[
+                t('admin.analytics.axis_units', { value: formatNumber(0) }),
+                t('admin.analytics.axis_units', { value: formatNumber(Math.round(topSalesMax / 2)) }),
+                t('admin.analytics.axis_units', { value: formatNumber(topSalesMax) }),
+              ]}
               legend={t('admin.analytics.top_sales_legend')}
               ariaLabel={t('admin.analytics.top_sales')}
             />
@@ -321,7 +339,11 @@ export function AnalyticsOverview() {
                 value: item.average_rating,
               }))}
               max={5}
-              axisLabels={['0 / 5', '2,5 / 5', '5 / 5']}
+              axisLabels={[
+                t('admin.analytics.axis_rating', { value: formatDecimal(0) }),
+                t('admin.analytics.axis_rating', { value: formatDecimal(2.5) }),
+                t('admin.analytics.axis_rating', { value: formatDecimal(5) }),
+              ]}
               legend={t('admin.analytics.top_reviews_legend')}
               formatValue={formatRating}
               ariaLabel={t('admin.analytics.top_reviews')}

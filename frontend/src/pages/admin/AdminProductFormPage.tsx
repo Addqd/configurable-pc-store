@@ -16,10 +16,11 @@ import {
 } from '../../api/generated/client'
 import type { AdminProductCreate, AdminProductDetailOut, AdminProductUpdate } from '../../api/generated/model'
 import { ApiError } from '../../api/transport'
-import { adminErrorText, formatMoney } from '../../admin/params'
-import i18n from '../../i18n'
+import { activeLocale, adminErrorText, formatMoney } from '../../admin/params'
+import { invalidateAfterProductChange } from '../../admin/queryInvalidation'
 import { AdminLayout } from '../../components/admin/AdminLayout'
 import { AdminTabs, type AdminTab } from '../../components/admin/AdminTabs'
+import { adminTabId, adminTabPanelId } from '../../components/admin/adminTabIds'
 import { AdminAlert, AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
 import { DeleteConfirmationModal } from '../../components/admin/DeleteConfirmationModal'
 import { ProductGalleryEditor, type GalleryItem } from '../../components/admin/ProductGalleryEditor'
@@ -35,10 +36,10 @@ import {
 const MAX_IMAGES = 10
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
 const ALLOWED_TYPES = ['image/jpeg', 'image/png', 'image/webp']
+const TABS_ID = 'product-tabs'
 
 interface ProductFormState {
   name: string
-  price: string
   stock: string
   isActive: boolean
   description: string
@@ -49,32 +50,48 @@ interface ProductFormState {
   specs: Record<string, string>
 }
 
+/**
+ * Price draft. `value` is the canonical decimal the draft represents, kept
+ * independently of `text`/`locale` so switching UI language cannot change the
+ * intended amount.
+ */
+interface PriceDraft {
+  locale: string
+  text: string
+  value: string
+}
+
 const EMPTY_FORM: ProductFormState = {
-  name: '', price: '', stock: '0', isActive: true, description: '',
+  name: '', stock: '0', isActive: true, description: '',
   categoryId: '', productTypeId: '', manufacturerId: '', color: '', specs: {},
 }
 
 let galleryKey = 0
 const nextGalleryKey = () => `gallery-${++galleryKey}`
 
+/** Renders a canonical decimal amount with the active language's separators. */
 function formatPriceInput(value: string): string {
+  if (!value.trim()) return value
   const parsed = Number(value)
-  const locale = i18n.resolvedLanguage === 'en' ? 'en-GB' : 'ru-RU'
-  return Number.isFinite(parsed)
-    ? new Intl.NumberFormat(locale, { maximumFractionDigits: 2 }).format(parsed)
-    : value
+  if (!Number.isFinite(parsed)) return value
+  return new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 2 }).format(parsed)
 }
 
-function parsePriceInput(value: string): number {
-  const cleaned = value.replace(/\s/g, '')
-  if (i18n.resolvedLanguage === 'en') return Number(cleaned.replace(/,/g, ''))
+/** Parses price text that was typed or formatted in the given locale. */
+function parsePriceInput(value: string, locale: string): number {
+  const cleaned = value.replace(/[\s\u00a0\u202f]/g, '')
+  if (locale === 'en-GB') return Number(cleaned.replace(/,/g, ''))
   return Number(cleaned.replace(',', '.'))
+}
+
+function priceDraftFromText(text: string, locale: string): PriceDraft {
+  const amount = parsePriceInput(text, locale)
+  return { locale, text, value: Number.isFinite(amount) ? String(amount) : '' }
 }
 
 function formFromProduct(product: AdminProductDetailOut): ProductFormState {
   return {
     name: product.name,
-    price: formatPriceInput(product.price),
     stock: String(product.stock_quantity),
     isActive: product.is_active,
     description: product.description,
@@ -84,6 +101,24 @@ function formFromProduct(product: AdminProductDetailOut): ProductFormState {
     color: product.color ?? '',
     specs: { ...product.specifications },
   }
+}
+
+/**
+ * Re-applies a server-confirmed image order to the current items. Items unknown
+ * to that order (new uploads) and items deleted meanwhile keep their relative
+ * position, so a failed reorder never resurrects a removed image.
+ */
+function applyServerOrder(items: GalleryItem[], order: readonly number[]): GalleryItem[] {
+  const rank = new Map(order.map((id, index) => [id, index]))
+  const fallback = order.length
+  return items
+    .map((item, index) => ({ item, index }))
+    .sort((left, right) => {
+      const leftRank = left.item.id === undefined ? fallback : rank.get(left.item.id) ?? fallback
+      const rightRank = right.item.id === undefined ? fallback : rank.get(right.item.id) ?? fallback
+      return leftRank === rightRank ? left.index - right.index : leftRank - rightRank
+    })
+    .map((entry) => entry.item)
 }
 
 export function AdminProductFormPage() {
@@ -107,6 +142,7 @@ export function AdminProductFormPage() {
   const filterOptions = useGetFilterOptionsApiV1ProductsFiltersGet()
 
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM)
+  const [price, setPrice] = useState<PriceDraft>({ locale: activeLocale(), text: '', value: '' })
   const [items, setItems] = useState<GalleryItem[]>([])
   const formKey = isEdit ? `edit-${numericId}` : 'create'
   const [loadedKey, setLoadedKey] = useState<string | null>(isEdit ? null : 'create')
@@ -119,11 +155,23 @@ export function AdminProductFormPage() {
 
   const [createdProduct, setCreatedProduct] = useState<AdminProductDetailOut | null>(null)
   const [uploadFailures, setUploadFailures] = useState(0)
+  const [orderFailed, setOrderFailed] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [removeTarget, setRemoveTarget] = useState<GalleryItem | null>(null)
 
   const uploadedIdsRef = useRef<Map<string, number>>(new Map())
   const previewUrlsRef = useRef<Set<string>>(new Set())
+  /** Last order confirmed by the server; rollback is based on it, not on a stale array. */
+  const serverOrderRef = useRef<number[]>([])
+
+  const locale = activeLocale()
+  const priceText = price.locale === locale ? price.text : formatPriceInput(price.value)
+  const changePrice = (text: string) => {
+    setPrice(priceDraftFromText(text, locale))
+    setFieldErrors((current) => ({ ...current, price: '' }))
+    setServerError(null)
+    setSaved(false)
+  }
 
   const typeId = form.productTypeId ? Number(form.productTypeId) : 0
   const template = useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet(typeId, {
@@ -149,8 +197,10 @@ export function AdminProductFormPage() {
     previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     previewUrlsRef.current.clear()
     uploadedIdsRef.current.clear()
+    serverOrderRef.current = []
     setCreatedProduct(null)
     setUploadFailures(0)
+    setOrderFailed(false)
     setUploading(false)
     setFieldErrors({})
     setSpecsError(null)
@@ -160,6 +210,7 @@ export function AdminProductFormPage() {
     setRemoveTarget(null)
     if (!isEdit) {
       setForm(EMPTY_FORM)
+      setPrice({ locale: activeLocale(), text: '', value: '' })
       setItems([])
       setLoadedKey(formKey)
       return
@@ -168,12 +219,14 @@ export function AdminProductFormPage() {
     if (!data) return
     const images = data.images ?? []
     setForm(formFromProduct(data))
+    setPrice(priceDraftFromText(formatPriceInput(data.price), activeLocale()))
     setItems(images.map((image) => ({
       key: `image-${image.id}`,
       id: image.id,
       url: image.url,
       altText: image.alt_text,
     })))
+    serverOrderRef.current = images.map((image) => image.id)
     images.forEach((image) => uploadedIdsRef.current.set(`image-${image.id}`, image.id))
     setLoadedKey(formKey)
   }, [formKey, isEdit, detail.data, loadedKey])
@@ -201,9 +254,7 @@ export function AdminProductFormPage() {
   }
 
   const invalidateCatalog = () => {
-    void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/products'] })
-    void queryClient.invalidateQueries({ queryKey: ['/api/v1/admin/stats'] })
-    void queryClient.invalidateQueries({ queryKey: ['/api/v1/products'] })
+    void invalidateAfterProductChange(queryClient)
   }
 
   const validateFiles = (files: File[]): File[] | null => {
@@ -241,11 +292,15 @@ export function AdminProductFormPage() {
     }
   }
 
-  /** Uploads every not-yet-uploaded item of `source` and keeps the cover order. */
-  const uploadPending = async (id: number, source: GalleryItem[]): Promise<number> => {
+  /**
+   * Uploads only items that have no server id yet. An image accepted by the
+   * server keeps its id, so retrying an ordering failure never uploads it twice.
+   */
+  const uploadNewItems = async (id: number, source: GalleryItem[]): Promise<number> => {
     let failures = 0
     for (const item of source) {
-      if (!item.file || item.id || uploadedIdsRef.current.has(item.key)) continue
+      if (!item.file) continue
+      if (item.id !== undefined || uploadedIdsRef.current.has(item.key)) continue
       markItem(item.key, { uploading: true, failed: false })
       try {
         const image = await uploadImage.mutateAsync({ productId: id, data: { file: item.file } })
@@ -257,17 +312,35 @@ export function AdminProductFormPage() {
         setGalleryError(adminErrorText(error))
       }
     }
-    const orderedIds = source
-      .map((item) => uploadedIdsRef.current.get(item.key))
-      .filter((value): value is number => typeof value === 'number')
-    if (orderedIds.length > 1) {
-      try {
-        await reorderImages.mutateAsync({ productId: id, data: { image_ids: orderedIds } })
-      } catch {
-        // The product and uploads stay valid; order can be corrected by dragging.
-      }
-    }
     return failures
+  }
+
+  const knownIds = (source: GalleryItem[], extra?: { key: string; id: number }): number[] =>
+    source
+      .map((item) => (extra && item.key === extra.key ? extra.id : item.id ?? uploadedIdsRef.current.get(item.key)))
+      .filter((value): value is number => typeof value === 'number')
+
+  /** Persists the given cover order; returns false when the server rejected it. */
+  const persistOrderIds = async (id: number, ids: number[]): Promise<boolean> => {
+    if (ids.length === 0) return true
+    try {
+      await reorderImages.mutateAsync({ productId: id, data: { image_ids: ids } })
+      serverOrderRef.current = ids
+      setOrderFailed(false)
+      return true
+    } catch (error) {
+      setGalleryError(adminErrorText(error))
+      setOrderFailed(true)
+      return false
+    }
+  }
+
+  /** Uploads pending files, then persists their order once all of them are accepted. */
+  const uploadPending = async (id: number, source: GalleryItem[]): Promise<{ failures: number; orderSaved: boolean }> => {
+    const failures = await uploadNewItems(id, source)
+    if (failures > 0) return { failures, orderSaved: false }
+    const orderSaved = await persistOrderIds(id, knownIds(source))
+    return { failures, orderSaved }
   }
 
   const handleAddFiles = (files: File[]) => {
@@ -285,20 +358,17 @@ export function AdminProductFormPage() {
     // Edit mode: the product exists, so images upload immediately.
     void (async () => {
       setUploading(true)
-      let failures = 0
-      for (const item of newItems) {
-        try {
-          const image = await uploadImage.mutateAsync({ productId: numericId, data: { file: item.file as File } })
-          uploadedIdsRef.current.set(item.key, image.id)
-          markItem(item.key, { uploading: false, failed: false, id: image.id, url: image.url })
-        } catch (error) {
-          failures += 1
-          markItem(item.key, { uploading: false, failed: true })
-          setGalleryError(adminErrorText(error))
+      try {
+        const failures = await uploadNewItems(numericId, newItems)
+        setUploadFailures(failures)
+        if (failures === 0) {
+          const orderSaved = await persistOrderIds(numericId, knownIds([...items, ...newItems]))
+          if (orderSaved) invalidateCatalog()
         }
+        if (failures === 0 && detail.data) void detail.refetch()
+      } finally {
+        setUploading(false)
       }
-      setUploading(false)
-      if (failures === 0 && detail.data) void detail.refetch()
     })()
   }
 
@@ -313,13 +383,9 @@ export function AdminProductFormPage() {
         const image = await uploadImage.mutateAsync({ productId: id, data: { file: item.file as File } })
         uploadedIdsRef.current.set(key, image.id)
         markItem(key, { uploading: false, failed: false, id: image.id, url: image.url })
-        const orderedIds = items
-          .map((entry) => (entry.key === key ? image.id : uploadedIdsRef.current.get(entry.key)))
-          .filter((value): value is number => typeof value === 'number')
-        if (orderedIds.length > 1) {
-          await reorderImages.mutateAsync({ productId: id, data: { image_ids: orderedIds } })
-        }
         setUploadFailures((current) => Math.max(0, current - 1))
+        // Ordering is a separate request: an accepted image is never re-uploaded.
+        await persistOrderIds(id, knownIds(items, { key, id: image.id }))
       } catch (error) {
         markItem(key, { uploading: false, failed: true })
         setGalleryError(adminErrorText(error))
@@ -333,20 +399,28 @@ export function AdminProductFormPage() {
     if (!moved) return
     next.splice(toIndex, 0, moved)
     setItems(next)
-    const allUploaded = next.every((item) => typeof item.id === 'number')
-    if (isEdit && !createdProduct && allUploaded) {
-      const previous = items
-      void reorderImages
-        .mutateAsync({ productId: numericId, data: { image_ids: next.map((item) => item.id as number) } })
-        .then(() => { if (detail.data) void detail.refetch() })
-        .catch((error) => {
-          setGalleryError(adminErrorText(error))
-          setItems(previous)
-        })
-    }
+    const allUploaded = next.every((item) => item.id !== undefined || uploadedIdsRef.current.has(item.key))
+    if (!isEdit || createdProduct || !allUploaded) return
+    const ids = knownIds(next)
+    void reorderImages
+      .mutateAsync({ productId: numericId, data: { image_ids: ids } })
+      .then(() => {
+        serverOrderRef.current = ids
+        setOrderFailed(false)
+        setGalleryError(null)
+        invalidateCatalog()
+        if (detail.data) void detail.refetch()
+      })
+      .catch((error) => {
+        setGalleryError(adminErrorText(error))
+        // Roll back to the last server-confirmed order, keeping only images that
+        // still exist locally so a deleted image is never resurrected.
+        setItems((current) => applyServerOrder(current, serverOrderRef.current))
+      })
   }
 
   const removeItem = (key: string) => {
+    if (reorderImages.isPending) return
     const item = items.find((entry) => entry.key === key)
     if (!item) return
     const activeProductId = createdProduct?.id ?? (isEdit ? numericId : null)
@@ -362,11 +436,14 @@ export function AdminProductFormPage() {
   const confirmRemoveImage = async () => {
     const productId = createdProduct?.id ?? numericId
     if (!removeTarget?.id) return
+    const removedId = removeTarget.id
+    const removedKey = removeTarget.key
     try {
-      await deleteImage.mutateAsync({ productId, imageId: removeTarget.id })
+      await deleteImage.mutateAsync({ productId, imageId: removedId })
       releasePreview(removeTarget)
-      uploadedIdsRef.current.delete(removeTarget.key)
-      setItems((current) => current.filter((entry) => entry.key !== removeTarget.key))
+      uploadedIdsRef.current.delete(removedKey)
+      serverOrderRef.current = serverOrderRef.current.filter((id) => id !== removedId)
+      setItems((current) => current.filter((entry) => entry.key !== removedKey))
       setRemoveTarget(null)
       deleteImage.reset()
       if (detail.data) void detail.refetch()
@@ -376,6 +453,25 @@ export function AdminProductFormPage() {
     }
   }
 
+  /** Order-only retry: uses the ids already accepted by the server. */
+  const retryOrder = () => {
+    const id = createdProduct?.id ?? (isEdit ? numericId : null)
+    if (!id) return
+    void (async () => {
+      setUploading(true)
+      try {
+        const orderSaved = await persistOrderIds(id, knownIds(items))
+        if (orderSaved) {
+          invalidateCatalog()
+          if (detail.data) void detail.refetch()
+          if (createdProduct) navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })
+        }
+      } finally {
+        setUploading(false)
+      }
+    })()
+  }
+
   const validation = (): boolean => {
     if (typeId > 0 && template.isError) {
       setSpecsError(adminErrorText(template.error))
@@ -383,8 +479,8 @@ export function AdminProductFormPage() {
     }
     const errors: Record<string, string> = {}
     if (form.name.trim().length < 2) errors.name = t('admin.form.validation_name')
-    const price = parsePriceInput(form.price)
-    if (!form.price.trim() || !Number.isFinite(price) || price < 0) errors.price = t('admin.form.validation_price')
+    const priceAmount = price.value === '' ? Number.NaN : Number(price.value)
+    if (!priceText.trim() || !Number.isFinite(priceAmount) || priceAmount < 0) errors.price = t('admin.form.validation_price')
     const stock = Number(form.stock)
     if (!form.stock.trim() || !Number.isSafeInteger(stock) || stock < 0) errors.stock = t('admin.form.validation_stock')
     if (!form.categoryId) errors.categoryId = t('admin.form.validation_category')
@@ -403,7 +499,7 @@ export function AdminProductFormPage() {
     name: form.name.trim(),
     product_type_id: Number(form.productTypeId),
     manufacturer_id: Number(form.manufacturerId),
-    price: (parsePriceInput(form.price) || 0).toFixed(2),
+    price: (Number(price.value) || 0).toFixed(2),
     stock_quantity: Number(form.stock),
     description: form.description,
     color: form.color || null,
@@ -425,7 +521,7 @@ export function AdminProductFormPage() {
         name: form.name.trim(),
         product_type_id: Number(form.productTypeId),
         manufacturer_id: Number(form.manufacturerId),
-        price: (parsePriceInput(form.price) || 0).toFixed(2),
+        price: (Number(price.value) || 0).toFixed(2),
         stock_quantity: Number(form.stock),
         description: form.description,
         color: form.color || null,
@@ -446,16 +542,18 @@ export function AdminProductFormPage() {
     try {
       const created = await createProduct.mutateAsync({ data: payload() })
       setCreatedProduct(created)
+      setOrderFailed(false)
       invalidateCatalog()
       setUploading(true)
-      let failures = 0
+      let result = { failures: 0, orderSaved: true }
       try {
-        failures = await uploadPending(created.id, items)
+        result = await uploadPending(created.id, items)
       } finally {
         setUploading(false)
       }
-      setUploadFailures(failures)
-      if (failures === 0) {
+      setUploadFailures(result.failures)
+      setOrderFailed(!result.orderSaved)
+      if (result.failures === 0 && result.orderSaved) {
         navigate(`/admin/products/${created.id}/edit`, { replace: true, state: { created: true } })
       }
     } catch (error) {
@@ -558,6 +656,7 @@ export function AdminProductFormPage() {
               tabs={tabs}
               activeKey={tab}
               label={t('admin.form.tab_product')}
+              idPrefix={TABS_ID}
               onSelect={(next) => setSearchParams((current) => {
                 const params = new URLSearchParams(current)
                 if (next.key === 'reviews') params.set('tab', 'reviews')
@@ -568,11 +667,15 @@ export function AdminProductFormPage() {
           </div>
         )}
 
-        {isEdit && tab === 'reviews' ? (
-          <div className="mt-6">
+        <div
+          className="mt-6"
+          id={adminTabPanelId(TABS_ID, tab)}
+          role="tabpanel"
+          aria-labelledby={adminTabId(TABS_ID, tab)}
+        >
+          {isEdit && tab === 'reviews' ? (
             <ProductReviewsPanel productId={numericId} />
-          </div>
-        ) : (
+          ) : (
           <form
             className="mt-6 space-y-8"
             noValidate
@@ -596,9 +699,10 @@ export function AdminProductFormPage() {
                       if (!createdProduct) return
                       setUploading(true)
                       void uploadPending(createdProduct.id, items)
-                        .then((failures) => {
-                          setUploadFailures(failures)
-                          if (failures === 0) {
+                        .then((result) => {
+                          setUploadFailures(result.failures)
+                          setOrderFailed(!result.orderSaved)
+                          if (result.failures === 0 && result.orderSaved) {
                             navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })
                           }
                         })
@@ -607,6 +711,25 @@ export function AdminProductFormPage() {
                     className={adminSecondaryButton}
                   >
                     {t('admin.form.retry_upload')}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })}
+                    className={adminPrimaryButton}
+                  >
+                    {t('admin.form.go_to_edit')}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {createdProduct && uploadFailures === 0 && orderFailed && (
+              <div role="alert" className="rounded-lg border border-danger-border bg-danger-surface px-4 py-3 text-sm text-text-primary">
+                <p className="font-medium text-danger">{t('admin.form.order_failed_title')}</p>
+                <p className="mt-1 text-text-secondary">{t('admin.form.order_failed_hint')}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" disabled={uploading} onClick={retryOrder} className={adminSecondaryButton}>
+                    {t('admin.form.retry_order')}
                   </button>
                   <button
                     type="button"
@@ -630,6 +753,7 @@ export function AdminProductFormPage() {
                       id="product-name"
                       value={form.name}
                       maxLength={255}
+                      required
                       disabled={locked}
                       onChange={(event) => changeField('name', event.target.value)}
                       className={floatingInputClass}
@@ -657,8 +781,8 @@ export function AdminProductFormPage() {
                         <FloatingControl id="product-price" label={`${t('admin.form.price')} *`}>
                           <input
                             id="product-price" type="text" inputMode="decimal" placeholder="0,00"
-                            value={form.price} disabled={locked}
-                            onChange={(event) => changeField('price', event.target.value)}
+                            value={priceText} disabled={locked} aria-required
+                            onChange={(event) => changePrice(event.target.value)}
                             className={floatingInputClass}
                           />
                         </FloatingControl>
@@ -668,7 +792,7 @@ export function AdminProductFormPage() {
                         <FloatingControl id="product-stock" label={`${t('admin.form.stock')} *`}>
                           <input
                             id="product-stock" type="number" min="0" step="1" inputMode="numeric"
-                            value={form.stock} disabled={locked}
+                            value={form.stock} disabled={locked} aria-required
                             onChange={(event) => changeField('stock', event.target.value)}
                             className={floatingInputClass}
                           />
@@ -692,9 +816,9 @@ export function AdminProductFormPage() {
                     <>
                       <TextField
                         id="product-price" label={t('admin.form.price')} required type="text" inputMode="decimal"
-                        placeholder="0,00" value={form.price} disabled={locked}
+                        placeholder="0,00" value={priceText} disabled={locked}
                         error={fieldErrors.price}
-                        onChange={(event) => changeField('price', event.target.value)}
+                        onChange={(event) => changePrice(event.target.value)}
                       />
                       <TextField
                         id="product-stock" label={t('admin.form.stock')} required type="number"
@@ -722,12 +846,13 @@ export function AdminProductFormPage() {
               <div className="mt-3">
                 <ProductGalleryEditor
                   items={items}
-                  disabled={locked || uploading}
+                  disabled={locked || uploading || reorderImages.isPending || deleteImage.isPending}
                   onAddFiles={handleAddFiles}
                   onRemove={removeItem}
                   onReorder={reorder}
                   onRetry={createdProduct ? retryItem : isEdit ? retryItem : undefined}
                   error={galleryError}
+                  errorHint={orderFailed ? t('admin.form.order_failed_hint') : null}
                 />
               </div>
             </section>
@@ -912,10 +1037,11 @@ export function AdminProductFormPage() {
               )}
             </div>
           </form>
-        )}
+          )}
+        </div>
       </section>
 
-              <DeleteConfirmationModal
+      <DeleteConfirmationModal
         open={removeTarget !== null}
         title={t('admin.form.gallery_remove_title')}
         description={t('admin.form.gallery_remove_desc')}

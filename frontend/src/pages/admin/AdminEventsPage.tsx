@@ -6,8 +6,7 @@ import {
   useGetFilterOptionsApiV1AdminEventsFiltersGet,
   useListEventsApiV1AdminEventsGet,
 } from '../../api/generated/client'
-import { adminErrorText, readEnum, readPageSize, readPositiveInt, readText, withParams } from '../../admin/params'
-import { useDebouncedValue } from '../../utils/useDebouncedValue'
+import { adminErrorText, MAX_SEARCH_LENGTH, readEnum, readPageSize, readPositiveInt, readSearchQuery, readText, withParams } from '../../admin/params'
 import { useSyncedDraft } from '../../utils/useSyncedDraft'
 import { AdminLayout } from '../../components/admin/AdminLayout'
 import { AdminEmpty, AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
@@ -28,9 +27,10 @@ export function AdminEventsPage() {
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const urlQuery = readText(searchParams, 'q')
-  const [searchDraft, setSearchDraft] = useSyncedDraft(urlQuery)
-  const debouncedQuery = useDebouncedValue(searchDraft, 300)
+  const urlQuery = readSearchQuery(searchParams)
+  const [searchDraft, setSearchDraft] = useSyncedDraft(urlQuery, (value) => {
+    setSearchParams((current) => withParams(current, { q: value, page: 1 }), { replace: true })
+  })
   const category = readText(searchParams, 'category')
   const outcome = readText(searchParams, 'outcome')
   const sort = readEnum(searchParams, 'sort', SORTS, 'occurred_desc')
@@ -39,11 +39,6 @@ export function AdminEventsPage() {
   const page = readPositiveInt(searchParams, 'page', 1)
   const pageSize = readPageSize(searchParams)
   const invalidRange = Boolean(dateFrom && dateTo && dateFrom > dateTo)
-
-  useEffect(() => {
-    if (debouncedQuery === urlQuery) return
-    setSearchParams((current) => withParams(current, { q: debouncedQuery, page: 1 }), { replace: true })
-  }, [debouncedQuery, urlQuery, setSearchParams])
 
   const filterOptions = useGetFilterOptionsApiV1AdminEventsFiltersGet()
   const events = useListEventsApiV1AdminEventsGet(
@@ -104,10 +99,16 @@ export function AdminEventsPage() {
               type="search"
               value={searchDraft}
               onChange={(event) => setSearchDraft(event.target.value)}
+              maxLength={MAX_SEARCH_LENGTH}
               placeholder={t('admin.events.search_placeholder')}
               aria-label={t('admin.events.search_label')}
               className={`${adminControl} pl-10`}
             />
+            {searchDraft.length >= MAX_SEARCH_LENGTH && (
+              <p className="mt-1 text-xs text-text-muted">
+                {t('admin.common.search_limit', { max: MAX_SEARCH_LENGTH })}
+              </p>
+            )}
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">

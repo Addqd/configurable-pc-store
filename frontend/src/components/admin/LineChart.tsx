@@ -21,6 +21,8 @@ interface LineChartProps {
 
 const WIDTH = 720
 const MARGIN = { top: 18, right: 16, bottom: 34, left: 56 }
+/** Minimum horizontal room (in viewBox units) reserved for one x-axis label. */
+const LABEL_SLOT = 72
 
 /** Small dependency-free SVG line chart with axes, grid and a legend. */
 export function LineChart({ series, formatValue = (value) => String(value), height = 280, ariaLabel }: LineChartProps) {
@@ -32,6 +34,16 @@ export function LineChart({ series, formatValue = (value) => String(value), heig
   const ticks = [0, 0.25, 0.5, 0.75, 1]
   const x = (index: number) => MARGIN.left + (labels.length <= 1 ? plotWidth / 2 : (index / (labels.length - 1)) * plotWidth)
   const y = (value: number) => MARGIN.top + plotHeight - (value / maxValue) * plotHeight
+
+  // Long periods (12 months and more) get evenly sampled ticks instead of every
+  // month, while the series keeps every data point.
+  const maxLabels = Math.max(2, Math.floor(plotWidth / LABEL_SLOT))
+  const labelStep = Math.max(1, Math.ceil(labels.length / maxLabels))
+  const visibleLabelIndexes = new Set<number>(
+    labels
+      .map((_, index) => index)
+      .filter((index) => index % labelStep === 0 || index === labels.length - 1),
+  )
 
   if (series.length === 0 || labels.length === 0) {
     return <p className="py-12 text-center text-sm text-text-muted">{t('admin.analytics.no_data')}</p>
@@ -79,6 +91,7 @@ export function LineChart({ series, formatValue = (value) => String(value), heig
             textAnchor="middle"
             fontSize="11"
             fill="var(--color-text-secondary)"
+            visibility={visibleLabelIndexes.has(index) ? undefined : 'hidden'}
           >
             {label}
           </text>

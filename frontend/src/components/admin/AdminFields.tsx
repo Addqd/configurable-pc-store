@@ -25,6 +25,8 @@ function FieldMessages({ id, hint, error }: { id: string; hint?: string; error?:
   return null
 }
 
+const requiredAttr = (required: boolean | undefined) => (required ? true : undefined)
+
 type TextFieldProps = BaseFieldProps &
   Omit<InputHTMLAttributes<HTMLInputElement>, 'id' | 'className'> & { inputClass?: string }
 
@@ -34,6 +36,7 @@ export function TextField({ id, label, required, hint, error, className = '', in
       <FieldLabel id={id} label={label} required={required} />
       <input
         id={id}
+        aria-required={requiredAttr(required)}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
         className={`${adminControl} ${error ? 'border-danger' : ''} ${inputClass ?? ''}`.trim()}
@@ -65,6 +68,7 @@ export function SelectField({
       <div className="relative">
         <select
           id={id}
+          aria-required={requiredAttr(required)}
           aria-invalid={error ? true : undefined}
           aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
           className={`${adminSelect} ${error ? 'border-danger' : ''}`.trim()}
@@ -96,6 +100,7 @@ export function TextareaField({ id, label, required, hint, error, className = ''
       <FieldLabel id={id} label={label} required={required} />
       <textarea
         id={id}
+        aria-required={requiredAttr(required)}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : hint ? `${id}-hint` : undefined}
         className={`${adminTextarea} ${error ? 'border-danger' : ''}`.trim()}

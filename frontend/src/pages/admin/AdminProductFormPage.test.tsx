@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
+import { act } from 'react'
 import { render } from '../../test-utils'
+import i18n from '../../i18n'
 import { AdminProductFormPage } from './AdminProductFormPage'
 import {
   callsTo, jsonResponse, productDetailFixture, productOptionsFixture, requestBody,
@@ -10,8 +12,9 @@ import {
 
 vi.mock('../../components/Header', () => ({ Header: () => <header data-testid="header" /> }))
 
-function setup(options: { failFirstUpload?: boolean } = {}) {
+function setup(options: { failFirstUpload?: boolean; failFirstOrder?: boolean } = {}) {
   let uploadFailed = false
+  let orderFailed = false
   const handler = (url: URL, init: RequestInit) => {
     const method = init.method ?? 'GET'
     if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
@@ -33,6 +36,10 @@ function setup(options: { failFirstUpload?: boolean } = {}) {
       return jsonResponse({ id: 901, url: '/uploaded.png', alt_text: null, sort_order: 0, is_cover: true }, 201)
     }
     if (url.pathname === '/api/v1/admin/products/900/images/order' && method === 'PUT') {
+      if (options.failFirstOrder && !orderFailed) {
+        orderFailed = true
+        return jsonResponse({ detail: 'Ordering failed' }, 500)
+      }
       return jsonResponse([{ id: 901, url: '/uploaded.png', alt_text: null, sort_order: 0, is_cover: true }])
     }
     return undefined
@@ -63,9 +70,10 @@ beforeEach(() => {
   Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true })
 })
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
   vi.unstubAllGlobals()
+  await act(async () => { await i18n.changeLanguage('ru') })
 })
 
 describe('admin product creation', () => {
@@ -113,6 +121,29 @@ describe('admin product creation', () => {
     })
   })
 
+  it('applies the existing type and size validation to files dropped from the OS', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    const zone = document.querySelector('[data-gallery-dropzone]') as HTMLElement
+
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File(['x'], 'notes.txt', { type: 'text/plain' })], types: ['Files'] },
+    })
+    expect(await screen.findByText('Можно загрузить только JPG, PNG или WebP')).toBeTruthy()
+    expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(0)
+
+    const bigFile = new File([new Uint8Array(1)], 'huge.png', { type: 'image/png' })
+    Object.defineProperty(bigFile, 'size', { value: 6 * 1024 * 1024 })
+    fireEvent.drop(zone, { dataTransfer: { files: [bigFile], types: ['Files'] } })
+    expect(await screen.findByText('Изображение должно быть меньше 5 МБ')).toBeTruthy()
+    expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(0)
+
+    fireEvent.drop(zone, {
+      dataTransfer: { files: [new File([new Uint8Array([1])], 'ok.png', { type: 'image/png' })], types: ['Files'] },
+    })
+    await waitFor(() => expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(1))
+  })
+
   it('keeps the created product and retries a failed image upload without creating a duplicate', async () => {
     const fetchMock = setup({ failFirstUpload: true })
     await screen.findByRole('heading', { name: 'Добавление товара' })
@@ -136,9 +167,38 @@ describe('admin product creation', () => {
     expect(callsTo(fetchMock, '/api/v1/admin/products').filter(([, init]) => init.method === 'POST')).toHaveLength(1)
     expect(callsTo(fetchMock, '/api/v1/admin/products/900/images').filter(([, init]) => init.method === 'POST')).toHaveLength(2)
   })
+
+  it('keeps an ordering failure recoverable and retries the order without re-uploading the accepted image', async () => {
+    const fetchMock = setup({ failFirstOrder: true })
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement
+    const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' })
+    Object.defineProperty(input, 'files', { value: [file], configurable: true })
+    fireEvent.change(input)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
+    expect(await screen.findByText('Товар создан, но порядок изображений не сохранён.')).toBeTruthy()
+    // The failed ordering must not be reported as a completed creation.
+    expect(screen.queryByText('EDIT PAGE')).toBeNull()
+    expect(callsTo(fetchMock, '/api/v1/admin/products/900/images').filter(([, init]) => init.method === 'POST')).toHaveLength(1)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить сохранение порядка' }))
+    await waitFor(() => expect(screen.getByText('EDIT PAGE')).toBeTruthy())
+
+    const uploads = callsTo(fetchMock, '/api/v1/admin/products/900/images').filter(([, init]) => init.method === 'POST')
+    expect(uploads).toHaveLength(1)
+    const orders = callsTo(fetchMock, '/api/v1/admin/products/900/images/order').filter(([, init]) => init.method === 'PUT')
+    expect(orders.length).toBeGreaterThanOrEqual(2)
+    expect((requestBody(orders.at(-1)?.[1] ?? {}) as { image_ids: number[] }).image_ids).toEqual([901])
+  })
 })
 
-function setupEdit() {
+function setupEdit(price = '64990.00') {
+  const detail = { ...productDetailFixture, price }
   const handler = (url: URL, init: RequestInit) => {
     const method = init.method ?? 'GET'
     if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
@@ -146,10 +206,10 @@ function setupEdit() {
       return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
     }
     if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
-    if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(productDetailFixture)
+    if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
     if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
       const body = requestBody(init) as { price?: string }
-      return jsonResponse({ ...productDetailFixture, ...body, price: body.price ?? productDetailFixture.price })
+      return jsonResponse({ ...detail, ...body, price: body.price ?? detail.price })
     }
     return undefined
   }
@@ -177,5 +237,140 @@ describe('admin product editing', () => {
 
     const patch = callsTo(fetchMock, '/api/v1/admin/products/7').find(([, init]) => init.method === 'PATCH')
     expect((requestBody(patch?.[1] ?? {}) as { price: string }).price).toBe('64990.00')
+  })
+
+  it('preserves a fractional price when the language switches from RU to EN', async () => {
+    const fetchMock = setupEdit('129990.50')
+    expect(await screen.findByRole('heading', { name: 'Редактирование товара' })).toBeTruthy()
+    const price = document.getElementById('product-price') as HTMLInputElement
+    expect(price.value.replace(/\u00a0|\u202f/g, ' ')).toBe('129 990,5')
+
+    await act(async () => { await i18n.changeLanguage('en') })
+    expect(price.value.replace(/\u00a0|\u202f/g, ' ')).toBe('129,990.5')
+
+    fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
+    await waitFor(() => expect(callsTo(fetchMock, '/api/v1/admin/products/7').some(([, init]) => init.method === 'PATCH')).toBe(true))
+    const patch = callsTo(fetchMock, '/api/v1/admin/products/7').find(([, init]) => init.method === 'PATCH')
+    expect((requestBody(patch?.[1] ?? {}) as { price: string }).price).toBe('129990.50')
+  })
+
+  it('preserves a fractional price when the language switches from EN to RU', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    const fetchMock = setupEdit('129990.50')
+    expect(await screen.findByRole('heading', { name: 'Edit product' })).toBeTruthy()
+    const price = document.getElementById('product-price') as HTMLInputElement
+    expect(price.value.replace(/\u00a0|\u202f/g, ' ')).toBe('129,990.5')
+
+    await act(async () => { await i18n.changeLanguage('ru') })
+    expect(price.value.replace(/\u00a0|\u202f/g, ' ')).toBe('129 990,5')
+
+    fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
+    await waitFor(() => expect(callsTo(fetchMock, '/api/v1/admin/products/7').some(([, init]) => init.method === 'PATCH')).toBe(true))
+    const patch = callsTo(fetchMock, '/api/v1/admin/products/7').find(([, init]) => init.method === 'PATCH')
+    expect((requestBody(patch?.[1] ?? {}) as { price: string }).price).toBe('129990.50')
+  })
+
+  it('never resurrects a deleted image when a failed reorder rolls back', async () => {
+    const detail = {
+      ...productDetailFixture,
+      images: [
+        { id: 71, url: '/photo-1.png', alt_text: null, sort_order: 0, is_cover: true },
+        { id: 72, url: '/photo-2.png', alt_text: null, sort_order: 1, is_cover: false },
+        { id: 73, url: '/photo-3.png', alt_text: null, sort_order: 2, is_cover: false },
+      ],
+    }
+    const fetchMock = stubAdminFetch({
+      handler: (url, init) => {
+        const method = init.method ?? 'GET'
+        if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+        if (url.pathname === '/api/v1/products/filters') {
+          return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+        }
+        if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+        if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
+        if (url.pathname === '/api/v1/admin/products/7/images/73' && method === 'DELETE') {
+          return new Response(null, { status: 204 })
+        }
+        if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') {
+          return jsonResponse({ detail: 'Ordering failed' }, 500)
+        }
+        return undefined
+      },
+    })
+    render(
+      <MemoryRouter initialEntries={['/admin/products/7/edit']}>
+        <Routes>
+          <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(3))
+
+    // Delete the third image for real (the server confirms the deletion).
+    const thirdTile = document.querySelector('[data-gallery-index="2"]') as HTMLElement
+    fireEvent.click(within(thirdTile).getByRole('button', { name: /Удалить изображение/ }))
+    const confirmation = screen.getByRole('dialog')
+    fireEvent.click(within(confirmation).getByRole('button', { name: 'Удалить изображение' }))
+    await waitFor(() => expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(2))
+    expect(callsTo(fetchMock, '/api/v1/admin/products/7/images/73').some(([, init]) => init.method === 'DELETE')).toBe(true)
+
+    // A reorder the server rejects must roll back to the server order only.
+    const tiles = document.querySelectorAll('[data-gallery-index]')
+    fireEvent.dragStart(tiles[0] as HTMLElement, { dataTransfer: { files: [], types: [] } })
+    fireEvent.drop(tiles[1] as HTMLElement, { dataTransfer: { files: [], types: [] } })
+
+    await waitFor(() => expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(2))
+    const srcs = Array.from(document.querySelectorAll('[data-gallery-index] img')).map((img) => img.getAttribute('src'))
+    expect(srcs).toEqual(['/photo-1.png', '/photo-2.png'])
+  })
+
+  it('does not start an image removal while a reorder request is in flight', async () => {
+    const detail = {
+      ...productDetailFixture,
+      images: [
+        { id: 71, url: '/photo-1.png', alt_text: null, sort_order: 0, is_cover: true },
+        { id: 72, url: '/photo-2.png', alt_text: null, sort_order: 1, is_cover: false },
+      ],
+    }
+    let finishOrder: ((response: Response) => void) | undefined
+    const orderResponse = new Promise<Response>((resolve) => { finishOrder = resolve })
+    stubAdminFetch({
+      handler: (url, init) => {
+        const method = init.method ?? 'GET'
+        if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+        if (url.pathname === '/api/v1/products/filters') {
+          return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+        }
+        if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+        if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
+        if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') return orderResponse
+        return undefined
+      },
+    })
+    render(
+      <MemoryRouter initialEntries={['/admin/products/7/edit']}>
+        <Routes>
+          <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(2))
+
+    const tiles = document.querySelectorAll('[data-gallery-index]')
+    fireEvent.dragStart(tiles[0] as HTMLElement, { dataTransfer: { files: [], types: [] } })
+    fireEvent.drop(tiles[1] as HTMLElement, { dataTransfer: { files: [], types: [] } })
+
+    // While the order request is pending the gallery cannot start a delete.
+    await waitFor(() => {
+      const remove = document.querySelector('[data-gallery-index="0"] button[aria-label^="Удалить изображение"]') as HTMLButtonElement
+      expect(remove.disabled).toBe(true)
+    })
+    fireEvent.click(document.querySelector('[data-gallery-index="0"] button[aria-label^="Удалить изображение"]') as HTMLElement)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    finishOrder?.(jsonResponse({ detail: 'Ordering failed' }, 500))
+    await waitFor(() => expect(document.querySelectorAll('[data-gallery-index]')).toHaveLength(2))
   })
 })

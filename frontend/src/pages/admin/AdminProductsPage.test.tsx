@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useLocation, useNavigate } from 'react-router'
 import { render } from '../../test-utils'
 import { AdminProductsPage } from './AdminProductsPage'
 import {
@@ -15,6 +15,17 @@ const secondProduct = {
   id: 8,
   name: 'ASUS GeForce RTX 4070 Ti SUPER TUF Gaming 16G',
   price: '89990.00',
+}
+
+function RouterProbe() {
+  const location = useLocation()
+  const navigate = useNavigate()
+  return (
+    <>
+      <output data-testid="location">{`${location.pathname}${location.search}`}</output>
+      <button type="button" onClick={() => navigate(-1)}>Go back</button>
+    </>
+  )
 }
 
 function setup(failDeactivate = false) {
@@ -39,7 +50,7 @@ function setup(failDeactivate = false) {
     return undefined
   }
   const fetchMock = stubAdminFetch({ handler })
-  render(<MemoryRouter><AdminProductsPage /></MemoryRouter>)
+  render(<MemoryRouter><AdminProductsPage /><RouterProbe /></MemoryRouter>)
   return fetchMock
 }
 
@@ -58,6 +69,31 @@ describe('admin products page', () => {
     expect(screen.getByText('Активных:')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Добавить товар' }).getAttribute('href')).toBe('/admin/products/new')
     expect(screen.getByRole('link', { name: 'Статистика продаж' }).getAttribute('href')).toBe('/admin/analytics')
+    // Products/Users are separate routes: real links, not ARIA tabs.
+    expect(screen.getByRole('link', { name: 'Пользователи' }).getAttribute('href')).toBe('/admin/users')
+    expect(screen.queryByRole('tab')).toBeNull()
+  })
+
+  it('shows every sort value the URL accepts in the sort select', async () => {
+    setup()
+    await screen.findByText(productSummaryFixture.name)
+    const select = screen.getByLabelText('Сортировка') as HTMLSelectElement
+    const values = Array.from(select.options).map((option) => option.value)
+    expect(values).toEqual([
+      'created_desc', 'created_asc', 'updated_desc', 'updated_asc',
+      'name_asc', 'name_desc', 'price_asc', 'price_desc',
+      'stock_asc', 'stock_desc', 'id_asc', 'id_desc',
+    ])
+  })
+
+  it('keeps the value of an accepted but previously hidden sort', async () => {
+    const fetchMock = setup()
+    await screen.findByText(productSummaryFixture.name)
+    fireEvent.change(screen.getByLabelText('Сортировка'), { target: { value: 'updated_asc' } })
+    expect((screen.getByLabelText('Сортировка') as HTMLSelectElement).value).toBe('updated_asc')
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('sort=updated_asc'))).toBe(true)
+    })
   })
 
   it('sends search and filter changes to the API', async () => {
@@ -116,5 +152,41 @@ describe('admin products page', () => {
     await waitFor(() => {
       expect(fetchMock.mock.calls.some(([url]) => String(url).includes('page=2'))).toBe(true)
     })
+  })
+
+  it('does not let a stale debounced draft overwrite the query restored by Back', async () => {
+    const fetchMock = stubAdminFetch({
+      handler: (url, init) => {
+        if (url.pathname === '/api/v1/admin/products' && (init.method ?? 'GET') === 'GET') {
+          return jsonResponse({ items: [productSummaryFixture], total: 1, page: 1, page_size: 10, total_pages: 1 })
+        }
+        if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+        if (url.pathname === '/api/v1/products/filters') {
+          return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+        }
+        return undefined
+      },
+    })
+    render(
+      <MemoryRouter initialEntries={['/admin/products?q=abc', '/admin/products?q=abd']} initialIndex={1}>
+        <AdminProductsPage />
+        <RouterProbe />
+      </MemoryRouter>,
+    )
+    const search = (await screen.findByLabelText('Поиск товаров по названию или SKU')) as HTMLInputElement
+    await waitFor(() => expect(search.value).toBe('abd'))
+
+    // Type, then navigate back before the debounce fires.
+    fireEvent.change(search, { target: { value: 'abcdef' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Go back' }))
+
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toBe('/admin/products?q=abc'))
+    await waitFor(() => expect((screen.getByLabelText('Поиск товаров по названию или SKU') as HTMLInputElement).value).toBe('abc'))
+
+    // Give the pending debounce (300 ms) time to fire; it must stay cancelled.
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    expect(screen.getByTestId('location').textContent).toBe('/admin/products?q=abc')
+    expect((screen.getByLabelText('Поиск товаров по названию или SKU') as HTMLInputElement).value).toBe('abc')
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('q=abcdef'))).toBe(false)
   })
 })

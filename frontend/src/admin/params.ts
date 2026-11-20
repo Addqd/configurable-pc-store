@@ -27,6 +27,17 @@ export type AdminProductStatsSort = (typeof PRODUCT_STATS_SORTS)[number]
 
 export const EVENT_SORTS = ['occurred_desc', 'occurred_asc'] as const
 
+/**
+ * Server-defined maximum length for the admin search parameter
+ * (`Query(max_length=120)` on every admin list endpoint).
+ */
+export const MAX_SEARCH_LENGTH = 120
+
+/** Reads `q` from the URL, bounded to the server limit before it can reach the API. */
+export function readSearchQuery(params: URLSearchParams, key = 'q'): string {
+  return readText(params, key).slice(0, MAX_SEARCH_LENGTH)
+}
+
 export function readEnum<T extends string>(
   params: URLSearchParams,
   key: string,
@@ -64,24 +75,47 @@ export function withParams(
   return params
 }
 
-export function formatNumber(value: number): string {
-  return new Intl.NumberFormat(i18n.resolvedLanguage === 'en' ? 'en-GB' : 'ru-RU').format(value)
+/** Formatting locale of the active UI language. */
+export function activeLocale(): 'en-GB' | 'ru-RU' {
+  return i18n.resolvedLanguage === 'en' ? 'en-GB' : 'ru-RU'
 }
 
+export function formatNumber(value: number): string {
+  return new Intl.NumberFormat(activeLocale()).format(value)
+}
+
+/**
+ * Compact number used by chart axes, localized with the active language
+ * (`1,2 тыс.` in Russian, `1.2K` in English).
+ */
+export function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat(activeLocale(), { notation: 'compact', maximumFractionDigits: 1 }).format(value)
+}
+
+/**
+ * Rouble amount. Nonzero kopecks are preserved, whole roubles stay without
+ * decimals so the tables keep their existing compact presentation.
+ */
 export function formatMoney(value: string | number): string {
   const amount = typeof value === 'string' ? Number(value) : value
   if (!Number.isFinite(amount)) return '—'
-  return `${new Intl.NumberFormat(
-    i18n.resolvedLanguage === 'en' ? 'en-GB' : 'ru-RU',
-    { maximumFractionDigits: 0 },
-  ).format(amount)} ₽`
+  const hasFraction = Math.round(Math.abs(amount) * 100) % 100 !== 0
+  return `${new Intl.NumberFormat(activeLocale(), {
+    minimumFractionDigits: hasFraction ? 2 : 0,
+    maximumFractionDigits: 2,
+  }).format(amount)} ₽`
 }
 
 export function formatRating(value: number): string {
-  return new Intl.NumberFormat(i18n.resolvedLanguage === 'en' ? 'en-GB' : 'ru-RU', {
+  return new Intl.NumberFormat(activeLocale(), {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   }).format(value)
+}
+
+/** Decimal without trailing zeros, used by chart axis ticks. */
+export function formatDecimal(value: number): string {
+  return new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 1 }).format(value)
 }
 
 export function isoDate(date: Date): string {
@@ -96,9 +130,13 @@ export function monthsAgoStart(months: number): string {
   return isoDate(new Date(now.getFullYear(), now.getMonth() - (months - 1), 1))
 }
 
+/**
+ * Inclusive start date of a "last N days" period: with `days = 30` the range
+ * `daysAgoWindow(30)..today` contains exactly 30 calendar days, today included.
+ */
 export function daysAgo(days: number): string {
   const now = new Date()
-  return isoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - days))
+  return isoDate(new Date(now.getFullYear(), now.getMonth(), now.getDate() - (days - 1)))
 }
 
 export function niceAxisMax(value: number): number {
@@ -112,13 +150,23 @@ export function niceAxisMax(value: number): number {
 
 const RU_MONTHS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек']
 
-export function monthLabel(value: string): string {
+/** True when the given ISO dates belong to more than one calendar year. */
+export function spansMultipleYears(values: readonly string[]): boolean {
+  const years = new Set(values.filter(Boolean).map((value) => value.slice(0, 4)))
+  return years.size > 1
+}
+
+/**
+ * Short month label for chart axes. Multi-year ranges add the year so that
+ * "Янв" from 2025 and 2026 stay distinguishable.
+ */
+export function monthLabel(value: string, options: { withYear?: boolean } = {}): string {
   const date = new Date(`${value.slice(0, 10)}T00:00:00`)
   if (Number.isNaN(date.getTime())) return value
-  if (i18n.resolvedLanguage === 'en') {
-    return new Intl.DateTimeFormat('en-GB', { month: 'short' }).format(date)
-  }
-  return RU_MONTHS[date.getMonth()] ?? value
+  const month = i18n.resolvedLanguage === 'en'
+    ? new Intl.DateTimeFormat('en-GB', { month: 'short' }).format(date)
+    : RU_MONTHS[date.getMonth()] ?? value
+  return options.withYear ? `${month} ${date.getFullYear()}` : month
 }
 
 export function periodRangeLabel(from: string | null | undefined, to: string | null | undefined): string {
