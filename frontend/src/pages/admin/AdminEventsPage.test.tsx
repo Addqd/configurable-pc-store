@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
 import { render } from '../../test-utils'
+import type { AdminPaginatedEventsOut } from '../../api/generated/model'
 import { AdminEventsPage } from './AdminEventsPage'
-import { eventsFixture, jsonResponse, stubAdminFetch } from '../../test-admin-api'
+import { eventsActorFixture, eventsFixture, jsonResponse, stubAdminFetch } from '../../test-admin-api'
 
 vi.mock('../../components/Header', () => ({ Header: () => <header data-testid="header" /> }))
 
@@ -12,7 +13,7 @@ function LocationProbe() {
   return <output data-testid="location">{`${location.pathname}${location.search}`}</output>
 }
 
-function setup() {
+function setup(fixture: AdminPaginatedEventsOut = eventsFixture) {
   const handler = (url: URL) => {
     if (url.pathname === '/api/v1/admin/events/filters') {
       return jsonResponse({
@@ -21,7 +22,7 @@ function setup() {
         outcomes: ['success', 'failure'],
       })
     }
-    if (url.pathname === '/api/v1/admin/events') return jsonResponse(eventsFixture)
+    if (url.pathname === '/api/v1/admin/events') return jsonResponse(fixture)
     return undefined
   }
   const fetchMock = stubAdminFetch({ handler })
@@ -55,7 +56,8 @@ describe('admin event journal', () => {
     expect(screen.getByText('Неудачная попытка входа')).toBeTruthy()
     expect(screen.getByText('Неверный пароль')).toBeTruthy()
     expect(screen.getByText('Неизвестный')).toBeTruthy()
-    expect(screen.getByText('Пользователь #104')).toBeTruthy()
+    expect(screen.getByText('IvanCool')).toBeTruthy()
+    expect(screen.getByText('Alex')).toBeTruthy()
     expect(screen.getAllByText('Успешно').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Ошибка').length).toBeGreaterThan(0)
     expect(screen.getByText('Показано 1–10 из 247')).toBeTruthy()
@@ -126,5 +128,47 @@ describe('admin event journal', () => {
     await screen.findByText('Создал сборку #28')
     fireEvent.click(screen.getByRole('button', { name: 'Закрыть журнал' }))
     expect(await screen.findByText('USERS PAGE')).toBeTruthy()
+  })
+})
+
+describe('admin event journal actor columns', () => {
+  const tableRows = () =>
+    Array.from(document.querySelectorAll('tbody tr')).map((row) =>
+      Array.from(row.querySelectorAll('td')).map((cell) => cell.textContent ?? ''),
+    )
+
+  it('renders the five required columns in the required order', async () => {
+    setup()
+    await screen.findByText('Создал сборку #28')
+    const headers = Array.from(document.querySelectorAll('table thead th')).map((cell) => cell.textContent)
+    expect(headers).toEqual(['Время', 'Имя пользователя', 'ID пользователя', 'Событие', 'Результат'])
+  })
+
+  it('shows the real username and the numeric id in separate columns', async () => {
+    setup()
+    const row = (await screen.findByText('Создал сборку #28')).closest('tr') as HTMLElement
+    const cells = within(row).getAllByRole('cell')
+    expect(cells[1]?.textContent).toBe('IvanCool')
+    expect(cells[2]?.textContent).toBe('104')
+    // No combined `Пользователь #104` label survives anywhere in the row.
+    expect(row.textContent).not.toContain('Пользователь #104')
+  })
+
+  it('keeps admins, owners, deleted users and system events distinguishable', async () => {
+    setup(eventsActorFixture)
+    await screen.findByText('Создал сборку #28')
+    const actors = tableRows().map((cells) => [cells[1], cells[2]])
+    expect(actors).toEqual([
+      ['IvanCool', '104'],
+      ['AdminMaster', '42'],
+      ['owner', '1'],
+      // Deleted accounts: the recorded snapshot is shown, never a made-up name.
+      ['DeletedIvan', '56'],
+      ['Администратор (недоступен)', '57'],
+      // System-generated events have no actor and no id.
+      ['Система', '—'],
+    ])
+    // The unknown-actor label stays reserved for failed authentication.
+    expect(screen.queryByText('Неизвестный')).toBeNull()
   })
 })

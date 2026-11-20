@@ -15,7 +15,8 @@ import {
   adminCard, adminControl, adminSelect, adminTableHead, adminTableHeadCell, adminTableCell,
 } from '../../components/admin/adminStyles'
 import {
-  eventActorLabel, eventCategoryLabel, eventDetailsLine, eventOutcomeLabel, eventTypeLabel, formatEventTime,
+  eventActorId, eventActorName, eventCategoryLabel, eventDetailsLine, eventOutcomeLabel, eventTypeLabel,
+  formatEventTime,
 } from './eventDisplay'
 
 const CATEGORIES = ['auth', 'account', 'order', 'build', 'review', 'admin', 'catalog', 'system'] as const
@@ -202,24 +203,31 @@ export function AdminEventsPage() {
           ) : (
             <>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[780px] border-collapse">
+                <table className="w-full min-w-[900px] border-collapse">
                   <thead>
                     <tr className={`${adminTableHead} uppercase tracking-wide`}>
-                      <th scope="col" className={`${adminTableHeadCell} w-[14%]`}>{t('admin.events.col_time')}</th>
-                      <th scope="col" className={`${adminTableHeadCell} w-[24%]`}>{t('admin.events.col_actor')}</th>
+                      <th scope="col" className={`${adminTableHeadCell} w-[12%]`}>{t('admin.events.col_time')}</th>
+                      <th scope="col" className={`${adminTableHeadCell} w-[20%]`}>{t('admin.events.col_username')}</th>
+                      <th scope="col" className={`${adminTableHeadCell} w-[15%]`}>{t('admin.events.col_user_id')}</th>
                       <th scope="col" className={adminTableHeadCell}>{t('admin.events.col_event')}</th>
-                      <th scope="col" className={`${adminTableHeadCell} w-[15%]`}>{t('admin.events.col_outcome')}</th>
+                      <th scope="col" className={`${adminTableHeadCell} w-[12%]`}>{t('admin.events.col_outcome')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     {events.data?.items.map((event) => {
                       const details = eventDetailsLine(event)
+                      const actorId = eventActorId(event)
                       return (
                         <tr key={event.id} className="border-b border-border last:border-0">
                           <td className={`${adminTableCell} whitespace-nowrap text-sm text-text-secondary`}>
                             {formatEventTime(event.occurred_at)}
                           </td>
-                          <td className={`${adminTableCell} text-sm text-text-primary`}>{eventActorLabel(event)}</td>
+                          <td className={`${adminTableCell} text-sm text-text-primary`}>
+                            <span className="break-words">{eventActorName(event)}</span>
+                          </td>
+                          <td className={`${adminTableCell} text-sm tabular-nums ${actorId === null ? 'text-text-muted' : 'text-text-secondary'}`}>
+                            {actorId === null ? <span aria-hidden="true">—</span> : actorId}
+                          </td>
                           <td className={adminTableCell}>
                             <p className="text-sm text-text-primary">{eventTypeLabel(event)}</p>
                             {details && <p className="mt-0.5 text-xs text-text-muted">{details}</p>}

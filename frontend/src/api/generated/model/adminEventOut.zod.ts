@@ -13,6 +13,7 @@ export const AdminEventOut = zod.object({
   "occurred_at": zod.iso.datetime({"offset":true}),
   "actor_user_id": zod.union([zod.int(),zod.null()]).optional(),
   "actor_role": zod.union([zod.string(),zod.null()]).optional(),
+  "actor_username": zod.union([zod.string(),zod.null()]).optional(),
   "category": zod.string(),
   "event_type": zod.string(),
   "outcome": zod.string(),

@@ -158,21 +158,76 @@ export const eventsFixture = {
   items: [
     {
       id: 247, event_key: 'build.created', occurred_at: '2026-11-17T14:52:00Z',
-      actor_user_id: 104, actor_role: 'user', category: 'build', event_type: 'build.created',
+      actor_user_id: 104, actor_role: 'user', actor_username: 'IvanCool',
+      category: 'build', event_type: 'build.created',
       outcome: 'success', target_type: 'build', target_id: 28, reason: null, details: {},
     },
     {
       id: 246, event_key: 'review.created', occurred_at: '2026-11-17T14:49:00Z',
-      actor_user_id: 87, actor_role: 'user', category: 'review', event_type: 'review.created',
+      actor_user_id: 87, actor_role: 'user', actor_username: 'Alex',
+      category: 'review', event_type: 'review.created',
       outcome: 'success', target_type: 'review', target_id: 31, reason: null, details: {},
     },
     {
       id: 245, event_key: 'auth.login_failed', occurred_at: '2026-11-17T14:40:00Z',
-      actor_user_id: null, actor_role: null, category: 'auth', event_type: 'auth.login_failed',
+      actor_user_id: null, actor_role: null, actor_username: null,
+      category: 'auth', event_type: 'auth.login_failed',
       outcome: 'failure', target_type: 'user', target_id: null, reason: 'Неверный пароль', details: {},
     },
   ],
   total: 247, page: 1, page_size: 10, total_pages: 25,
+}
+
+/**
+ * One event per actor shape the journal has to render: ordinary user, admin,
+ * owner, deleted user with a historical snapshot, deleted user without one and
+ * a system-generated event. `actor_username` mirrors what the API resolves, so
+ * the fixture matches the real `AdminEventOut` contract.
+ */
+export const eventsActorFixture = {
+  items: [
+    {
+      id: 301, event_key: null, occurred_at: '2026-11-17T15:10:00Z',
+      actor_user_id: 104, actor_role: 'user', actor_username: 'IvanCool',
+      category: 'build', event_type: 'build.created',
+      outcome: 'success', target_type: 'build', target_id: 28, reason: null, details: {},
+    },
+    {
+      id: 302, event_key: null, occurred_at: '2026-11-17T15:05:00Z',
+      actor_user_id: 42, actor_role: 'admin', actor_username: 'AdminMaster',
+      category: 'admin', event_type: 'admin.user_status_changed',
+      outcome: 'success', target_type: 'user', target_id: 87, reason: null, details: {},
+    },
+    {
+      id: 303, event_key: null, occurred_at: '2026-11-17T15:00:00Z',
+      actor_user_id: 1, actor_role: 'owner', actor_username: 'owner',
+      category: 'admin', event_type: 'admin.user_role_changed',
+      outcome: 'success', target_type: 'user', target_id: 42, reason: null,
+      details: { from: 'user', to: 'admin' },
+    },
+    {
+      id: 304, event_key: null, occurred_at: '2026-11-17T14:55:00Z',
+      // Deleted account: no live row, but the recorded snapshot resolves it.
+      actor_user_id: 56, actor_role: 'user', actor_username: 'DeletedIvan',
+      category: 'account', event_type: 'account.deleted',
+      outcome: 'success', target_type: null, target_id: null, reason: null,
+      details: { actor_username: 'DeletedIvan' },
+    },
+    {
+      id: 305, event_key: null, occurred_at: '2026-11-17T14:50:00Z',
+      // Deleted account with neither a live row nor a historical snapshot.
+      actor_user_id: 57, actor_role: 'admin', actor_username: null,
+      category: 'account', event_type: 'account.deleted',
+      outcome: 'success', target_type: null, target_id: null, reason: null, details: {},
+    },
+    {
+      id: 306, event_key: null, occurred_at: '2026-11-17T14:45:00Z',
+      actor_user_id: null, actor_role: null, actor_username: null,
+      category: 'system', event_type: 'system.retention_cleanup',
+      outcome: 'success', target_type: null, target_id: null, reason: null, details: {},
+    },
+  ],
+  total: 6, page: 1, page_size: 10, total_pages: 1,
 }
 
 interface StubOptions {

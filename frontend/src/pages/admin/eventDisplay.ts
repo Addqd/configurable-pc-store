@@ -12,13 +12,28 @@ export function eventTypeLabel(event: AdminEventOut): string {
   return label
 }
 
-export function eventActorLabel(event: AdminEventOut): string {
+/**
+ * Display name of the event actor for the «Имя пользователя» column.
+ *
+ * The real `users.username` is used whenever it resolves; for an account that no
+ * longer exists the historical snapshot recorded with the event is shown. Only
+ * when neither is available does the localized role label appear — a username is
+ * never invented. System/unknown actors get their localized label instead.
+ */
+export function eventActorName(event: AdminEventOut): string {
   if (event.actor_user_id === null || event.actor_user_id === undefined) {
     return event.category === 'auth' ? i18n.t('admin.events.actor_unknown') : i18n.t('admin.events.actor_system')
   }
-  if (event.actor_role === 'owner') return i18n.t('admin.events.actor_owner', { id: event.actor_user_id })
-  if (event.actor_role === 'admin') return i18n.t('admin.events.actor_admin', { id: event.actor_user_id })
-  return i18n.t('admin.events.actor_user', { id: event.actor_user_id })
+  const username = event.actor_username?.trim()
+  if (username) return username
+  if (event.actor_role === 'owner') return i18n.t('admin.events.actor_owner_fallback')
+  if (event.actor_role === 'admin') return i18n.t('admin.events.actor_admin_fallback')
+  return i18n.t('admin.events.actor_user_fallback')
+}
+
+/** Numeric actor id rendered in its own column; null for system/unknown actors. */
+export function eventActorId(event: AdminEventOut): number | null {
+  return event.actor_user_id ?? null
 }
 
 export function eventCategoryLabel(category: string): string {

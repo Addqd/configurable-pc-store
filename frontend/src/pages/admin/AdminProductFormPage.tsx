@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type HTMLAttributes } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -77,16 +77,39 @@ function formatPriceInput(value: string): string {
   return new Intl.NumberFormat(activeLocale(), { maximumFractionDigits: 2 }).format(parsed)
 }
 
-/** Parses price text that was typed or formatted in the given locale. */
-function parsePriceInput(value: string, locale: string): number {
-  const cleaned = value.replace(/[\s\u00a0\u202f]/g, '')
-  if (locale === 'en-GB') return Number(cleaned.replace(/,/g, ''))
-  return Number(cleaned.replace(',', '.'))
+/** Thousands grouping allowed in the integer part of the RU/EN price draft. */
+const RU_INTEGER_PATTERN = /^(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)$/
+const EN_INTEGER_PATTERN = /^(?:\d{1,3}(?:,\d{3})+|\d+)$/
+const RU_GROUP_SEPARATORS = /[ \u00a0\u202f]/g
+const FRACTION_PATTERN = /^\d+$/
+
+/**
+ * Locale-aware price parsing that never reinterprets a separator.
+ *
+ * The active language defines exactly one decimal separator (`,` in RU, `.` in
+ * EN) and one optional thousands separator (` ` in RU, `,` in EN), each valid
+ * only in its own position. Any other combination — for example `0,50` typed in
+ * EN or `1.234,56` typed in RU — returns `null` instead of being silently read
+ * as a different amount.
+ *
+ * @returns the canonical decimal string (`.` as the decimal separator) or null.
+ */
+function parsePriceInput(text: string, locale: string): string | null {
+  const raw = text.trim()
+  if (!raw) return null
+  const english = locale.startsWith('en')
+  const parts = raw.split(english ? '.' : ',')
+  if (parts.length > 2) return null
+  const [integer = '', fraction] = parts
+  if (!(english ? EN_INTEGER_PATTERN : RU_INTEGER_PATTERN).test(integer)) return null
+  if (fraction !== undefined && !FRACTION_PATTERN.test(fraction)) return null
+  const digits = english ? integer.replace(/,/g, '') : integer.replace(RU_GROUP_SEPARATORS, '')
+  const canonical = fraction === undefined ? digits : `${digits}.${fraction}`
+  return Number.isFinite(Number(canonical)) ? canonical : null
 }
 
 function priceDraftFromText(text: string, locale: string): PriceDraft {
-  const amount = parsePriceInput(text, locale)
-  return { locale, text, value: Number.isFinite(amount) ? String(amount) : '' }
+  return { locale, text, value: parsePriceInput(text, locale) ?? '' }
 }
 
 function formFromProduct(product: AdminProductDetailOut): ProductFormState {
@@ -166,6 +189,7 @@ export function AdminProductFormPage() {
 
   const locale = activeLocale()
   const priceText = price.locale === locale ? price.text : formatPriceInput(price.value)
+  const pricePlaceholder = locale === 'en-GB' ? '0.00' : '0,00'
   const changePrice = (text: string) => {
     setPrice(priceDraftFromText(text, locale))
     setFieldErrors((current) => ({ ...current, price: '' }))
@@ -327,6 +351,8 @@ export function AdminProductFormPage() {
       await reorderImages.mutateAsync({ productId: id, data: { image_ids: ids } })
       serverOrderRef.current = ids
       setOrderFailed(false)
+      // The earlier failure message must not survive a successful retry.
+      setGalleryError(null)
       return true
     } catch (error) {
       setGalleryError(adminErrorText(error))
@@ -378,6 +404,8 @@ export function AdminProductFormPage() {
     const id = createdProduct?.id ?? (isEdit ? numericId : null)
     if (!id) return
     void (async () => {
+      // Locks the gallery so an upload retry cannot race a reorder or a delete.
+      setUploading(true)
       markItem(key, { uploading: true, failed: false })
       try {
         const image = await uploadImage.mutateAsync({ productId: id, data: { file: item.file as File } })
@@ -385,10 +413,17 @@ export function AdminProductFormPage() {
         markItem(key, { uploading: false, failed: false, id: image.id, url: image.url })
         setUploadFailures((current) => Math.max(0, current - 1))
         // Ordering is a separate request: an accepted image is never re-uploaded.
-        await persistOrderIds(id, knownIds(items, { key, id: image.id }))
+        const orderSaved = await persistOrderIds(id, knownIds(items, { key, id: image.id }))
+        if (orderSaved) {
+          // Same cache contract as a normal upload, delete or reorder.
+          invalidateCatalog()
+          if (detail.data) void detail.refetch()
+        }
       } catch (error) {
         markItem(key, { uploading: false, failed: true })
         setGalleryError(adminErrorText(error))
+      } finally {
+        setUploading(false)
       }
     })()
   }
@@ -472,6 +507,13 @@ export function AdminProductFormPage() {
     })()
   }
 
+  /** Canonical amount of the current price draft, or null when it is unusable. */
+  const priceAmount = (): number | null => {
+    if (price.value === '') return null
+    const amount = Number(price.value)
+    return Number.isFinite(amount) && amount >= 0 ? amount : null
+  }
+
   const validation = (): boolean => {
     if (typeId > 0 && template.isError) {
       setSpecsError(adminErrorText(template.error))
@@ -479,8 +521,8 @@ export function AdminProductFormPage() {
     }
     const errors: Record<string, string> = {}
     if (form.name.trim().length < 2) errors.name = t('admin.form.validation_name')
-    const priceAmount = price.value === '' ? Number.NaN : Number(price.value)
-    if (!priceText.trim() || !Number.isFinite(priceAmount) || priceAmount < 0) errors.price = t('admin.form.validation_price')
+    if (!priceText.trim()) errors.price = t('admin.form.validation_price')
+    else if (priceAmount() === null) errors.price = t('admin.form.validation_price_format')
     const stock = Number(form.stock)
     if (!form.stock.trim() || !Number.isSafeInteger(stock) || stock < 0) errors.stock = t('admin.form.validation_stock')
     if (!form.categoryId) errors.categoryId = t('admin.form.validation_category')
@@ -495,11 +537,11 @@ export function AdminProductFormPage() {
     return Object.keys(errors).length === 0 && missing.length === 0
   }
 
-  const payload = (): AdminProductCreate => ({
+  const payload = (amount: number): AdminProductCreate => ({
     name: form.name.trim(),
     product_type_id: Number(form.productTypeId),
     manufacturer_id: Number(form.manufacturerId),
-    price: (Number(price.value) || 0).toFixed(2),
+    price: amount.toFixed(2),
     stock_quantity: Number(form.stock),
     description: form.description,
     color: form.color || null,
@@ -511,6 +553,9 @@ export function AdminProductFormPage() {
     setServerError(null)
     setSaved(false)
     if (!validation()) return
+    // Validation guarantees a canonical amount; an invalid draft is never sent as 0.
+    const amount = priceAmount()
+    if (amount === null) return
     if (createdProduct) {
       navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })
       return
@@ -521,7 +566,7 @@ export function AdminProductFormPage() {
         name: form.name.trim(),
         product_type_id: Number(form.productTypeId),
         manufacturer_id: Number(form.manufacturerId),
-        price: (Number(price.value) || 0).toFixed(2),
+        price: amount.toFixed(2),
         stock_quantity: Number(form.stock),
         description: form.description,
         color: form.color || null,
@@ -540,7 +585,7 @@ export function AdminProductFormPage() {
     }
 
     try {
-      const created = await createProduct.mutateAsync({ data: payload() })
+      const created = await createProduct.mutateAsync({ data: payload(amount) })
       setCreatedProduct(created)
       setOrderFailed(false)
       invalidateCatalog()
@@ -567,6 +612,10 @@ export function AdminProductFormPage() {
   ]
 
   const back = <div className="mb-3"><BackButton /></div>
+  // Tab semantics only exist when the tab strip above is actually rendered.
+  const panelProps: HTMLAttributes<HTMLDivElement> = isEdit
+    ? { id: adminTabPanelId(TABS_ID, tab), role: 'tabpanel', 'aria-labelledby': adminTabId(TABS_ID, tab) }
+    : {}
 
   if (isEdit && !validId) {
     return (
@@ -667,12 +716,7 @@ export function AdminProductFormPage() {
           </div>
         )}
 
-        <div
-          className="mt-6"
-          id={adminTabPanelId(TABS_ID, tab)}
-          role="tabpanel"
-          aria-labelledby={adminTabId(TABS_ID, tab)}
-        >
+        <div className="mt-6" {...panelProps}>
           {isEdit && tab === 'reviews' ? (
             <ProductReviewsPanel productId={numericId} />
           ) : (
@@ -723,21 +767,25 @@ export function AdminProductFormPage() {
               </div>
             )}
 
-            {createdProduct && uploadFailures === 0 && orderFailed && (
+            {uploadFailures === 0 && orderFailed && (
               <div role="alert" className="rounded-lg border border-danger-border bg-danger-surface px-4 py-3 text-sm text-text-primary">
-                <p className="font-medium text-danger">{t('admin.form.order_failed_title')}</p>
+                <p className="font-medium text-danger">
+                  {createdProduct ? t('admin.form.order_failed_title') : t('admin.form.order_failed_title_edit')}
+                </p>
                 <p className="mt-1 text-text-secondary">{t('admin.form.order_failed_hint')}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button type="button" disabled={uploading} onClick={retryOrder} className={adminSecondaryButton}>
                     {t('admin.form.retry_order')}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })}
-                    className={adminPrimaryButton}
-                  >
-                    {t('admin.form.go_to_edit')}
-                  </button>
+                  {createdProduct && (
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })}
+                      className={adminPrimaryButton}
+                    >
+                      {t('admin.form.go_to_edit')}
+                    </button>
+                  )}
                 </div>
               </div>
             )}
@@ -780,7 +828,7 @@ export function AdminProductFormPage() {
                       <div>
                         <FloatingControl id="product-price" label={`${t('admin.form.price')} *`}>
                           <input
-                            id="product-price" type="text" inputMode="decimal" placeholder="0,00"
+                            id="product-price" type="text" inputMode="decimal" placeholder={pricePlaceholder}
                             value={priceText} disabled={locked} aria-required
                             onChange={(event) => changePrice(event.target.value)}
                             className={floatingInputClass}
@@ -816,7 +864,7 @@ export function AdminProductFormPage() {
                     <>
                       <TextField
                         id="product-price" label={t('admin.form.price')} required type="text" inputMode="decimal"
-                        placeholder="0,00" value={priceText} disabled={locked}
+                        placeholder={pricePlaceholder} value={priceText} disabled={locked}
                         error={fieldErrors.price}
                         onChange={(event) => changePrice(event.target.value)}
                       />
