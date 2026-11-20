@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useUIStore } from '../stores/uiStore'
 import { useServerCart } from '../api/useServerCart'
+import { useGetUserApiV1AdminUsersUserIdGet } from '../api/generated/client'
 import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router'
@@ -25,6 +26,16 @@ export function Header() {
   const logout = useAccountStore((s) => s.logout)
   const { cart } = useServerCart()
   const totalItems = cart.data?.item_count ?? 0
+  const accountId = account ? Number(account.id) : 0
+  // Resolved only while the profile menu is open; the protected admin endpoint
+  // is the single authority on the role, and a 403 hides the entry.
+  const adminAccess = useGetUserApiV1AdminUsersUserIdGet(accountId, {
+    query: {
+      enabled: profileOpen && Number.isSafeInteger(accountId) && accountId > 0,
+      retry: false,
+      staleTime: 300_000,
+    },
+  })
   const headerRef = useRef<HTMLElement>(null)
   const navButtonRef = useRef<HTMLButtonElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -147,7 +158,7 @@ export function Header() {
         )}
         {profileOpen && account && (
           <HeaderPopup headerRef={headerRef} anchorRef={avatarRef} placement="center" testId="profile-popup">
-            <ProfileDropdown user={currentUser} onLogout={logout} />
+            <ProfileDropdown user={currentUser} onLogout={logout} adminLink={adminAccess.isSuccess} />
           </HeaderPopup>
         )}
       </div>

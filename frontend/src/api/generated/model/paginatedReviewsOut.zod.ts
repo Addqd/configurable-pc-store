@@ -6,16 +6,23 @@
  */
 import * as zod from 'zod';
 
+export const paginatedReviewsOutItemsItemSourceDefault = `user`;
+export const paginatedReviewsOutItemsItemIsPublishedDefault = true;
 export const PaginatedReviewsOut = zod.object({
   "items": zod.array(zod.object({
   "id": zod.int(),
-  "user_id": zod.int(),
+  "user_id": zod.union([zod.int(),zod.null()]).optional(),
   "product_id": zod.int(),
   "rating": zod.int(),
   "body": zod.string(),
   "created_at": zod.iso.datetime({"offset":true}),
   "updated_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]).optional(),
-  "reviewer_name": zod.string()
+  "reviewer_name": zod.string(),
+  "source": zod.string().default(paginatedReviewsOutItemsItemSourceDefault),
+  "author_name": zod.union([zod.string(),zod.null()]).optional(),
+  "is_published": zod.boolean().default(paginatedReviewsOutItemsItemIsPublishedDefault),
+  "store_reply": zod.union([zod.string(),zod.null()]).optional(),
+  "displayed_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]).optional()
 })),
   "total": zod.int(),
   "page": zod.int(),

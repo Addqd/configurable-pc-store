@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import { BrowserRouter, Routes, Route } from 'react-router'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from './api/queryClient'
 import { useTranslation } from 'react-i18next'
@@ -17,6 +17,12 @@ import { OrdersPage } from './pages/OrdersPage'
 import { SavesPage } from './pages/SavesPage'
 import { NotFound } from './pages/NotFound'
 import { AuthModal } from './components/AuthModal'
+import { AdminGate } from './admin/access'
+import { AdminProductsPage } from './pages/admin/AdminProductsPage'
+import { AdminProductFormPage } from './pages/admin/AdminProductFormPage'
+import { AdminUsersPage } from './pages/admin/AdminUsersPage'
+import { AdminAnalyticsPage } from './pages/admin/AdminAnalyticsPage'
+import { AdminEventsPage } from './pages/admin/AdminEventsPage'
 
 function LangUpdater() {
   const { i18n } = useTranslation()
@@ -84,6 +90,15 @@ export default function App() {
           <Route path="/account" element={<AccountPage />} />
           <Route path="/account/orders" element={<OrdersPage />} />
           <Route path="/builds" element={<SavesPage />} />
+          <Route path="/admin" element={<AdminGate />}>
+            <Route index element={<Navigate to="/admin/products" replace />} />
+            <Route path="products" element={<AdminProductsPage />} />
+            <Route path="products/new" element={<AdminProductFormPage />} />
+            <Route path="products/:productId/edit" element={<AdminProductFormPage />} />
+            <Route path="users" element={<AdminUsersPage />} />
+            <Route path="analytics" element={<AdminAnalyticsPage />} />
+            <Route path="events" element={<AdminEventsPage />} />
+          </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>
         <AuthModalHost />
