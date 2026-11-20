@@ -188,7 +188,10 @@ export function ProductGalleryEditor({
                       <button
                         type="button"
                         onClick={() => onRetry(item.key)}
-                        className="inline-flex items-center gap-1 rounded border border-danger-border bg-surface px-1.5 py-0.5 text-[11px] font-medium text-danger"
+                        // A retry starts a server mutation: it follows the gallery's
+                        // disabled state and never fires for an uploading item.
+                        disabled={disabled || item.uploading}
+                        className="inline-flex items-center gap-1 rounded border border-danger-border bg-surface px-1.5 py-0.5 text-[11px] font-medium text-danger disabled:cursor-not-allowed disabled:opacity-60"
                       >
                         <FiRefreshCw className="h-3 w-3" aria-hidden="true" />
                         {t('admin.form.retry_upload')}

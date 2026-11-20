@@ -36,6 +36,21 @@ export function eventActorId(event: AdminEventOut): number | null {
   return event.actor_user_id ?? null
 }
 
+/**
+ * Compact localized role marker rendered beside a resolved username, so an
+ * administrator or the owner stays distinguishable from an ordinary user.
+ *
+ * It is omitted when no username resolves, because the role fallback label
+ * (`Администратор (недоступен)`) already states the role, and for ordinary users
+ * to avoid extra visual noise.
+ */
+export function eventActorRole(event: AdminEventOut): string | null {
+  if (!event.actor_username?.trim()) return null
+  if (event.actor_role === 'owner') return i18n.t('admin.events.actor_role_owner')
+  if (event.actor_role === 'admin') return i18n.t('admin.events.actor_role_admin')
+  return null
+}
+
 export function eventCategoryLabel(category: string): string {
   return i18n.t(`admin.events.categories.${category}`, { defaultValue: category })
 }

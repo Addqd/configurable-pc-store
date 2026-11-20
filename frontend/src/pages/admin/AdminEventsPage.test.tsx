@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
+import { act } from 'react'
 import { render } from '../../test-utils'
+import i18n from '../../i18n'
 import type { AdminPaginatedEventsOut } from '../../api/generated/model'
 import { AdminEventsPage } from './AdminEventsPage'
 import { eventsActorFixture, eventsFixture, jsonResponse, stubAdminFetch } from '../../test-admin-api'
@@ -43,9 +45,10 @@ const eventRequests = (fetchMock: ReturnType<typeof vi.fn>) =>
     .filter((url) => new URL(url, 'http://localhost').pathname === '/api/v1/admin/events')
     .map((url) => new URL(url, 'http://localhost').searchParams)
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
   vi.unstubAllGlobals()
+  await act(async () => { await i18n.changeLanguage('ru') })
 })
 
 describe('admin event journal', () => {
@@ -160,15 +163,41 @@ describe('admin event journal actor columns', () => {
     const actors = tableRows().map((cells) => [cells[1], cells[2]])
     expect(actors).toEqual([
       ['IvanCool', '104'],
-      ['AdminMaster', '42'],
-      ['owner', '1'],
+      // Administrators and the owner keep a compact role marker in the same cell.
+      ['AdminMaster · Администратор', '42'],
+      ['owner · Владелец', '1'],
       // Deleted accounts: the recorded snapshot is shown, never a made-up name.
       ['DeletedIvan', '56'],
+      // The fallback label already states the role, so it is not repeated.
       ['Администратор (недоступен)', '57'],
       // System-generated events have no actor and no id.
       ['Система', '—'],
     ])
     // The unknown-actor label stays reserved for failed authentication.
     expect(screen.queryByText('Неизвестный')).toBeNull()
+  })
+
+  it('adds no role noise for ordinary users and keeps the numeric id separate', async () => {
+    setup(eventsActorFixture)
+    const row = (await screen.findByText('Создал сборку #28')).closest('tr') as HTMLElement
+    const cells = within(row).getAllByRole('cell')
+    expect(cells[1]?.textContent).toBe('IvanCool')
+    expect(cells[2]?.textContent).toBe('104')
+    expect(cells[1]?.textContent).not.toContain('Пользователь')
+  })
+
+  it('localizes the actor role markers in English', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    setup(eventsActorFixture)
+    await screen.findByText('Created a build #28')
+    const actors = tableRows().map((cells) => cells[1])
+    expect(actors[0]).toBe('IvanCool')
+    expect(actors[1]).toBe('AdminMaster · Administrator')
+    expect(actors[2]).toBe('owner · Owner')
+    expect(actors[3]).toBe('DeletedIvan')
+    expect(actors[4]).toBe('Administrator (unavailable)')
+    expect(actors[5]).toBe('System')
+    const headers = Array.from(document.querySelectorAll('table thead th')).map((cell) => cell.textContent)
+    expect(headers).toEqual(['Time', 'Username', 'User ID', 'Event', 'Outcome'])
   })
 })

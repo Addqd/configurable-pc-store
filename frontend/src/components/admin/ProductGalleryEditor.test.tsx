@@ -75,3 +75,31 @@ describe('product gallery external file drop', () => {
     expect(onReorder).toHaveBeenCalledWith(0, 1)
   })
 })
+
+describe('gallery upload retry', () => {
+  const failedItem = { key: 'failed', file: droppedFile(), previewUrl: 'blob:preview', failed: true }
+  const retryButton = () => screen.getByRole('button', { name: 'Повторить загрузку' }) as HTMLButtonElement
+
+  it('offers a retry for a failed image', () => {
+    const onRetry = vi.fn()
+    setup({ items: [failedItem], onRetry })
+    expect(screen.getByText('Не удалось загрузить изображение')).toBeTruthy()
+    fireEvent.click(retryButton())
+    expect(onRetry).toHaveBeenCalledWith('failed')
+  })
+
+  it('disables the retry while the gallery is disabled', () => {
+    const onRetry = vi.fn()
+    setup({ items: [failedItem], onRetry, disabled: true })
+    expect(retryButton().disabled).toBe(true)
+    fireEvent.click(retryButton())
+    expect(onRetry).not.toHaveBeenCalled()
+  })
+
+  it('disables the retry while the image is uploading', () => {
+    const onRetry = vi.fn()
+    setup({ items: [{ ...failedItem, uploading: true }], onRetry })
+    // The uploading overlay replaces the failed state, so no retry is offered.
+    expect(screen.queryByRole('button', { name: 'Повторить загрузку' })).toBeNull()
+  })
+})

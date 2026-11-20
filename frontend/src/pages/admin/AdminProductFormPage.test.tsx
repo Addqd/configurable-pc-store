@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { act } from 'react'
+import type { QueryClient } from '@tanstack/react-query'
 import { createTestQueryClient, render } from '../../test-utils'
 import i18n from '../../i18n'
 import { AdminProductFormPage } from './AdminProductFormPage'
@@ -479,6 +480,82 @@ describe('admin product price parsing', () => {
   })
 })
 
+const editHeading = (locale: string) => (locale === 'en' ? 'Edit product' : 'Редактирование товара')
+
+async function submitEditedPrice(locale: 'ru' | 'en', input: string) {
+  if (locale === 'en') await act(async () => { await i18n.changeLanguage('en') })
+  const fetchMock = setupEdit()
+  await screen.findByRole('heading', { name: editHeading(locale) })
+  const price = document.getElementById('product-price') as HTMLInputElement
+  fireEvent.change(price, { target: { value: input } })
+  await submitForm()
+  return { fetchMock, price }
+}
+
+describe('admin product price precision', () => {
+  const accepted: Array<['ru' | 'en', string, string]> = [
+    ['ru', '0,01', '0.01'],
+    ['en', '0.01', '0.01'],
+  ]
+  for (const [locale, input, expected] of accepted) {
+    it(`sends ${locale.toUpperCase()} ${input} as ${expected}`, async () => {
+      const { fetchMock } = await submitEditedPrice(locale, input)
+      await waitFor(() => expect(submittedPrice(fetchMock)).toBe(expected))
+    })
+  }
+
+  const rejected: Array<['ru' | 'en', string, RegExp]> = [
+    ['ru', '0,001', /не более двух знаков/],
+    ['ru', '12,345', /не более двух знаков/],
+    ['en', '0.001', /at most two decimal places/],
+    ['en', '12.345', /at most two decimal places/],
+  ]
+  for (const [locale, input, message] of rejected) {
+    it(`rejects ${locale.toUpperCase()} ${input} without sending it`, async () => {
+      const { fetchMock, price } = await submitEditedPrice(locale, input)
+      expect(await screen.findByText(message)).toBeTruthy()
+      // Excess precision is never rounded into a different amount.
+      expect(submittedPrice(fetchMock)).toBeNull()
+      // The typed text stays editable exactly as entered.
+      expect(price.value).toBe(input)
+      expect(price.disabled).toBe(false)
+    })
+  }
+
+  it('rejects a mixed RU separator instead of reading it as another amount', async () => {
+    const { fetchMock, price } = await submitEditedPrice('ru', '1.234,56')
+    expect(await screen.findByText(/Проверьте формат цены/)).toBeTruthy()
+    expect(submittedPrice(fetchMock)).toBeNull()
+    expect(price.value).toBe('1.234,56')
+  })
+
+  it('keeps an explicit zero price valid', async () => {
+    const { fetchMock } = await submitEditedPrice('ru', '0,00')
+    await waitFor(() => expect(submittedPrice(fetchMock)).toBe('0.00'))
+  })
+
+  it('blocks excess precision on creation and accepts the corrected amount', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+    const price = screen.getByLabelText('Цена, ₽') as HTMLInputElement
+
+    fireEvent.change(price, { target: { value: '0,001' } })
+    await submitForm()
+    expect(await screen.findByText(/не более двух знаков/)).toBeTruthy()
+    expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
+    expect(price.value).toBe('0,001')
+
+    fireEvent.change(price, { target: { value: '0,01' } })
+    await submitForm()
+    await waitFor(() => expect(screen.getByText('EDIT PAGE')).toBeTruthy())
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    expect((requestBody(post?.[1] ?? {}) as { price: string }).price).toBe('0.01')
+  })
+})
+
 describe('admin product order recovery while editing', () => {
   it('offers an order-only retry for an existing product without re-uploading', async () => {
     let orderAttempts = 0
@@ -545,9 +622,452 @@ describe('admin product form panel semantics', () => {
   })
 })
 
+/** A response promise that stays pending until the test resolves it. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((res) => { resolve = res })
+  return { promise, resolve }
+}
+
+const galleryTiles = () => Array.from(document.querySelectorAll('[data-gallery-index]'))
+const tileSources = () => galleryTiles().map((tile) => tile.querySelector('img')?.getAttribute('src'))
+const tileFile = (name = 'photo-3.png') => new File([new Uint8Array([1, 2, 3])], name, { type: 'image/png' })
+
+const addGalleryFiles = (files: File[]) => {
+  const input = document.querySelector('input[type="file"]') as HTMLInputElement
+  Object.defineProperty(input, 'files', { value: files, configurable: true })
+  fireEvent.change(input)
+}
+
+const requestsTo = (fetchMock: ReturnType<typeof vi.fn>, pathname: string, method: string) =>
+  callsTo(fetchMock, pathname).filter(([, init]) => init.method === method)
+
+const imageFixture = (id: number, index: number) => ({
+  id, url: `/photo-${index + 1}.png`, alt_text: null, sort_order: index, is_cover: index === 0,
+})
+
+const uploadedFixture = (id: number) => ({
+  id, url: `/uploaded-${id}.png`, alt_text: null, sort_order: id, is_cover: false,
+})
+
+/** Product edit screen with a known gallery and a per-test request handler. */
+function setupEditGallery(  extra: (url: URL, init: RequestInit) => Response | Promise<Response> | undefined,
+  options: { imageIds?: number[]; client?: QueryClient } = {},
+) {
+  const detail = { ...productDetailFixture, images: (options.imageIds ?? [71, 72]).map(imageFixture) }
+  const fetchMock = stubAdminFetch({
+    handler: (url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+      if (url.pathname === '/api/v1/products/filters') {
+        return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+      }
+      if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+      if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
+      return extra(url, init)
+    },
+  })
+  render(
+    <MemoryRouter initialEntries={['/admin/products/7/edit']}>
+      <Routes>
+        <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
+      </Routes>
+    </MemoryRouter>,
+    options.client ? { client: options.client } : undefined,
+  )
+  return fetchMock
+}
+
+const creationHandler = (options: { failFirstUpload?: boolean; failOrder?: boolean }) => {
+  let uploadAttempts = 0
+  let orderAttempts = 0
+  const handler = (url: URL, init: RequestInit) => {
+    const method = init.method ?? 'GET'
+    if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+    if (url.pathname === '/api/v1/products/filters') {
+      return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+    }
+    if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+    if (url.pathname === '/api/v1/admin/products' && method === 'POST') {
+      return jsonResponse({ ...productDetailFixture, id: 900, images: [], review_count: 0, average_rating: 0 }, 201)
+    }
+    if (url.pathname === '/api/v1/admin/products/900/images' && method === 'POST') {
+      uploadAttempts += 1
+      if (options.failFirstUpload && uploadAttempts === 1) return jsonResponse({ detail: 'Unsupported image format' }, 400)
+      return jsonResponse(uploadedFixture(901), 201)
+    }
+    if (url.pathname === '/api/v1/admin/products/900/images/order' && method === 'PUT') {
+      orderAttempts += 1
+      if (options.failOrder) return jsonResponse({ detail: 'Ordering failed' }, 500)
+      return jsonResponse([uploadedFixture(901)])
+    }
+    return undefined
+  }
+  return { handler, attempts: () => ({ uploads: uploadAttempts, orders: orderAttempts }) }
+}
+
+/** Creates a product with one gallery file and returns its upload-failure banner. */
+const submitCreationWithFile = async () => {
+  await screen.findByRole('heading', { name: 'Добавление товара' })
+  fillRequiredFields()
+  fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
+  fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+  addGalleryFiles([tileFile('photo.png')])
+  fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
+  const banner = (await screen.findByText('Товар создан, но не удалось загрузить изображения: 1.')).closest('[role="alert"]')
+  if (!banner) throw new Error('upload failure banner missing')
+  return banner as HTMLElement
+}
+
 describe('admin product upload retry cache refresh', () => {
-  it('invalidates admin and public catalog queries after a successful retry', async () => {
+  /** Unobserved cache entries per invalidation family, seeded by each test. */
+  const catalogKeys = () => ({
+    product: [
+      ['/api/v1/admin/products', { page: 2 }],
+      ['/api/v1/admin/products/900'],
+      ['/api/v1/products', { page: 2 }],
+      ['/api/v1/products/gpu-rtx-5070'],
+      ['/api/v1/products/7/images'],
+      ['/api/v1/admin/stats/overview', { date_from: '2026-06-01' }],
+      ['/api/v1/admin/stats/products', { page: 1 }],
+    ] as const,
+    // Private user data is unrelated to a product image change.
+    private: [
+      ['/api/v1/admin/users', { page: 1 }],
+      ['/api/v1/auth/me'],
+      ['/api/v1/cart'],
+    ] as const,
+    // Filter options do not depend on an individual product.
+    filters: ['/api/v1/products/filters', {}] as const,
+  })
+
+  const seedCatalog = (client: QueryClient, keys: ReturnType<typeof catalogKeys>) => {
+    for (const key of [...keys.product, ...keys.private, keys.filters]) client.setQueryData(key, { seeded: true })
+  }
+
+  const isInvalidated = (client: QueryClient, key: readonly unknown[]) =>
+    client.getQueryCache().find({ queryKey: key, exact: true })?.state.isInvalidated ?? false
+
+  /** Records the endpoint path of every query the client actually invalidated. */
+  const recordInvalidatedPaths = (client: QueryClient) => {
+    const paths: string[] = []
+    const unsubscribe = client.getQueryCache().subscribe((event) => {
+      if (event.type === 'updated' && event.action.type === 'invalidate') {
+        paths.push(String(event.query.queryKey[0]))
+      }
+    })
+    return { paths, unsubscribe }
+  }
+
+  const renderCreation = (fetchMock: ReturnType<typeof vi.fn>, client: QueryClient) => {
+    void fetchMock
+    render(
+      <MemoryRouter initialEntries={['/admin/products/new']}>
+        <Routes>
+          <Route path="/admin/products/new" element={<AdminProductFormPage />} />
+          <Route path="/admin/products/:productId/edit" element={<div>EDIT PAGE</div>} />
+        </Routes>
+      </MemoryRouter>,
+      { client },
+    )
+  }
+
+  it('invalidates the catalog because of a successful creation-mode upload retry', async () => {
+    const creation = creationHandler({ failFirstUpload: true })
+    const fetchMock = stubAdminFetch({ handler: creation.handler })
+    const client = createTestQueryClient()
+    const keys = catalogKeys()
+    seedCatalog(client, keys)
+    const { paths, unsubscribe } = recordInvalidatedPaths(client)
+    renderCreation(fetchMock, client)
+
+    const banner = await submitCreationWithFile()
+    // Creation itself already refreshed the product queries, so both the seeded
+    // state and the recorder are reset: only the retry may satisfy the assertion.
+    seedCatalog(client, keys)
+    paths.length = 0
+    expect(isInvalidated(client, keys.product[0])).toBe(false)
+
+    fireEvent.click(within(banner).getByRole('button', { name: 'Повторить загрузку' }))
+    await waitFor(() => expect(screen.getByText('EDIT PAGE')).toBeTruthy())
+    unsubscribe()
+
+    expect(creation.attempts()).toEqual({ uploads: 2, orders: 1 })
+    for (const key of keys.product) expect(isInvalidated(client, key), String(key)).toBe(true)
+    for (const key of keys.private) expect(isInvalidated(client, key), String(key)).toBe(false)
+    expect(isInvalidated(client, keys.filters)).toBe(false)
+    // Exactly the seeded product families were refreshed, nothing else.
+    expect([...new Set(paths)].sort()).toEqual([
+      '/api/v1/admin/products',
+      '/api/v1/admin/products/900',
+      '/api/v1/admin/stats/overview',
+      '/api/v1/admin/stats/products',
+      '/api/v1/products',
+      '/api/v1/products/7/images',
+      '/api/v1/products/gpu-rtx-5070',
+    ].sort())
+  })
+
+  it('invalidates the catalog after a successful individual upload retry', async () => {
     let uploadAttempts = 0
+    const client = createTestQueryClient()
+    const keys = catalogKeys()
+    seedCatalog(client, keys)
+    const { paths, unsubscribe } = recordInvalidatedPaths(client)
+    const fetchMock = setupEditGallery((url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/products/7/images' && method === 'POST') {
+        uploadAttempts += 1
+        if (uploadAttempts === 1) return jsonResponse({ detail: 'Unsupported image format' }, 400)
+        return jsonResponse(uploadedFixture(73), 201)
+      }
+      if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') return jsonResponse([])
+      return undefined
+    }, { client })
+
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(2))
+    addGalleryFiles([tileFile()])
+    const retry = await screen.findByRole('button', { name: 'Повторить загрузку' })
+    // A rejected upload refreshes nothing on its own.
+    expect(paths).toHaveLength(0)
+    expect(isInvalidated(client, keys.product[0])).toBe(false)
+
+    fireEvent.click(retry)
+    await waitFor(() => expect(uploadAttempts).toBe(2))
+    await waitFor(() => expect(isInvalidated(client, keys.product[0])).toBe(true))
+    unsubscribe()
+
+    for (const key of keys.product) expect(isInvalidated(client, key), String(key)).toBe(true)
+    for (const key of keys.private) expect(isInvalidated(client, key), String(key)).toBe(false)
+    expect(isInvalidated(client, keys.filters)).toBe(false)
+    expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')).toHaveLength(1)
+  })
+
+  it('does not invalidate or navigate when the creation retry cannot save the order', async () => {
+    const creation = creationHandler({ failFirstUpload: true, failOrder: true })
+    const fetchMock = stubAdminFetch({ handler: creation.handler })
+    const client = createTestQueryClient()
+    const keys = catalogKeys()
+    seedCatalog(client, keys)
+    const { paths, unsubscribe } = recordInvalidatedPaths(client)
+    renderCreation(fetchMock, client)
+
+    const banner = await submitCreationWithFile()
+    seedCatalog(client, keys)
+    paths.length = 0
+
+    fireEvent.click(within(banner).getByRole('button', { name: 'Повторить загрузку' }))
+    expect(await screen.findByText('Товар создан, но порядок изображений не сохранён.')).toBeTruthy()
+    unsubscribe()
+
+    // A retry whose ordering was rejected is never reported as a finished upload.
+    expect(screen.queryByText('EDIT PAGE')).toBeNull()
+    expect(paths).toHaveLength(0)
+    expect(isInvalidated(client, keys.product[0])).toBe(false)
+  })
+})
+
+describe('admin product gallery concurrency', () => {
+  it('uploads a failed image only once when the retry is clicked twice in the same tick', async () => {
+    const pendingUpload = deferred<Response>()
+    let uploadCalls = 0
+    const fetchMock = setupEditGallery((url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/products/7/images' && method === 'POST') {
+        uploadCalls += 1
+        if (uploadCalls === 1) return jsonResponse({ detail: 'Unsupported image format' }, 400)
+        return pendingUpload.promise
+      }
+      if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') return jsonResponse([])
+      return undefined
+    })
+
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(2))
+    addGalleryFiles([tileFile()])
+    const retry = await screen.findByRole('button', { name: 'Повторить загрузку' })
+    expect(uploadCalls).toBe(1)
+
+    await act(async () => {
+      fireEvent.click(retry)
+      // The second click arrives before React re-renders the disabled button.
+      fireEvent.click(retry)
+    })
+    expect(uploadCalls).toBe(2)
+
+    await act(async () => { pendingUpload.resolve(jsonResponse(uploadedFixture(73), 201)) })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(3))
+    expect(uploadCalls).toBe(2)
+    const orders = requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')
+    expect(orders).toHaveLength(1)
+    expect((requestBody(orders[0]?.[1] ?? {}) as { image_ids: number[] }).image_ids).toEqual([71, 72, 73])
+  })
+
+  it('does not start a delete while an upload retry is pending', async () => {
+    const pendingUpload = deferred<Response>()
+    let uploadCalls = 0
+    const fetchMock = setupEditGallery((url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/products/7/images' && method === 'POST') {
+        uploadCalls += 1
+        if (uploadCalls === 1) return jsonResponse({ detail: 'Unsupported image format' }, 400)
+        return pendingUpload.promise
+      }
+      if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') return jsonResponse([])
+      return undefined
+    })
+
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(2))
+    addGalleryFiles([tileFile()])
+    const retry = await screen.findByRole('button', { name: 'Повторить загрузку' })
+    const removeButton = () =>
+      galleryTiles()[0]?.querySelector('button[aria-label^="Удалить изображение"]') as HTMLButtonElement
+
+    await act(async () => {
+      fireEvent.click(retry)
+      fireEvent.click(removeButton())
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/72', 'DELETE')).toHaveLength(0)
+
+    await act(async () => { pendingUpload.resolve(jsonResponse(uploadedFixture(73), 201)) })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(3))
+    // Once the workflow finished, the gallery accepts a deletion again.
+    fireEvent.click(removeButton())
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
+  it('does not persist a reorder started while an upload is pending', async () => {
+    const pendingUpload = deferred<Response>()
+    const fetchMock = setupEditGallery((url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/products/7/images' && method === 'POST') return pendingUpload.promise
+      if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') return jsonResponse([])
+      return undefined
+    })
+
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(2))
+    addGalleryFiles([tileFile()])
+    await waitFor(() => expect(galleryTiles()).toHaveLength(3))
+
+    const tiles = galleryTiles()
+    fireEvent.dragStart(tiles[0] as HTMLElement, { dataTransfer: { files: [], types: [] } })
+    fireEvent.drop(tiles[2] as HTMLElement, { dataTransfer: { files: [], types: [] } })
+    // The reorder is rejected instead of racing the upload, and nothing moved.
+    expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')).toHaveLength(0)
+    expect(tileSources()[0]).toBe('/photo-1.png')
+
+    await act(async () => { pendingUpload.resolve(jsonResponse(uploadedFixture(73), 201)) })
+    await waitFor(() => expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')).toHaveLength(1))
+    expect(tileSources()).toEqual(['/photo-1.png', '/photo-2.png', '/uploaded-73.png'])
+  })
+
+  it('sends a single ordering request when the order retry is clicked twice', async () => {
+    const pendingOrder = deferred<Response>()
+    let orderCalls = 0
+    const fetchMock = setupEditGallery((url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/products/7/images' && method === 'POST') {
+        return jsonResponse(uploadedFixture(73), 201)
+      }
+      if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') {
+        orderCalls += 1
+        if (orderCalls === 1) return jsonResponse({ detail: 'Ordering failed' }, 500)
+        return pendingOrder.promise
+      }
+      return undefined
+    })
+
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(2))
+    addGalleryFiles([tileFile()])
+    const retry = await screen.findByRole('button', { name: 'Повторить сохранение порядка' })
+    expect(orderCalls).toBe(1)
+
+    await act(async () => {
+      fireEvent.click(retry)
+      fireEvent.click(retry)
+    })
+    expect(orderCalls).toBe(2)
+
+    await act(async () => { pendingOrder.resolve(jsonResponse([])) })
+    await waitFor(() => expect(screen.queryByText('Порядок изображений не сохранён.')).toBeNull())
+    expect(orderCalls).toBe(2)
+    // The accepted image was never uploaded again.
+    expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images', 'POST')).toHaveLength(1)
+  })
+
+  it('does not start a delete while the order retry is pending', async () => {
+    const pendingOrder = deferred<Response>()
+    let orderCalls = 0
+    const fetchMock = setupEditGallery((url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/products/7/images' && method === 'POST') {
+        return jsonResponse(uploadedFixture(73), 201)
+      }
+      if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') {
+        orderCalls += 1
+        if (orderCalls === 1) return jsonResponse({ detail: 'Ordering failed' }, 500)
+        return pendingOrder.promise
+      }
+      return undefined
+    })
+
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(2))
+    addGalleryFiles([tileFile()])
+    const retry = await screen.findByRole('button', { name: 'Повторить сохранение порядка' })
+    const removeButton = () =>
+      galleryTiles()[0]?.querySelector('button[aria-label^="Удалить изображение"]') as HTMLButtonElement
+
+    await act(async () => {
+      fireEvent.click(retry)
+      fireEvent.click(removeButton())
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/73', 'DELETE')).toHaveLength(0)
+
+    await act(async () => { pendingOrder.resolve(jsonResponse([])) })
+    await waitFor(() => expect(screen.queryByText('Порядок изображений не сохранён.')).toBeNull())
+    fireEvent.click(removeButton())
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
+  it('retries only the failed image and keeps the accepted ids and cover order', async () => {
+    let uploadCalls = 0
+    const fetchMock = setupEditGallery((url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/products/7/images' && method === 'POST') {
+        uploadCalls += 1
+        if (uploadCalls === 1) return jsonResponse({ detail: 'Unsupported image format' }, 400)
+        return jsonResponse(uploadedFixture(80 + uploadCalls), 201)
+      }
+      if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') return jsonResponse([])
+      return undefined
+    })
+
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect(galleryTiles()).toHaveLength(2))
+    addGalleryFiles([tileFile('a.png'), tileFile('b.png')])
+    // The first file fails, the second one is accepted; the order waits.
+    const retry = await screen.findByRole('button', { name: 'Повторить загрузку' })
+    expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')).toHaveLength(0)
+    expect(uploadCalls).toBe(2)
+
+    fireEvent.click(retry)
+    await waitFor(() => expect(requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')).toHaveLength(1))
+    expect(uploadCalls).toBe(3)
+    const orders = requestsTo(fetchMock, '/api/v1/admin/products/7/images/order', 'PUT')
+    expect((requestBody(orders[0]?.[1] ?? {}) as { image_ids: number[] }).image_ids).toEqual([71, 72, 83, 82])
+    expect(tileSources()[0]).toBe('/photo-1.png')
+  })
+
+  it('uploads once when the creation-mode retry is clicked twice in the same tick', async () => {
+    const pendingUpload = deferred<Response>()
+    let uploadCalls = 0
     const fetchMock = stubAdminFetch({
       handler: (url, init) => {
         const method = init.method ?? 'GET'
@@ -560,29 +1080,14 @@ describe('admin product upload retry cache refresh', () => {
           return jsonResponse({ ...productDetailFixture, id: 900, images: [], review_count: 0, average_rating: 0 }, 201)
         }
         if (url.pathname === '/api/v1/admin/products/900/images' && method === 'POST') {
-          uploadAttempts += 1
-          if (uploadAttempts === 1) return jsonResponse({ detail: 'Unsupported image format' }, 400)
-          return jsonResponse({ id: 901, url: '/uploaded.png', alt_text: null, sort_order: 0, is_cover: true }, 201)
+          uploadCalls += 1
+          if (uploadCalls === 1) return jsonResponse({ detail: 'Unsupported image format' }, 400)
+          return pendingUpload.promise
         }
-        if (url.pathname === '/api/v1/admin/products/900/images/order' && method === 'PUT') {
-          return jsonResponse([{ id: 901, url: '/uploaded.png', alt_text: null, sort_order: 0, is_cover: true }])
-        }
+        if (url.pathname === '/api/v1/admin/products/900/images/order' && method === 'PUT') return jsonResponse([])
         return undefined
       },
     })
-
-    const client = createTestQueryClient()
-    const adminDetailKey = ['/api/v1/admin/products/900']
-    const adminListKey = ['/api/v1/admin/products', { page: 1 }]
-    const publicImagesKey = ['/api/v1/products/7/images']
-    const publicDetailKey = ['/api/v1/products/gpu-rtx-4070-super']
-    const privateUsersKey = ['/api/v1/admin/users', { page: 1 }]
-    for (const key of [adminDetailKey, adminListKey, publicImagesKey, publicDetailKey, privateUsersKey]) {
-      client.setQueryData(key, { seeded: true })
-    }
-    const isInvalidated = (key: readonly unknown[]) =>
-      client.getQueryCache().find({ queryKey: key, exact: true })?.state.isInvalidated ?? false
-
     render(
       <MemoryRouter initialEntries={['/admin/products/new']}>
         <Routes>
@@ -590,32 +1095,19 @@ describe('admin product upload retry cache refresh', () => {
           <Route path="/admin/products/:productId/edit" element={<div>EDIT PAGE</div>} />
         </Routes>
       </MemoryRouter>,
-      { client },
     )
-    await screen.findByRole('heading', { name: 'Добавление товара' })
-    fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
 
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement
-    const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' })
-    Object.defineProperty(input, 'files', { value: [file], configurable: true })
-    fireEvent.change(input)
+    const banner = await submitCreationWithFile()
+    const retry = within(banner).getByRole('button', { name: 'Повторить загрузку' })
+    await act(async () => {
+      fireEvent.click(retry)
+      fireEvent.click(retry)
+    })
+    expect(uploadCalls).toBe(2)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
-    const banner = (await screen.findByText('Товар создан, но не удалось загрузить изображения: 1.')).closest('[role="alert"]')
-    if (!banner) throw new Error('upload failure banner missing')
-
-    fireEvent.click(within(banner as HTMLElement).getByRole('button', { name: 'Повторить загрузку' }))
+    await act(async () => { pendingUpload.resolve(jsonResponse(uploadedFixture(901), 201)) })
     await waitFor(() => expect(screen.getByText('EDIT PAGE')).toBeTruthy())
-
-    expect(uploadAttempts).toBe(2)
-    expect(isInvalidated(adminDetailKey)).toBe(true)
-    expect(isInvalidated(adminListKey)).toBe(true)
-    expect(isInvalidated(publicImagesKey)).toBe(true)
-    expect(isInvalidated(publicDetailKey)).toBe(true)
-    // Private user data is unrelated to a product image change.
-    expect(isInvalidated(privateUsersKey)).toBe(false)
-    expect(callsTo(fetchMock, '/api/v1/admin/products/900/images/order').filter(([, init]) => init.method === 'PUT')).toHaveLength(1)
+    expect(uploadCalls).toBe(2)
+    expect(callsTo(fetchMock, '/api/v1/admin/products').filter(([, init]) => init.method === 'POST')).toHaveLength(1)
   })
 })

@@ -82,27 +82,44 @@ const RU_INTEGER_PATTERN = /^(?:\d{1,3}(?:[ \u00a0\u202f]\d{3})+|\d+)$/
 const EN_INTEGER_PATTERN = /^(?:\d{1,3}(?:,\d{3})+|\d+)$/
 const RU_GROUP_SEPARATORS = /[ \u00a0\u202f]/g
 const FRACTION_PATTERN = /^\d+$/
+/** The price is stored with two decimals, so more precision cannot be represented. */
+const MAX_FRACTION_DIGITS = 2
+
+/** Reason a price draft cannot be submitted. */
+type PriceIssue = 'format' | 'precision'
 
 /**
- * Locale-aware price parsing that never reinterprets a separator.
+ * Classifies a price draft against the active locale.
  *
  * The active language defines exactly one decimal separator (`,` in RU, `.` in
  * EN) and one optional thousands separator (` ` in RU, `,` in EN), each valid
  * only in its own position. Any other combination — for example `0,50` typed in
- * EN or `1.234,56` typed in RU — returns `null` instead of being silently read
- * as a different amount.
- *
- * @returns the canonical decimal string (`.` as the decimal separator) or null.
+ * EN or `1.234,56` typed in RU — is a `format` issue, while a well-formed amount
+ * with more than two fractional digits (`0,001`) is a `precision` issue.
  */
-function parsePriceInput(text: string, locale: string): string | null {
+function priceInputIssue(text: string, locale: string): PriceIssue | null {
   const raw = text.trim()
   if (!raw) return null
   const english = locale.startsWith('en')
   const parts = raw.split(english ? '.' : ',')
-  if (parts.length > 2) return null
+  if (parts.length > 2) return 'format'
   const [integer = '', fraction] = parts
-  if (!(english ? EN_INTEGER_PATTERN : RU_INTEGER_PATTERN).test(integer)) return null
-  if (fraction !== undefined && !FRACTION_PATTERN.test(fraction)) return null
+  if (!(english ? EN_INTEGER_PATTERN : RU_INTEGER_PATTERN).test(integer)) return 'format'
+  if (fraction === undefined) return null
+  if (!FRACTION_PATTERN.test(fraction)) return 'format'
+  return fraction.length > MAX_FRACTION_DIGITS ? 'precision' : null
+}
+
+/**
+ * Locale-aware price parsing that never reinterprets a separator and never
+ * silently rounds: an input the backend cannot store exactly is rejected.
+ *
+ * @returns the canonical decimal string (`.` as the decimal separator) or null.
+ */
+function parsePriceInput(text: string, locale: string): string | null {
+  if (priceInputIssue(text, locale) !== null) return null
+  const english = locale.startsWith('en')
+  const [integer = '', fraction] = text.trim().split(english ? '.' : ',')
   const digits = english ? integer.replace(/,/g, '') : integer.replace(RU_GROUP_SEPARATORS, '')
   const canonical = fraction === undefined ? digits : `${digits}.${fraction}`
   return Number.isFinite(Number(canonical)) ? canonical : null
@@ -186,6 +203,22 @@ export function AdminProductFormPage() {
   const previewUrlsRef = useRef<Set<string>>(new Set())
   /** Last order confirmed by the server; rollback is based on it, not on a stale array. */
   const serverOrderRef = useRef<number[]>([])
+  /**
+   * Synchronous guard for every server-side gallery mutation.
+   *
+   * Disabled buttons rely on asynchronous React state, which cannot stop a second
+   * click or a drag from starting an incompatible request while an upload, an
+   * ordering request or a deletion is still in flight. Only complete top-level
+   * workflows acquire this lock; the internal upload/order helpers always run
+   * inside an already held lock and never acquire it again.
+   */
+  const galleryLockRef = useRef(false)
+  const acquireGalleryLock = () => {
+    if (galleryLockRef.current) return false
+    galleryLockRef.current = true
+    return true
+  }
+  const releaseGalleryLock = () => { galleryLockRef.current = false }
 
   const locale = activeLocale()
   const priceText = price.locale === locale ? price.text : formatPriceInput(price.value)
@@ -370,8 +403,12 @@ export function AdminProductFormPage() {
   }
 
   const handleAddFiles = (files: File[]) => {
+    if (!acquireGalleryLock()) return
     const accepted = validateFiles(files)
-    if (!accepted) return
+    if (!accepted) {
+      releaseGalleryLock()
+      return
+    }
     const newItems: GalleryItem[] = accepted.map((file) => ({
       key: nextGalleryKey(),
       file,
@@ -379,7 +416,11 @@ export function AdminProductFormPage() {
       uploading: isEdit && createdProduct === null,
     }))
     trackPreviews(newItems)
-    if (!isEdit || createdProduct) return
+    if (!isEdit || createdProduct) {
+      // Local-only change: nothing has been sent to the server yet.
+      releaseGalleryLock()
+      return
+    }
 
     // Edit mode: the product exists, so images upload immediately.
     void (async () => {
@@ -392,8 +433,11 @@ export function AdminProductFormPage() {
           if (orderSaved) invalidateCatalog()
         }
         if (failures === 0 && detail.data) void detail.refetch()
+      } catch (error) {
+        setGalleryError(adminErrorText(error))
       } finally {
         setUploading(false)
+        releaseGalleryLock()
       }
     })()
   }
@@ -403,6 +447,8 @@ export function AdminProductFormPage() {
     if (!item?.file) return
     const id = createdProduct?.id ?? (isEdit ? numericId : null)
     if (!id) return
+    // A second click (or any other gallery mutation) is rejected synchronously.
+    if (!acquireGalleryLock()) return
     void (async () => {
       // Locks the gallery so an upload retry cannot race a reorder or a delete.
       setUploading(true)
@@ -424,18 +470,56 @@ export function AdminProductFormPage() {
         setGalleryError(adminErrorText(error))
       } finally {
         setUploading(false)
+        releaseGalleryLock()
+      }
+    })()
+  }
+
+  /**
+   * Creation-mode batch retry: retries only the uploads that failed, persists the
+   * image order, refreshes the catalog and only then reports success.
+   */
+  const retryUploads = () => {
+    const product = createdProduct
+    if (!product || !acquireGalleryLock()) return
+    setUploading(true)
+    void (async () => {
+      try {
+        const result = await uploadPending(product.id, items)
+        setUploadFailures(result.failures)
+        setOrderFailed(!result.orderSaved)
+        if (result.failures === 0 && result.orderSaved) {
+          // The product row was created earlier and already invalidated the
+          // catalog; this retry stored the images, so it refreshes them again.
+          invalidateCatalog()
+          navigate(`/admin/products/${product.id}/edit`, { replace: true, state: { created: true } })
+        }
+      } catch (error) {
+        setGalleryError(adminErrorText(error))
+      } finally {
+        setUploading(false)
+        releaseGalleryLock()
       }
     })()
   }
 
   const reorder = (fromIndex: number, toIndex: number) => {
+    // The cover order changes here: incompatible with any pending gallery request.
+    if (!acquireGalleryLock()) return
     const next = [...items]
     const [moved] = next.splice(fromIndex, 1)
-    if (!moved) return
+    if (!moved) {
+      releaseGalleryLock()
+      return
+    }
     next.splice(toIndex, 0, moved)
     setItems(next)
     const allUploaded = next.every((item) => item.id !== undefined || uploadedIdsRef.current.has(item.key))
-    if (!isEdit || createdProduct || !allUploaded) return
+    if (!isEdit || createdProduct || !allUploaded) {
+      // Every image must have a server id before the order can be persisted.
+      releaseGalleryLock()
+      return
+    }
     const ids = knownIds(next)
     void reorderImages
       .mutateAsync({ productId: numericId, data: { image_ids: ids } })
@@ -452,10 +536,13 @@ export function AdminProductFormPage() {
         // still exist locally so a deleted image is never resurrected.
         setItems((current) => applyServerOrder(current, serverOrderRef.current))
       })
+      .finally(releaseGalleryLock)
   }
 
   const removeItem = (key: string) => {
-    if (reorderImages.isPending) return
+    // Opening the removal dialog while another gallery request runs would allow
+    // a deletion to race the pending upload or ordering.
+    if (galleryLockRef.current || reorderImages.isPending || deleteImage.isPending) return
     const item = items.find((entry) => entry.key === key)
     if (!item) return
     const activeProductId = createdProduct?.id ?? (isEdit ? numericId : null)
@@ -471,6 +558,7 @@ export function AdminProductFormPage() {
   const confirmRemoveImage = async () => {
     const productId = createdProduct?.id ?? numericId
     if (!removeTarget?.id) return
+    if (!acquireGalleryLock()) return
     const removedId = removeTarget.id
     const removedKey = removeTarget.key
     try {
@@ -485,6 +573,8 @@ export function AdminProductFormPage() {
       invalidateCatalog()
     } catch {
       // The modal renders the mutation error.
+    } finally {
+      releaseGalleryLock()
     }
   }
 
@@ -492,6 +582,7 @@ export function AdminProductFormPage() {
   const retryOrder = () => {
     const id = createdProduct?.id ?? (isEdit ? numericId : null)
     if (!id) return
+    if (!acquireGalleryLock()) return
     void (async () => {
       setUploading(true)
       try {
@@ -503,6 +594,7 @@ export function AdminProductFormPage() {
         }
       } finally {
         setUploading(false)
+        releaseGalleryLock()
       }
     })()
   }
@@ -522,7 +614,13 @@ export function AdminProductFormPage() {
     const errors: Record<string, string> = {}
     if (form.name.trim().length < 2) errors.name = t('admin.form.validation_name')
     if (!priceText.trim()) errors.price = t('admin.form.validation_price')
-    else if (priceAmount() === null) errors.price = t('admin.form.validation_price_format')
+    else if (priceAmount() === null) {
+      // Excess precision is reported separately: the amount is well formed but
+      // cannot be stored exactly, and it is never rounded behind the user's back.
+      errors.price = t(priceInputIssue(priceText, locale) === 'precision'
+        ? 'admin.form.validation_price_precision'
+        : 'admin.form.validation_price_format')
+    }
     const stock = Number(form.stock)
     if (!form.stock.trim() || !Number.isSafeInteger(stock) || stock < 0) errors.stock = t('admin.form.validation_stock')
     if (!form.categoryId) errors.categoryId = t('admin.form.validation_category')
@@ -584,6 +682,7 @@ export function AdminProductFormPage() {
       return
     }
 
+    if (!acquireGalleryLock()) return
     try {
       const created = await createProduct.mutateAsync({ data: payload(amount) })
       setCreatedProduct(created)
@@ -603,6 +702,8 @@ export function AdminProductFormPage() {
       }
     } catch (error) {
       setServerError(adminErrorText(error))
+    } finally {
+      releaseGalleryLock()
     }
   }
 
@@ -739,19 +840,7 @@ export function AdminProductFormPage() {
                   <button
                     type="button"
                     disabled={uploading}
-                    onClick={() => {
-                      if (!createdProduct) return
-                      setUploading(true)
-                      void uploadPending(createdProduct.id, items)
-                        .then((result) => {
-                          setUploadFailures(result.failures)
-                          setOrderFailed(!result.orderSaved)
-                          if (result.failures === 0 && result.orderSaved) {
-                            navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })
-                          }
-                        })
-                        .finally(() => setUploading(false))
-                    }}
+                    onClick={retryUploads}
                     className={adminSecondaryButton}
                   >
                     {t('admin.form.retry_upload')}

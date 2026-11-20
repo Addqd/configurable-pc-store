@@ -2,16 +2,53 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
 from sqlalchemy import event as sa_event
 from sqlalchemy import func, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from app.models import Product, SiteEvent, User
 from app.services import event_service
 from tests.conftest import create_account
+
+# Both authentication and the journal touch `users`. Authentication loads a whole
+# user row (`db.get(User, id)`), whose SELECT list therefore contains
+# `users.username` too, so raw statement text cannot identify the journal lookup.
+# The batched actor-username resolution is the only query that filters several ids
+# at once, which is what these markers describe.
+BATCHED_USERNAME_LOOKUP_MARKERS = ("from users", "users.username", "users.id in")
+
+
+def _is_batched_username_lookup(statement: str) -> bool:
+    """True for the multi-id `users.id, users.username` lookup of one page."""
+    normalized = " ".join(statement.lower().split())
+    return all(marker in normalized for marker in BATCHED_USERNAME_LOOKUP_MARKERS)
+
+
+@contextmanager
+def _recorded_statements(engine) -> Iterator[list[str]]:
+    """Collects every SQL statement executed on the given engine."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    sa_event.listen(engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        sa_event.remove(engine, "before_cursor_execute", record)
+
+
+def _batched_username_lookups(statements: list[str]) -> list[str]:
+    return [
+        statement for statement in statements if _is_batched_username_lookup(statement)
+    ]
 
 
 def _event_count(session: Session, event_type: str) -> int:
@@ -433,38 +470,76 @@ def test_unknown_and_system_actors_have_no_invented_username(
     assert by_id[system_event.id]["actor_username"] is None
 
 
-def test_event_page_resolves_usernames_with_a_single_users_query(
+def test_username_query_classifier_ignores_authentication_statements():
+    """DB-free: the classifier separates the auth lookup from the batched one.
+
+    Authentication resolves the caller with `db.get(User, id)`, which selects every
+    user column and therefore contains `users.username`; counting that statement
+    would make the journal query-count test measure authentication instead.
+    """
+    dialect = postgresql.dialect()
+    authentication = str(select(User).where(User.id == 1).compile(dialect=dialect))
+    batched = str(
+        select(User.id, User.username)
+        .where(User.id.in_([1, 2]))
+        .compile(dialect=dialect)
+    )
+
+    assert "users.username" in " ".join(authentication.lower().split())
+    assert not _is_batched_username_lookup(authentication)
+    assert _is_batched_username_lookup(batched)
+
+
+def test_event_page_resolves_usernames_with_a_single_batched_users_query(
     api_client: TestClient,
     admin_user: dict,
-    registered_user: dict,
     isolated_connection,
 ):
     """Pagination must not degrade into one username lookup per journal row."""
-    for _ in range(3):
-        api_client.post(
-            "/api/v1/auth/login",
-            json={
-                "email_or_username": registered_user["username"],
-                "password": "StrongPassword123!",
-            },
-        )
+    actors = [create_account(api_client) for _ in range(3)]
 
-    statements: list[str] = []
-
-    def record(conn, cursor, statement, parameters, context, executemany):
-        if "users.username" in statement:
-            statements.append(statement)
-
-    sa_event.listen(isolated_connection.engine, "before_cursor_execute", record)
-    try:
+    with _recorded_statements(isolated_connection.engine) as statements:
         body = _events(api_client, admin_user, page_size=50)
-    finally:
-        sa_event.remove(isolated_connection.engine, "before_cursor_execute", record)
 
     assert body["items"]
-    assert len(statements) == 1, statements
-    resolved = [item for item in body["items"] if item["actor_username"] is not None]
-    assert resolved, "at least one event on the page has a resolvable actor"
+    # Authentication also selects `users.username`; only the multi-id lookup counts.
+    assert len(_batched_username_lookups(statements)) == 1, statements
+    resolved = {
+        item["actor_username"] for item in body["items"] if item["actor_username"]
+    }
+    assert {actor["username"] for actor in actors} <= resolved
+    assert len(resolved) >= 3
+
+
+def test_event_page_pagination_keeps_one_username_lookup_per_page(
+    api_client: TestClient,
+    admin_user: dict,
+    isolated_connection,
+):
+    """Two page requests issue two batched lookups, not one per event."""
+    create_account(api_client)
+    create_account(api_client)
+
+    with _recorded_statements(isolated_connection.engine) as statements:
+        first = _events(api_client, admin_user, page_size=1, page=1)
+        second = _events(api_client, admin_user, page_size=1, page=2)
+
+    assert first["items"] and second["items"]
+    assert len(_batched_username_lookups(statements)) == 2, statements
+
+
+def test_empty_event_page_skips_the_username_lookup(
+    api_client: TestClient,
+    admin_user: dict,
+    isolated_connection,
+):
+    """Without events there is nothing to resolve, so no users query is issued."""
+    with _recorded_statements(isolated_connection.engine) as statements:
+        body = _events(api_client, admin_user, q="definitely-no-such-event-value")
+
+    assert body["total"] == 0
+    assert body["items"] == []
+    assert _batched_username_lookups(statements) == []
 
 
 def test_event_key_is_idempotent_inside_one_transaction(isolated_connection):

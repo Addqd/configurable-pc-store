@@ -15,8 +15,8 @@ import {
   adminCard, adminControl, adminSelect, adminTableHead, adminTableHeadCell, adminTableCell,
 } from '../../components/admin/adminStyles'
 import {
-  eventActorId, eventActorName, eventCategoryLabel, eventDetailsLine, eventOutcomeLabel, eventTypeLabel,
-  formatEventTime,
+  eventActorId, eventActorName, eventActorRole, eventCategoryLabel, eventDetailsLine, eventOutcomeLabel,
+  eventTypeLabel, formatEventTime,
 } from './eventDisplay'
 
 const CATEGORIES = ['auth', 'account', 'order', 'build', 'review', 'admin', 'catalog', 'system'] as const
@@ -217,6 +217,7 @@ export function AdminEventsPage() {
                     {events.data?.items.map((event) => {
                       const details = eventDetailsLine(event)
                       const actorId = eventActorId(event)
+                      const actorRole = eventActorRole(event)
                       return (
                         <tr key={event.id} className="border-b border-border last:border-0">
                           <td className={`${adminTableCell} whitespace-nowrap text-sm text-text-secondary`}>
@@ -224,6 +225,12 @@ export function AdminEventsPage() {
                           </td>
                           <td className={`${adminTableCell} text-sm text-text-primary`}>
                             <span className="break-words">{eventActorName(event)}</span>
+                            {actorRole && (
+                              <span className="whitespace-nowrap text-xs text-text-muted">
+                                {' · '}
+                                {actorRole}
+                              </span>
+                            )}
                           </td>
                           <td className={`${adminTableCell} text-sm tabular-nums ${actorId === null ? 'text-text-muted' : 'text-text-secondary'}`}>
                             {actorId === null ? <span aria-hidden="true">—</span> : actorId}
