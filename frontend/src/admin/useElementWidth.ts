@@ -1,26 +1,35 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useState } from 'react'
 
 /**
  * Tracks the content width of an element with `ResizeObserver`.
  *
- * Charts need the real pixel width of their container to keep the approved
- * geometry: axis text must stay readable, so it may not be squeezed by an
- * arbitrary viewBox. `fallback` is used before the first measurement and in
- * environments without `ResizeObserver` (jsdom, older browsers).
+ * The returned value is a **callback ref**: React calls it with the DOM node when
+ * the element is attached and with the cleanup (or `null`) when it is detached.
+ * That matters for charts whose container only exists after data arrives — an
+ * effect with an empty dependency list would observe the first render's missing
+ * node forever and keep reporting the fallback width.
+ *
+ * `fallback` is used before the first measurement and in environments without
+ * `ResizeObserver` (jsdom, older browsers).
  */
 export function useElementWidth(fallback: number) {
-  const ref = useRef<HTMLDivElement | null>(null)
   const [width, setWidth] = useState(fallback)
 
-  useEffect(() => {
-    const element = ref.current
-    const Observer = element?.ownerDocument.defaultView?.ResizeObserver
-    if (!element || !Observer) return
+  const ref = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return
+    const Observer = node.ownerDocument.defaultView?.ResizeObserver
+    if (!Observer) return
+    const apply = (measured: number) => {
+      const rounded = Math.round(measured)
+      if (rounded > 0) setWidth(rounded)
+    }
     const observer = new Observer((entries) => {
-      const measured = Math.round(entries[0]?.contentRect.width ?? 0)
-      if (measured > 0) setWidth(measured)
+      apply(entries[0]?.contentRect.width ?? 0)
     })
-    observer.observe(element)
+    observer.observe(node)
+    // A newly attached node has never been measured: `ResizeObserver` only
+    // reports on the next frame, which would leave one render at the fallback.
+    apply(node.getBoundingClientRect().width)
     return () => observer.disconnect()
   }, [])
 

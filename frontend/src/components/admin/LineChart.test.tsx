@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { LineChart, type ChartSeries } from './LineChart'
 import { hoverChart, stubChartSizing } from '../../test-utils'
+import i18n from '../../i18n'
+import { formatCompactNumber, formatMoney, formatNumber } from '../../admin/params'
 
 const MONTHS = ['Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя']
+
+/** `Intl` groups digits with non-breaking spaces; compare on a readable form. */
+const norm = (value: string) => value.replace(/\u00a0|\u202f/g, ' ')
 
 const makeSeries = (
   values: number[],
@@ -22,10 +27,11 @@ const axisTicks = (container: HTMLElement) => container.querySelectorAll('.recha
 const tooltipText = (container: HTMLElement) =>
   container.querySelector('.recharts-default-tooltip')?.textContent ?? ''
 
-afterEach(() => {
+afterEach(async () => {
   cleanup()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
+  await act(async () => { await i18n.changeLanguage('ru') })
 })
 
 describe('LineChart (Recharts)', () => {
@@ -99,6 +105,82 @@ describe('LineChart (Recharts)', () => {
     const { container } = render(<LineChart series={[]} ariaLabel="Динамика" />)
     expect(container.querySelector('.recharts-wrapper')).toBeNull()
     expect(container.textContent).toContain('Недостаточно данных для графика')
+  })
+
+  it('shows the exact amount in the tooltip while the axis keeps its compact labels', async () => {
+    stubChartSizing(720)
+    const amounts = [2180000, 2640000, 3120000, 3640000, 4720000, 4380000]
+    const compactAxis = (value: number) => `${formatCompactNumber(value)} ₽`
+    const exactTooltip = (value: number) => formatMoney(value)
+    const { container } = render(
+      <LineChart
+        series={makeSeries(amounts)}
+        formatValue={compactAxis}
+        formatTooltipValue={exactTooltip}
+        ariaLabel="Динамика продаж"
+      />,
+    )
+    // The axis formatter must never reach the tooltip: it rounds 3 120 000 to «3,1 млн».
+    expect(compactAxis(3120000)).not.toBe(exactTooltip(3120000))
+
+    hoverChart(container, 300, 100)
+    await waitFor(() => expect(tooltipText(container)).toContain('Авг'))
+    const text = norm(tooltipText(container))
+    expect(text).toContain('3 120 000 ₽')
+    expect(text).not.toContain('млн')
+  })
+
+  it('localizes the exact tooltip value in Russian and English', async () => {
+    stubChartSizing(720)
+    const amounts = [2180000, 2640000, 3120000, 3640000, 4720000, 4380000]
+    const { container } = render(
+      <LineChart
+        series={makeSeries(amounts)}
+        formatValue={(value) => `${formatCompactNumber(value)} ₽`}
+        formatTooltipValue={formatMoney}
+        ariaLabel="Динамика продаж"
+      />,
+    )
+
+    hoverChart(container, 300, 100)
+    await waitFor(() => expect(norm(tooltipText(container))).toContain('3 120 000 ₽'))
+
+    await act(async () => { await i18n.changeLanguage('en') })
+    await waitFor(() => expect(norm(tooltipText(container))).toContain('3,120,000 ₽'))
+  })
+
+  it('keeps unit counts exact in the tooltip and identifies every comparison series', async () => {
+    stubChartSizing(720)
+    const first = makeSeries([10, 20, 30, 40, 50, 60], 'Ryzen 5 7600', '#2563eb')
+    const second = makeSeries([6, 9, 12, 15, 18, 21], 'RTX 4070 SUPER', '#8b5cf6')
+    const { container } = render(
+      <LineChart
+        series={[first[0], second[0]]}
+        formatValue={(value) => formatNumber(value)}
+        formatTooltipValue={(value) => formatNumber(value)}
+        ariaLabel="Сравнение"
+      />,
+    )
+
+    hoverChart(container, 300, 100)
+    await waitFor(() => expect(tooltipText(container)).toContain('Ryzen 5 7600'))
+    const text = norm(tooltipText(container))
+    // Every series keeps its identity and its own exact value.
+    expect(text).toMatch(/Ryzen 5 7600\s*:\s*30/)
+    expect(text).toMatch(/RTX 4070 SUPER\s*:\s*12/)
+  })
+
+  it('falls back to the axis formatter when no tooltip formatter is given', async () => {
+    stubChartSizing(720)
+    const { container } = render(
+      <LineChart
+        series={makeSeries([95, 115, 130, 145, 160, 148])}
+        formatValue={(value) => `${formatNumber(value)} шт.`}
+        ariaLabel="Динамика продаж"
+      />,
+    )
+    hoverChart(container, 300, 100)
+    await waitFor(() => expect(norm(tooltipText(container))).toContain('130 шт.'))
   })
 
   it('draws narrow containers 1:1 instead of shrinking the axis text', () => {

@@ -25,7 +25,13 @@ export interface ChartSeries {
 
 interface LineChartProps {
   series: ChartSeries[]
+  /** Axis tick formatter; compact notation is fine to keep labels readable. */
   formatValue?: (value: number) => string
+  /**
+   * Tooltip formatter, defaulting to `formatValue`. Pass an exact formatter when
+   * the axis uses a compact approximation: a tooltip must never round the amount.
+   */
+  formatTooltipValue?: (value: number) => string
   height?: number
   ariaLabel: string
 }
@@ -79,8 +85,15 @@ function ChartLegend({ series }: { series: ChartSeries[] }) {
  * Sales-dynamics line chart: Recharts `LineChart` with Recharts axes, a dashed
  * horizontal grid, one line per series and an interactive tooltip.
  */
-export function LineChart({ series, formatValue = (value) => String(value), height = 280, ariaLabel }: LineChartProps) {
+export function LineChart({
+  series,
+  formatValue = (value) => String(value),
+  formatTooltipValue,
+  height = 280,
+  ariaLabel,
+}: LineChartProps) {
   const { t } = useTranslation()
+  const formatTooltip = formatTooltipValue ?? formatValue
   const [containerRef, containerWidth] = useElementWidth(BASE_WIDTH)
   const labels = series[0]?.points.map((point) => point.label) ?? []
   const scale = chartScale(containerWidth)
@@ -150,7 +163,7 @@ export function LineChart({ series, formatValue = (value) => String(value), heig
             contentStyle={tooltipContentStyle}
             labelStyle={tooltipLabelStyle}
             itemStyle={tooltipItemStyle}
-            formatter={(value, name) => [formatValue(Number(value)), name]}
+            formatter={(value, name) => [formatTooltip(Number(value)), name]}
           />
           <Legend verticalAlign="bottom" height={LEGEND_HEIGHT} content={<ChartLegend series={series} />} />
           {series.map((item, index) => (

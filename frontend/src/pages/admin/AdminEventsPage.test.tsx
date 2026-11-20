@@ -45,6 +45,20 @@ const eventRequests = (fetchMock: ReturnType<typeof vi.fn>) =>
     .filter((url) => new URL(url, 'http://localhost').pathname === '/api/v1/admin/events')
     .map((url) => new URL(url, 'http://localhost').searchParams)
 
+/**
+ * Expected local rendering of a fixture timestamp.
+ *
+ * The journal shows local time on purpose, so the expectation is derived from the
+ * timestamp in the host's zone instead of hard-coding a date that only holds in
+ * one timezone. The parts are read with `Date` getters, i.e. independently of the
+ * `Intl` formatter under test.
+ */
+const localStamp = (iso: string, separator = '.') => {
+  const date = new Date(iso)
+  const pad = (value: number) => String(value).padStart(2, '0')
+  return `${pad(date.getDate())}${separator}${pad(date.getMonth() + 1)}${separator}${date.getFullYear()}, ${pad(date.getHours())}:${pad(date.getMinutes())}`
+}
+
 afterEach(async () => {
   cleanup()
   vi.unstubAllGlobals()
@@ -68,10 +82,38 @@ describe('admin event journal', () => {
 
   it('shows the year in event timestamps so equal day/month values stay distinguishable', async () => {
     setup()
-    await screen.findByText('Создал сборку #28')
-    const stamps = screen.getAllByText(/17\.11\.2026/)
-    expect(stamps.length).toBeGreaterThan(0)
-    expect(stamps[0]?.textContent).toMatch(/^17\.11\.2026, \d{2}:\d{2}$/)
+    const row = (await screen.findByText('Создал сборку #28')).closest('tr') as HTMLElement
+    const occurredAt = eventsFixture.items[0].occurred_at
+    const expected = localStamp(occurredAt)
+    // The host timezone decides the calendar date of a UTC timestamp: the
+    // expectation is derived from the fixture instead of assuming UTC.
+    expect(row.textContent).toContain(expected)
+    expect(expected).toMatch(/^\d{2}\.\d{2}\.\d{4}, \d{2}:\d{2}$/)
+  })
+
+  it('keeps events of different years distinguishable in the timestamp column', async () => {
+    const baseEvent = eventsActorFixture.items[0]
+    setup({
+      items: [
+        { ...baseEvent, id: 401, occurred_at: '2025-11-17T14:52:00Z' },
+        { ...baseEvent, id: 402, occurred_at: '2026-11-17T14:52:00Z' },
+      ],
+      total: 2, page: 1, page_size: 10, total_pages: 1,
+    })
+    await screen.findAllByText('Создал сборку #28')
+    const cells = Array.from(document.querySelectorAll('tbody tr')).map((row) => row.querySelector('td')?.textContent ?? '')
+    expect(cells).toHaveLength(2)
+    expect(cells[0]).toContain(localStamp('2025-11-17T14:52:00Z'))
+    expect(cells[1]).toContain(localStamp('2026-11-17T14:52:00Z'))
+    expect(cells[0]).not.toBe(cells[1])
+  })
+
+  it('uses the locale date format for event timestamps', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    setup()
+    const row = (await screen.findByText('Created a build #28')).closest('tr') as HTMLElement
+    const expected = localStamp(eventsFixture.items[0].occurred_at, '/')
+    expect(row.textContent).toContain(expected)
   })
 
   it('sends search, category, date and pagination filters to the API', async () => {

@@ -77,6 +77,8 @@ export function AnalyticsOverview() {
 
   const moneyAxis = metric === 'amount'
   const formatAxis = (value: number) => moneyAxis ? `${formatCompactNumber(value)} ₽` : formatNumber(value)
+  // The axis stays compact, but a tooltip must show the exact amount the point stands for.
+  const formatTooltipValue = (value: number) => moneyAxis ? formatMoney(value) : formatNumber(value)
 
   if (overview.isError) {
     return <AdminError message={adminErrorText(overview.error)} onRetry={() => void overview.refetch()} />
@@ -284,6 +286,7 @@ export function AnalyticsOverview() {
               series={chartSeries}
               height={280}
               formatValue={formatAxis}
+              formatTooltipValue={formatTooltipValue}
               ariaLabel={`${t('admin.analytics.dynamics')}: ${mode === 'all' ? t('admin.analytics.mode_all') : t('admin.analytics.mode_compare')}`}
             />
           )}

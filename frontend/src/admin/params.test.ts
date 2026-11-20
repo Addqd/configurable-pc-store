@@ -59,14 +59,37 @@ describe('admin chart month labels', () => {
 })
 
 describe('admin period helpers', () => {
+  /**
+   * Calendar days between two `YYYY-MM-DD` values.
+   *
+   * UTC midnights are compared on purpose: two local midnights are 23 or 25 hours
+   * apart across a daylight-saving transition, which would make the difference a
+   * fraction and the assertion machine-dependent.
+   */
+  const calendarDays = (from: string, to: string) =>
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000 + 1
+
   it('computes "last 30 days" as exactly 30 calendar days including today', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date(2026, 10, 20, 15, 30))
     const from = daysAgo(30)
     const to = isoDate(new Date())
-    const days = (new Date(`${to}T00:00:00`).getTime() - new Date(`${from}T00:00:00`).getTime()) / 86_400_000
     expect(from).toBe('2026-10-22')
-    expect(days + 1).toBe(30)
+    expect(calendarDays(from, to)).toBe(30)
+  })
+
+  it('keeps the window whole across daylight-saving transitions', () => {
+    // The European transition is 2026-03-29 / 2026-10-25, the US one 2026-03-08 /
+    // 2026-11-01: every window below contains one of those days for some host zone.
+    vi.useFakeTimers()
+    for (const today of ['2026-11-20', '2026-04-10']) {
+      vi.setSystemTime(new Date(`${today}T12:00:00`))
+      const from = daysAgo(30)
+      const to = isoDate(new Date())
+      const days = calendarDays(from, to)
+      expect(Number.isInteger(days * 2), `${from}..${to}`).toBe(true)
+      expect(days, `${from}..${to}`).toBe(30)
+    }
   })
 })
 

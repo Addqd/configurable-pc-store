@@ -204,6 +204,15 @@ export function AdminProductFormPage() {
   /** Last order confirmed by the server; rollback is based on it, not on a stale array. */
   const serverOrderRef = useRef<number[]>([])
   /**
+   * Identity of the form flow that owns the in-flight uploads.
+   *
+   * A product creation can keep uploading after the administrator has already
+   * left the page. Bumping the token on unmount (and whenever the route switches
+   * to another product) makes every older continuation stale, so a late upload
+   * can no longer redirect the user back to the editor it was created from.
+   */
+  const flowTokenRef = useRef(0)
+  /**
    * Synchronous guard for every server-side gallery mutation.
    *
    * Disabled buttons rely on asynchronous React state, which cannot stop a second
@@ -244,6 +253,8 @@ export function AdminProductFormPage() {
   useEffect(() => () => {
     previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     previewUrlsRef.current.clear()
+    // Leaving the page invalidates the flow that any pending upload belongs to.
+    flowTokenRef.current += 1
   }, [])
 
   // The product detail is external server state: hydrate the editable draft once
@@ -251,6 +262,8 @@ export function AdminProductFormPage() {
   // oxlint-disable react/set-state-in-effect
   useEffect(() => {
     if (loadedKey === formKey) return
+    // A different product (or a fresh create form) is a different flow.
+    flowTokenRef.current += 1
     previewUrlsRef.current.forEach((url) => URL.revokeObjectURL(url))
     previewUrlsRef.current.clear()
     uploadedIdsRef.current.clear()
@@ -314,6 +327,9 @@ export function AdminProductFormPage() {
     void invalidateAfterProductChange(queryClient)
   }
 
+  /** True while this page still hosts the flow that started at `token`. */
+  const isCurrentFlow = (token: number) => flowTokenRef.current === token
+
   const validateFiles = (files: File[]): File[] | null => {
     if (items.length + files.length > MAX_IMAGES) {
       setGalleryError(t('admin.form.gallery_limit_error'))
@@ -352,8 +368,13 @@ export function AdminProductFormPage() {
   /**
    * Uploads only items that have no server id yet. An image accepted by the
    * server keeps its id, so retrying an ordering failure never uploads it twice.
+   *
+   * Returns how many images the server actually accepted: uploading and ordering
+   * are separate mutations, so an accepted image must refresh the cache even when
+   * the following order request fails.
    */
-  const uploadNewItems = async (id: number, source: GalleryItem[]): Promise<number> => {
+  const uploadNewItems = async (id: number, source: GalleryItem[]): Promise<{ accepted: number; failures: number }> => {
+    let accepted = 0
     let failures = 0
     for (const item of source) {
       if (!item.file) continue
@@ -362,6 +383,7 @@ export function AdminProductFormPage() {
       try {
         const image = await uploadImage.mutateAsync({ productId: id, data: { file: item.file } })
         uploadedIdsRef.current.set(item.key, image.id)
+        accepted += 1
         markItem(item.key, { uploading: false, failed: false, id: image.id, url: image.url })
       } catch (error) {
         failures += 1
@@ -369,7 +391,7 @@ export function AdminProductFormPage() {
         setGalleryError(adminErrorText(error))
       }
     }
-    return failures
+    return { accepted, failures }
   }
 
   const knownIds = (source: GalleryItem[], extra?: { key: string; id: number }): number[] =>
@@ -395,11 +417,14 @@ export function AdminProductFormPage() {
   }
 
   /** Uploads pending files, then persists their order once all of them are accepted. */
-  const uploadPending = async (id: number, source: GalleryItem[]): Promise<{ failures: number; orderSaved: boolean }> => {
-    const failures = await uploadNewItems(id, source)
-    if (failures > 0) return { failures, orderSaved: false }
+  const uploadPending = async (
+    id: number,
+    source: GalleryItem[],
+  ): Promise<{ accepted: number; failures: number; orderSaved: boolean }> => {
+    const { accepted, failures } = await uploadNewItems(id, source)
+    if (failures > 0) return { accepted, failures, orderSaved: false }
     const orderSaved = await persistOrderIds(id, knownIds(source))
-    return { failures, orderSaved }
+    return { accepted, failures, orderSaved }
   }
 
   const handleAddFiles = (files: File[]) => {
@@ -426,13 +451,16 @@ export function AdminProductFormPage() {
     void (async () => {
       setUploading(true)
       try {
-        const failures = await uploadNewItems(numericId, newItems)
-        setUploadFailures(failures)
-        if (failures === 0) {
+        const result = await uploadNewItems(numericId, newItems)
+        setUploadFailures(result.failures)
+        // A committed image changes the catalog even when a sibling upload fails
+        // or the following order request is rejected.
+        if (result.accepted > 0) invalidateCatalog()
+        if (result.failures === 0) {
           const orderSaved = await persistOrderIds(numericId, knownIds([...items, ...newItems]))
           if (orderSaved) invalidateCatalog()
         }
-        if (failures === 0 && detail.data) void detail.refetch()
+        if (result.failures === 0 && detail.data) void detail.refetch()
       } catch (error) {
         setGalleryError(adminErrorText(error))
       } finally {
@@ -458,6 +486,9 @@ export function AdminProductFormPage() {
         uploadedIdsRef.current.set(key, image.id)
         markItem(key, { uploading: false, failed: false, id: image.id, url: image.url })
         setUploadFailures((current) => Math.max(0, current - 1))
+        // The image is committed: refresh the catalog before ordering, which is a
+        // separate request that may still fail.
+        invalidateCatalog()
         // Ordering is a separate request: an accepted image is never re-uploaded.
         const orderSaved = await persistOrderIds(id, knownIds(items, { key, id: image.id }))
         if (orderSaved) {
@@ -482,10 +513,16 @@ export function AdminProductFormPage() {
   const retryUploads = () => {
     const product = createdProduct
     if (!product || !acquireGalleryLock()) return
+    const flowToken = flowTokenRef.current
     setUploading(true)
     void (async () => {
       try {
         const result = await uploadPending(product.id, items)
+        // Committed images must refresh the cache even when the ordering request
+        // failed or the administrator already left this page.
+        if (result.accepted > 0) invalidateCatalog()
+        // Navigation is only allowed while this page still owns the flow.
+        if (!isCurrentFlow(flowToken)) return
         setUploadFailures(result.failures)
         setOrderFailed(!result.orderSaved)
         if (result.failures === 0 && result.orderSaved) {
@@ -583,6 +620,7 @@ export function AdminProductFormPage() {
     const id = createdProduct?.id ?? (isEdit ? numericId : null)
     if (!id) return
     if (!acquireGalleryLock()) return
+    const flowToken = flowTokenRef.current
     void (async () => {
       setUploading(true)
       try {
@@ -590,7 +628,10 @@ export function AdminProductFormPage() {
         if (orderSaved) {
           invalidateCatalog()
           if (detail.data) void detail.refetch()
-          if (createdProduct) navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })
+          // Only the flow that started this retry may report completion.
+          if (createdProduct && isCurrentFlow(flowToken)) {
+            navigate(`/admin/products/${createdProduct.id}/edit`, { replace: true, state: { created: true } })
+          }
         }
       } finally {
         setUploading(false)
@@ -683,18 +724,30 @@ export function AdminProductFormPage() {
     }
 
     if (!acquireGalleryLock()) return
+    const flowToken = flowTokenRef.current
     try {
       const created = await createProduct.mutateAsync({ data: payload(amount) })
-      setCreatedProduct(created)
-      setOrderFailed(false)
+      // The product row is committed on the server: the catalog must refresh even
+      // when the administrator has already left this page.
       invalidateCatalog()
-      setUploading(true)
-      let result = { failures: 0, orderSaved: true }
+      const active = isCurrentFlow(flowToken)
+      if (active) {
+        setCreatedProduct(created)
+        setOrderFailed(false)
+        setUploading(true)
+      }
+      let result = { accepted: 0, failures: 0, orderSaved: true }
       try {
         result = await uploadPending(created.id, items)
       } finally {
-        setUploading(false)
+        if (active) setUploading(false)
       }
+      // Accepted images are separate committed mutations, independent of ordering.
+      if (result.accepted > 0) invalidateCatalog()
+      // A continuation of a flow the administrator already left must not navigate
+      // (the committed data is still refreshed above). Re-checked after the upload
+      // because the page can be left while the images are still uploading.
+      if (!isCurrentFlow(flowToken)) return
       setUploadFailures(result.failures)
       setOrderFailed(!result.orderSaved)
       if (result.failures === 0 && result.orderSaved) {
