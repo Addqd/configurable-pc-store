@@ -2,15 +2,53 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event as sa_event
 from sqlalchemy import func, select
+from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from app.models import Product, SiteEvent, User
 from app.services import event_service
 from tests.conftest import create_account
+
+# Both authentication and the journal touch `users`. Authentication loads a whole
+# user row (`db.get(User, id)`), whose SELECT list therefore contains
+# `users.username` too, so raw statement text cannot identify the journal lookup.
+# The batched actor-username resolution is the only query that filters several ids
+# at once, which is what these markers describe.
+BATCHED_USERNAME_LOOKUP_MARKERS = ("from users", "users.username", "users.id in")
+
+
+def _is_batched_username_lookup(statement: str) -> bool:
+    """True for the multi-id `users.id, users.username` lookup of one page."""
+    normalized = " ".join(statement.lower().split())
+    return all(marker in normalized for marker in BATCHED_USERNAME_LOOKUP_MARKERS)
+
+
+@contextmanager
+def _recorded_statements(engine) -> Iterator[list[str]]:
+    """Collects every SQL statement executed on the given engine."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    sa_event.listen(engine, "before_cursor_execute", record)
+    try:
+        yield statements
+    finally:
+        sa_event.remove(engine, "before_cursor_execute", record)
+
+
+def _batched_username_lookups(statements: list[str]) -> list[str]:
+    return [
+        statement for statement in statements if _is_batched_username_lookup(statement)
+    ]
 
 
 def _event_count(session: Session, event_type: str) -> int:
@@ -319,6 +357,189 @@ def test_rejected_operation_is_journaled_only_as_a_failure(
         if event.outcome == "success"
         and (event.details or {}).get("name") == "Регресс Б"
     ]
+
+
+def test_event_journal_resolves_actor_usernames(
+    api_client: TestClient, admin_user: dict, registered_user: dict
+):
+    """The journal shows the real username next to the numeric actor id."""
+    body = _events(api_client, admin_user, actor_user_id=registered_user["id"])
+    assert body["items"], "a fresh account must have at least one auth event"
+    for item in body["items"]:
+        assert item["actor_user_id"] == registered_user["id"]
+        assert item["actor_username"] == registered_user["username"]
+
+
+def test_event_journal_keeps_owner_role_and_actor_snapshot(
+    api_client: TestClient,
+    owner_user: dict,
+    registered_user: dict,
+    test_db_session: Session,
+):
+    """Owner actions keep their role distinction and snapshot the actor, not the target."""
+    promoted = api_client.patch(
+        f"/api/v1/admin/users/{registered_user['id']}",
+        headers=owner_user["headers"],
+        json={"role": "admin"},
+    )
+    assert promoted.status_code == 200, promoted.text
+
+    body = _events(
+        api_client,
+        owner_user,
+        target_type="user",
+        target_id=registered_user["id"],
+        page_size=50,
+    )
+    changes = [
+        item
+        for item in body["items"]
+        if item["event_type"] == "admin.user_role_changed"
+    ]
+    assert changes
+    assert all(item["actor_role"] == "owner" for item in changes)
+    assert all(item["actor_username"] == owner_user["username"] for item in changes)
+    assert all(item["actor_user_id"] == owner_user["id"] for item in changes)
+
+    test_db_session.expire_all()
+    stored = test_db_session.scalars(
+        select(SiteEvent).where(
+            SiteEvent.event_type == "admin.user_role_changed",
+            SiteEvent.actor_user_id == owner_user["id"],
+        )
+    ).all()
+    assert stored
+    # The snapshot belongs to the actor, never to the edited target account.
+    assert all(
+        (item.details or {}).get("actor_username") == owner_user["username"]
+        for item in stored
+    )
+
+
+def test_deleted_actor_keeps_the_recorded_username_snapshot(
+    api_client: TestClient, admin_user: dict, test_db_session: Session
+):
+    victim = create_account(api_client, role="user")
+    deleted = api_client.request(
+        "DELETE",
+        f"/api/v1/admin/users/{victim['id']}",
+        headers=admin_user["headers"],
+        json={"confirm": True},
+    )
+    assert deleted.status_code == 204
+    test_db_session.expire_all()
+    assert test_db_session.get(User, victim["id"]) is None
+
+    body = _events(api_client, admin_user, actor_user_id=victim["id"])
+    assert body["items"], "the deleted actor keeps its journal entries"
+    for item in body["items"]:
+        assert item["actor_user_id"] == victim["id"]
+        assert item["actor_username"] == victim["username"]
+
+
+def test_unknown_and_system_actors_have_no_invented_username(
+    api_client: TestClient, admin_user: dict, test_db_session: Session
+):
+    orphan = SiteEvent(
+        actor_user_id=987654321,
+        actor_role="admin",
+        category="account",
+        event_type="account.deleted",
+        outcome="success",
+        details={},
+    )
+    system_event = SiteEvent(
+        actor_user_id=None,
+        actor_role=None,
+        category="system",
+        event_type="system.retention_cleanup",
+        outcome="success",
+        details={},
+    )
+    test_db_session.add_all([orphan, system_event])
+    test_db_session.flush()
+
+    body = _events(api_client, admin_user, page_size=200)
+    by_id = {item["id"]: item for item in body["items"]}
+
+    # No live row and no snapshot: the id is preserved, the name is not invented.
+    assert by_id[orphan.id]["actor_user_id"] == 987654321
+    assert by_id[orphan.id]["actor_username"] is None
+    # System events carry neither an actor id nor a username.
+    assert by_id[system_event.id]["actor_user_id"] is None
+    assert by_id[system_event.id]["actor_username"] is None
+
+
+def test_username_query_classifier_ignores_authentication_statements():
+    """DB-free: the classifier separates the auth lookup from the batched one.
+
+    Authentication resolves the caller with `db.get(User, id)`, which selects every
+    user column and therefore contains `users.username`; counting that statement
+    would make the journal query-count test measure authentication instead.
+    """
+    dialect = postgresql.dialect()
+    authentication = str(select(User).where(User.id == 1).compile(dialect=dialect))
+    batched = str(
+        select(User.id, User.username)
+        .where(User.id.in_([1, 2]))
+        .compile(dialect=dialect)
+    )
+
+    assert "users.username" in " ".join(authentication.lower().split())
+    assert not _is_batched_username_lookup(authentication)
+    assert _is_batched_username_lookup(batched)
+
+
+def test_event_page_resolves_usernames_with_a_single_batched_users_query(
+    api_client: TestClient,
+    admin_user: dict,
+    isolated_connection,
+):
+    """Pagination must not degrade into one username lookup per journal row."""
+    actors = [create_account(api_client) for _ in range(3)]
+
+    with _recorded_statements(isolated_connection.engine) as statements:
+        body = _events(api_client, admin_user, page_size=50)
+
+    assert body["items"]
+    # Authentication also selects `users.username`; only the multi-id lookup counts.
+    assert len(_batched_username_lookups(statements)) == 1, statements
+    resolved = {
+        item["actor_username"] for item in body["items"] if item["actor_username"]
+    }
+    assert {actor["username"] for actor in actors} <= resolved
+    assert len(resolved) >= 3
+
+
+def test_event_page_pagination_keeps_one_username_lookup_per_page(
+    api_client: TestClient,
+    admin_user: dict,
+    isolated_connection,
+):
+    """Two page requests issue two batched lookups, not one per event."""
+    create_account(api_client)
+    create_account(api_client)
+
+    with _recorded_statements(isolated_connection.engine) as statements:
+        first = _events(api_client, admin_user, page_size=1, page=1)
+        second = _events(api_client, admin_user, page_size=1, page=2)
+
+    assert first["items"] and second["items"]
+    assert len(_batched_username_lookups(statements)) == 2, statements
+
+
+def test_empty_event_page_skips_the_username_lookup(
+    api_client: TestClient,
+    admin_user: dict,
+    isolated_connection,
+):
+    """Without events there is nothing to resolve, so no users query is issued."""
+    with _recorded_statements(isolated_connection.engine) as statements:
+        body = _events(api_client, admin_user, q="definitely-no-such-event-value")
+
+    assert body["total"] == 0
+    assert body["items"] == []
+    assert _batched_username_lookups(statements) == []
 
 
 def test_event_key_is_idempotent_inside_one_transaction(isolated_connection):

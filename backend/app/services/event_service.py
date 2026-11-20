@@ -23,6 +23,7 @@ Never store credentials, tokens, cookies or unnecessary personal data here.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from typing import Any
@@ -79,6 +80,9 @@ _MAX_KEY_LENGTH = 64
 _MAX_STRING_LENGTH = 300
 _MAX_ITEMS = 20
 _MAX_DEPTH = 2
+
+# Historical actor username snapshot kept inside `details`; see `_event_values`.
+ACTOR_USERNAME_KEY = "actor_username"
 
 
 def _sanitize_value(value: object, depth: int) -> object:
@@ -140,6 +144,10 @@ def _event_values(
     if actor is not None:
         actor_user_id = actor.id
         actor_role = actor.role
+        # `site_events` has no foreign key to `users`, so a deleted account would
+        # otherwise erase the actor's name from its own audit trail. The snapshot
+        # belongs to the actor, never to the event target.
+        details = {**(details or {}), ACTOR_USERNAME_KEY: actor.username}
     return {
         "event_key": event_key,
         "actor_user_id": actor_user_id,
@@ -339,6 +347,20 @@ def list_events(
         by_id = {event.id: event for event in loaded}
         events = [by_id[event_id] for event_id in ids if event_id in by_id]
     return events, total
+
+
+def actor_usernames(db: Session, actor_ids: Iterable[int | None]) -> dict[int, str]:
+    """Batched username lookup for one page of journal entries.
+
+    One query per page instead of one per event keeps the journal free of N+1
+    lookups. Ids whose account no longer exists are simply absent, which lets
+    the caller fall back to the historical snapshot or a localized label.
+    """
+    ids = {int(actor_id) for actor_id in actor_ids if actor_id is not None}
+    if not ids:
+        return {}
+    rows = db.execute(select(User.id, User.username).where(User.id.in_(ids))).all()
+    return {row.id: row.username for row in rows}
 
 
 def filter_options(db: Session) -> tuple[list[str], list[str], list[str]]:

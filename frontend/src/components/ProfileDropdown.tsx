@@ -2,16 +2,16 @@ import { useTranslation } from 'react-i18next'
 import { useUIStore } from '../stores/uiStore'
 import { useThemeStore } from '../stores/themeStore'
 import { useAccountStore } from '../stores/accountStore'
-import { FiUser, FiBox, FiFileText, FiSettings, FiLogOut } from 'react-icons/fi'
+import { FiUser, FiBox, FiFileText, FiGrid, FiSettings, FiLogOut } from 'react-icons/fi'
 import { HiMiniMoon, HiMiniSun } from 'react-icons/hi2'
 import { Link } from 'react-router'
 import { useState } from 'react'
 import placeholder from '../assets/placeholder.jpg'
 
 type User = { name: string; email: string; avatar: string }
-interface ProfileDropdownProps { user?: User | null; onLogout?: () => void | Promise<void> }
+interface ProfileDropdownProps { user?: User | null; onLogout?: () => void | Promise<void>; adminLink?: boolean }
 
-export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
+export function ProfileDropdown({ user, onLogout, adminLink = false }: ProfileDropdownProps) {
   const { t } = useTranslation()
   const closeProfile = useUIStore((s) => s.closeProfile)
   const { isDark, toggle } = useThemeStore()
@@ -57,6 +57,12 @@ export function ProfileDropdown({ user, onLogout }: ProfileDropdownProps) {
           className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors"
         ><item.icon className="w-5 h-5 text-text-muted"/><span>{t(item.labelKey)}</span></Link>
       ))}
+      {adminLink && (
+        <Link
+          to="/admin" onClick={closeProfile}
+          className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-surface-3 hover:text-primary transition-colors"
+        ><FiGrid className="w-5 h-5 text-text-muted"/><span>{t('admin.profile_link')}</span></Link>
+      )}
       <div className="px-4 py-2 border-t border-border">
         <button
           type="button"

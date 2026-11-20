@@ -88,6 +88,16 @@ def test_pagination_contract_fields():
         ), name
 
 
+def test_event_contract_exposes_the_actor_username():
+    """The journal renders a username next to a separate numeric actor id.
+
+    Without this field the admin UI could only show a role/id label, so the
+    response contract must carry the resolved username (or the snapshot).
+    """
+    properties = app.openapi()["components"]["schemas"]["AdminEventOut"]["properties"]
+    assert {"actor_user_id", "actor_role", "actor_username"} <= set(properties)
+
+
 def test_admin_review_defaults_are_minimal():
     payload = AdminReviewCreate(author_name="Редакция", rating=5, body="Хорошо")
     assert payload.displayed_at is None

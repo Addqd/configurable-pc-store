@@ -1,5 +1,6 @@
 """`/api/v1/admin/events` — read-only audit journal queries."""
 
+from collections.abc import Mapping
 from datetime import date
 from typing import Annotated
 
@@ -20,20 +21,29 @@ from app.services import event_service as svc
 router = APIRouter(prefix="/events", tags=["admin: events"])
 
 
-def _event_out(event: SiteEvent) -> AdminEventOut:
+def _event_out(event: SiteEvent, usernames: Mapping[int, str]) -> AdminEventOut:
+    details = event.details or {}
+    snapshot = details.get(svc.ACTOR_USERNAME_KEY)
+    username = (
+        usernames.get(event.actor_user_id) if event.actor_user_id is not None else None
+    )
+    if username is None and isinstance(snapshot, str) and snapshot.strip():
+        # Historical snapshot of a deleted account; never invented for old rows.
+        username = snapshot.strip()
     return AdminEventOut(
         id=event.id,
         event_key=event.event_key,
         occurred_at=event.occurred_at,
         actor_user_id=event.actor_user_id,
         actor_role=event.actor_role,
+        actor_username=username,
         category=event.category,
         event_type=event.event_type,
         outcome=event.outcome,
         target_type=event.target_type,
         target_id=event.target_id,
         reason=event.reason,
-        details=event.details or {},
+        details=details,
     )
 
 
@@ -79,8 +89,9 @@ def list_events(
         date_to=date_to,
         sort=sort,
     )
+    usernames = svc.actor_usernames(db, (event.actor_user_id for event in events))
     return AdminPaginatedEventsOut(
-        items=[_event_out(event) for event in events],
+        items=[_event_out(event, usernames) for event in events],
         total=total,
         page=page,
         page_size=page_size,
