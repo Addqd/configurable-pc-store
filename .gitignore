@@ -1,7 +1,10 @@
-# Never commit per-task agent state (including nested backend task logs)
-**/.agent/TASK.md
 
-# Root-level local backup archive (contains a copy of .venv and historical test files)
+# Pi agent: local task state and temporary files
+**/.agent/TASK.md
+**/.agent/TASK-*.md
+**/.agent/tmp/
+
+# Root-level local backup archives
 /backend.rar
 /docs/references/pcbuilder.rar
 

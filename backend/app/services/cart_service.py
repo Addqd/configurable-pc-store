@@ -19,6 +19,7 @@ from app.models import (
     SavedBuildItem,
     User,
 )
+from app.services import event_service
 from app.services.catalog import _images
 from app.services.compatibility import check_selections
 
@@ -272,6 +273,21 @@ def buy_product_demo(
     )
     db.flush()
     db.refresh(order, ["items"])
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_ORDER,
+        event_type="order.created",
+        actor=user,
+        target_type="order",
+        target_id=order.id,
+        details={
+            "source": "buy_now",
+            "item_count": order.item_count,
+            "total_amount": str(order.total_amount),
+        },
+        # Idempotent replays of the same purchase must not duplicate the event.
+        event_key=f"order.created:{order.id}",
+    )
     return order
 
 
@@ -367,6 +383,20 @@ def checkout_demo(db: Session, user: User) -> Order:
     db.execute(delete(CartItem).where(CartItem.cart_id == cart.id))
     db.flush()
     db.refresh(order)
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_ORDER,
+        event_type="order.created",
+        actor=user,
+        target_type="order",
+        target_id=order.id,
+        details={
+            "source": "cart",
+            "item_count": order.item_count,
+            "total_amount": str(order.total_amount),
+        },
+        event_key=f"order.created:{order.id}",
+    )
     return order
 
 

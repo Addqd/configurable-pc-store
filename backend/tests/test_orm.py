@@ -24,10 +24,14 @@ from app.models import (
     OrderItem,
     Product,
     ProductImage,
+    ProductSpecField,
+    ProductSpecOption,
     ProductType,
     Review,
+    SaleLineFact,
     SavedBuild,
     SavedBuildItem,
+    SiteEvent,
     User,
 )
 from scripts.seed import parse_catalog
@@ -48,6 +52,10 @@ EXPECTED_MODELS = (
     CartItem,
     Order,
     OrderItem,
+    ProductSpecField,
+    ProductSpecOption,
+    SiteEvent,
+    SaleLineFact,
 )
 
 
@@ -59,7 +67,7 @@ def db_session() -> Iterator[Session]:
 
 def test_all_models_mapped() -> None:
     configure_mappers()
-    assert len(EXPECTED_MODELS) == 15
+    assert len(EXPECTED_MODELS) == 19
     expected_names = {model.__tablename__ for model in EXPECTED_MODELS}
     assert set(Base.metadata.tables) == expected_names
 
@@ -172,6 +180,10 @@ def test_user_model_columns() -> None:
         "avatar_url",
         "created_at",
         "updated_at",
+        "role",
+        "status",
+        "blocked_at",
+        "blocked_reason",
     }
 
 

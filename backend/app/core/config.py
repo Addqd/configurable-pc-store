@@ -34,6 +34,11 @@ class AppSettings(BaseSettings):
     cookie_secure: bool = False  # Set True when using HTTPS.
     cookie_samesite: Literal["lax", "strict", "none"] = "lax"
 
+    # Controlled, project-local directory for administratively uploaded images.
+    # Never point this outside the workspace; the media route resolves every
+    # request path against this root and rejects anything that escapes it.
+    media_root: Path = _ROOT_DIR / "backend" / "media"
+
     @model_validator(mode="after")
     def validate_cookie_security(self) -> AppSettings:
         if self.cookie_samesite == "none" and not self.cookie_secure:

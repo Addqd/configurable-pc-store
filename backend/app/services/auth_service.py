@@ -8,6 +8,12 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password, refresh_token_digest, verify_password
 from app.models import AuthSession, User
+from app.services import event_service
+from app.services.errors import ForbiddenError
+
+
+class AccountBlockedError(Exception):
+    """Credentials are valid but the account is blocked by an administrator."""
 
 
 def register_user(
@@ -37,6 +43,15 @@ def register_user(
     except IntegrityError as exc:
         raise ValueError("Email or username already registered") from exc
     db.refresh(user)
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_AUTH,
+        event_type="auth.registered",
+        actor=user,
+        target_type="user",
+        target_id=user.id,
+        details={"username": user.username},
+    )
     return user
 
 
@@ -48,7 +63,34 @@ def authenticate(db: Session, email_or_username: str, password: str) -> User:
         )
     )
     if user is None or not verify_password(password, user.password_hash):
+        # No identifier is journaled: that would be unnecessary personal data
+        # and would enable account enumeration from the audit page.
+        event_service.record_failure(
+            db,
+            category=event_service.CATEGORY_AUTH,
+            event_type="auth.login_failed",
+            reason="Invalid credentials",
+        )
         raise ValueError("Invalid credentials")
+    if user.status != "active":
+        event_service.record_failure(
+            db,
+            category=event_service.CATEGORY_AUTH,
+            event_type="auth.login_blocked",
+            actor=user,
+            target_type="user",
+            target_id=user.id,
+            reason="Account is blocked",
+        )
+        raise AccountBlockedError("Account is blocked")
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_AUTH,
+        event_type="auth.login_succeeded",
+        actor=user,
+        target_type="user",
+        target_id=user.id,
+    )
     return user
 
 
@@ -88,6 +130,16 @@ def revoke_session(db: Session, user_id: int, refresh_token: str) -> bool:
     return True
 
 
+def revoke_all_sessions(db: Session, user_id: int) -> int:
+    revoked = db.scalars(
+        update(AuthSession)
+        .where(AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None))
+        .values(revoked_at=datetime.now(UTC))
+        .returning(AuthSession.id)
+    ).all()
+    return len(revoked)
+
+
 def rotate_refresh_token(
     db: Session,
     user: User,
@@ -116,8 +168,28 @@ def change_password(
         .values(revoked_at=datetime.now(UTC))
     )
     db.flush()
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_AUTH,
+        event_type="auth.password_changed",
+        actor=user,
+        target_type="user",
+        target_id=user.id,
+    )
 
 
 def delete_user(db: Session, user: User) -> None:
+    # The owner account can never be removed through ordinary account deletion.
+    if user.role == "owner":
+        raise ForbiddenError("The owner account cannot be deleted")
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_ACCOUNT,
+        event_type="account.deleted",
+        actor=user,
+        target_type="user",
+        target_id=user.id,
+        details={"username": user.username, "role": user.role},
+    )
     db.delete(user)
     db.flush()

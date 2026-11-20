@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Product, SavedBuild, SavedBuildItem, User
+from app.services import event_service
 from app.services.compatibility import SLOT_CATEGORIES, check_slot_compatibility
 
 
@@ -71,6 +72,15 @@ def create_build(
     db.flush()
     _store_items(db, build, items)
     db.refresh(build)
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_BUILD,
+        event_type="build.created",
+        actor=user,
+        target_type="saved_build",
+        target_id=build.id,
+        details={"slots": sorted(item["slot"] for item in items)},
+    )
     return build
 
 
@@ -93,12 +103,31 @@ def update_build(
     build.version += 1
     db.flush()
     db.refresh(build)
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_BUILD,
+        event_type="build.updated",
+        actor=build.user,
+        target_type="saved_build",
+        target_id=build.id,
+        details={"version": build.version},
+    )
     return build
 
 
 def delete_build(db: Session, build: SavedBuild) -> None:
+    build_id = build.id
+    actor = build.user
     db.delete(build)
     db.flush()
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_BUILD,
+        event_type="build.deleted",
+        actor=actor,
+        target_type="saved_build",
+        target_id=build_id,
+    )
 
 
 def get_build_with_items(db: Session, build_id: int) -> SavedBuild | None:

@@ -9,6 +9,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import Favorite, Order, OrderItem, Product, Review, User
+from app.services import event_service
 
 
 def get_favorites(db: Session, user: User) -> list[Favorite]:
@@ -57,23 +58,21 @@ def is_favorite(db: Session, user: User, product_id: int) -> bool:
 def get_product_reviews(
     db: Session, product_id: int, page: int = 1, page_size: int = 20
 ) -> dict:
-    total = (
-        db.scalar(select(func.count(Review.id)).where(Review.product_id == product_id))
-        or 0
-    )
+    # Public listings only expose published reviews; administrative drafts stay
+    # visible to the moderation UI only.
+    published = (Review.product_id == product_id, Review.is_published.is_(True))
+    total = db.scalar(select(func.count(Review.id)).where(*published)) or 0
     rows = list(
         db.scalars(
             select(Review)
-            .where(Review.product_id == product_id)
+            .where(*published)
             .options(selectinload(Review.user))
-            .order_by(Review.created_at.desc(), Review.id.desc())
+            .order_by(Review.displayed_at.desc(), Review.id.desc())
             .limit(page_size)
             .offset((page - 1) * page_size)
         ).all()
     )
-    avg = db.scalar(
-        select(func.avg(Review.rating)).where(Review.product_id == product_id)
-    )
+    avg = db.scalar(select(func.avg(Review.rating)).where(*published))
     return {
         "reviews": rows,
         "total": total,
@@ -117,6 +116,15 @@ def create_review(
     db.add(review)
     db.flush()  # PostgreSQL purchase trigger and uniqueness are enforced here.
     db.refresh(review)
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_REVIEW,
+        event_type="review.created",
+        actor=user,
+        target_type="review",
+        target_id=review.id,
+        details={"product_id": product_id, "rating": rating},
+    )
     return review
 
 
@@ -127,7 +135,11 @@ def get_user_review(db: Session, user: User, product_id: int) -> Review | None:
 
 
 def update_review(
-    db: Session, review: Review, rating: int | None = None, body: str | None = None
+    db: Session,
+    review: Review,
+    rating: int | None = None,
+    body: str | None = None,
+    actor: User | None = None,
 ) -> Review:
     changed = False
     if rating is not None and rating != review.rating:
@@ -143,13 +155,34 @@ def update_review(
     if changed:
         review.updated_at = datetime.now(UTC)
     db.flush()
+    if changed:
+        event_service.record_event(
+            db,
+            category=event_service.CATEGORY_REVIEW,
+            event_type="review.updated",
+            actor=actor,
+            target_type="review",
+            target_id=review.id,
+            details={"product_id": review.product_id, "rating": review.rating},
+        )
     db.refresh(review)
     return review
 
 
-def delete_review(db: Session, review: Review) -> None:
+def delete_review(db: Session, review: Review, actor: User | None = None) -> None:
+    snapshot = {"product_id": review.product_id, "rating": review.rating}
+    review_id = review.id
     db.delete(review)
     db.flush()
+    event_service.record_event(
+        db,
+        category=event_service.CATEGORY_REVIEW,
+        event_type="review.deleted",
+        actor=actor,
+        target_type="review",
+        target_id=review_id,
+        details=snapshot,
+    )
 
 
 def get_profile_stats(db: Session, user: User) -> dict:

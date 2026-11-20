@@ -9,6 +9,12 @@ from app.models.catalog import (
     ProductImage,
     ProductType,
 )
+from app.models.platform import (
+    ProductSpecField,
+    ProductSpecOption,
+    SaleLineFact,
+    SiteEvent,
+)
 from app.models.social import Favorite, Review
 from app.models.user import AuthSession, User
 
@@ -28,10 +34,15 @@ __all__ = [
     "OrderItem",
     "Product",
     "ProductImage",
+    "ProductSpecField",
+    "ProductSpecOption",
     "ProductType",
     "Review",
+    "SaleLineFact",
     # Builder
     "SavedBuild",
     "SavedBuildItem",
+    # Platform
+    "SiteEvent",
     "User",
 ]

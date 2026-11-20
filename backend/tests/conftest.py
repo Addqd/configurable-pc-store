@@ -21,7 +21,7 @@ from app.core.security import get_settings
 from app.db.session import get_db_session
 from app.db.session import settings as app_db_settings
 from app.main import app
-from app.models import Category, Manufacturer, Product, ProductType
+from app.models import Category, Manufacturer, Product, ProductType, User
 
 
 @pytest.fixture(scope="session")
@@ -169,6 +169,11 @@ def sample_products(test_db_session: Session) -> dict:
 
 @pytest.fixture()
 def registered_user(api_client: TestClient) -> dict:
+    return create_account(api_client)
+
+
+def create_account(api_client: TestClient, role: str = "user") -> dict:
+    """Register + log in a fresh account; `role` labels the fixture only."""
     suffix = token_hex(6)
     email = f"test-{suffix}@example.com"
     username = f"testuser{suffix}"
@@ -190,10 +195,29 @@ def registered_user(api_client: TestClient) -> dict:
         },
     )
     assert login.status_code == 200, login.text
-    return {
+    account = {
         "id": registration.json()["id"],
         "email": email,
         "username": username,
+        "role": role,
         "token": login.json()["access_token"],
         "headers": {"Authorization": f"Bearer {login.json()['access_token']}"},
     }
+    return account
+
+
+@pytest.fixture()
+def admin_user(api_client: TestClient, test_db_session: Session) -> dict:
+    account = create_account(api_client, role="admin")
+    # Role changes are owner-only through the API, so provision it directly.
+    test_db_session.get(User, account["id"]).role = "admin"
+    test_db_session.flush()
+    return account
+
+
+@pytest.fixture()
+def owner_user(api_client: TestClient, test_db_session: Session) -> dict:
+    account = create_account(api_client, role="owner")
+    test_db_session.get(User, account["id"]).role = "owner"
+    test_db_session.flush()
+    return account

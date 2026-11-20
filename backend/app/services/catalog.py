@@ -21,6 +21,7 @@ from app.schemas.catalog import (
     ProductTypeOut,
     SearchSuggestionOut,
 )
+from app.services.product_image_service import normalize_media_url
 
 PLACEHOLDER_URL = "/api/v1/assets/product-placeholder.jpg"
 
@@ -49,10 +50,16 @@ def _images(product: Product) -> tuple[list[ProductImageOut], str]:
         key=lambda x: (x.sort_order, x.id),
     )
     values = [
-        ProductImageOut(url=x.image_url, alt_text=x.alt_text, sort_order=x.sort_order)
+        ProductImageOut(
+            url=normalize_media_url(x.image_url),
+            alt_text=x.alt_text,
+            sort_order=x.sort_order,
+        )
         for x in rows
     ]
-    return values, rows[0].image_url if rows else PLACEHOLDER_URL
+    if not rows:
+        return values, PLACEHOLDER_URL
+    return values, normalize_media_url(rows[0].image_url)
 
 
 def serialize_display_specs(raw: object) -> list[ProductDisplaySpecOut]:
@@ -122,9 +129,10 @@ def _search_expressions(q: str):
 def _ratings(db: Session, ids: list[int]) -> dict[int, tuple[float, int]]:
     if not ids:
         return {}
+    # Only published reviews contribute to public rating aggregates.
     rows = db.execute(
         select(Review.product_id, func.avg(Review.rating), func.count(Review.id))
-        .where(Review.product_id.in_(ids))
+        .where(Review.product_id.in_(ids), Review.is_published.is_(True))
         .group_by(Review.product_id)
     ).all()
     return {pid: (round(float(avg), 2), count) for pid, avg, count in rows}
