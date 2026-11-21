@@ -4,6 +4,7 @@ import { catalogDisplay } from '../i18n/catalogDisplay'
 import { FiX, FiFilter, FiChevronDown } from 'react-icons/fi'
 import { DEFAULT_FILTERS, SORT_OPTIONS, type FilterState } from '../data/catalogModel'
 import type { FilterOptionsOut } from '../api/generated/model'
+import { FilterOptionsSkeleton } from './skeletons/StoreSkeletons'
 export type { FilterState } from '../data/catalogModel'
 export { DEFAULT_FILTERS, SORT_OPTIONS } from '../data/catalogModel'
 
@@ -14,13 +15,15 @@ interface Props {
   onApply: () => void
   onClose: () => void
   options: FilterOptionsOut | undefined
+  /** No filter metadata at all yet: the option groups render as placeholders. */
+  optionsLoading?: boolean
 }
 type Section = 'sort' | 'categories' | 'types' | 'colors' | 'manufacturers'
 const sectionKeys: Record<Section,string> = {
   sort:'catalog.filter.sort', categories:'catalog.filter.categories', types:'catalog.filter.types', colors:'catalog.filter.colors', manufacturers:'catalog.filter.manufacturers',
 }
 const dotColors: Record<string,string> = { 'Чёрный':'#1a1a2e', 'Белый':'#fff', 'Серебристый':'#a0a8b4', 'Серый':'#6b7280' }
-export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose, options: data }: Props) {
+export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose, options: data, optionsLoading = false }: Props) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState<Section[]>([])
   const panelRef = useRef<HTMLDivElement>(null)
@@ -92,16 +95,18 @@ export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose,
           </label>
           <p className="mt-1 text-xs text-text-muted">{t('catalog.filter.sale_hint')}</p>
         </div>}
-        {section('categories',options.categories.map(cat=><div key={cat}>
-          {checkbox('categories',cat)}
-          {options.unavailableCategories.includes(cat) && <span className="ml-7 text-xs text-text-muted">{t('catalog.category_empty')}</span>}
-        </div>))}
-        {section('types',options.types.map(type=>checkbox('types',type,!hasCategory)))}
-        {section('colors',options.colors.map(color=>checkbox('colors',color,!allowDetail)))}
-        {section('manufacturers',<>
-          <label className="flex cursor-pointer items-center gap-2.5 text-sm text-text-primary hover:text-primary"><input type="checkbox" className="h-4 w-4 accent-primary" checked={filters.manufacturers.length===0} onChange={()=>onFiltersChange({...filters,manufacturers:[]})}/>{t('catalog.filter.all_manufacturers')}</label>
-          {options.manufacturers.map(mfr=>checkbox('manufacturers',mfr,!allowDetail))}
-        </>)}
+        {optionsLoading ? <FilterOptionsSkeleton /> : <>
+          {section('categories',options.categories.map(cat=><div key={cat}>
+            {checkbox('categories',cat)}
+            {options.unavailableCategories.includes(cat) && <span className="ml-7 text-xs text-text-muted">{t('catalog.category_empty')}</span>}
+          </div>))}
+          {section('types',options.types.map(type=>checkbox('types',type,!hasCategory)))}
+          {section('colors',options.colors.map(color=>checkbox('colors',color,!allowDetail)))}
+          {section('manufacturers',<>
+            <label className="flex cursor-pointer items-center gap-2.5 text-sm text-text-primary hover:text-primary"><input type="checkbox" className="h-4 w-4 accent-primary" checked={filters.manufacturers.length===0} onChange={()=>onFiltersChange({...filters,manufacturers:[]})}/>{t('catalog.filter.all_manufacturers')}</label>
+            {options.manufacturers.map(mfr=>checkbox('manufacturers',mfr,!allowDetail))}
+          </>)}
+        </>}
       </div>
       <div className="flex shrink-0 gap-3 border-t border-border bg-surface px-5 py-4">
         <button type="button" onClick={()=>onFiltersChange({...DEFAULT_FILTERS, categories:[],types:[],colors:[],manufacturers:[]})} className="h-10 flex-1 rounded-lg border border-border bg-surface-3 text-sm font-medium text-text-primary hover:border-border-hover">{t('catalog.filter.reset')}</button>

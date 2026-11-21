@@ -6,6 +6,7 @@ import {
 } from '../stores/builderStore'
 import { formatPrice } from '../utils/formatPrice'
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiShoppingCart } from 'react-icons/fi'
+import { BuilderCompatibilitySkeleton } from './skeletons/BuilderSkeletons'
 
 interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[]; canAdd?: boolean; loading?: boolean; error?: boolean }
 
@@ -28,7 +29,7 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
       <div className="space-y-3 border-b border-border py-5">
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="text-text-muted">{t('builder.compatibility')}</span>
-          {loading ? <span role="status">{t('common.loading')}</span> : error ? <span role="alert" className="text-red-500">{t('common.load_error')}</span> : status === 'incompatible' ? (
+          {loading ? <BuilderCompatibilitySkeleton /> : error ? <span role="alert" className="text-red-500">{t('common.load_error')}</span> : status === 'incompatible' ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-red-500"><FiAlertTriangle /> {t('common.conflicts', { count: messages.length })}</span>
           ) : status === 'compatible' ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-emerald-500"><FiCheckCircle /> {t('builder.compatible')}</span>

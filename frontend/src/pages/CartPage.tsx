@@ -12,6 +12,7 @@ import { useAccountStore } from '../stores/accountStore'
 import type { RegularCartItem, BuildCartItem, Order } from '../stores/cartStore'
 import { useState } from 'react'
 import { Link } from 'react-router'
+import { CartSkeleton } from '../components/skeletons/StoreSkeletons'
 
 interface DemoOrderMessage {
   type: 'success'
@@ -48,7 +49,7 @@ function CartContent() {
         <div className="max-w-[1320px] mx-auto py-8">
           <BackButton className="mb-4" />
           {cart.isError || update.isError || remove.isError || checkout.isError ? <p role="alert" className="text-sm text-red-500">{t('common.load_error')}</p> : null}
-          {!accountId ? <div className="py-16 text-center"><p className="mb-4 text-text-muted">{t('orders.login_desc')}</p><button type="button" onClick={() => openAuth('login')} className="rounded-lg bg-primary px-6 py-2.5 font-medium text-white hover:bg-primary-hover">{t('orders.login_btn')}</button></div> : cart.isLoading ? <p role="status">{t('common.loading')}</p> : cart.isError ? null : orderMessage ? (
+          {!accountId ? <div className="py-16 text-center"><p className="mb-4 text-text-muted">{t('orders.login_desc')}</p><button type="button" onClick={() => openAuth('login')} className="rounded-lg bg-primary px-6 py-2.5 font-medium text-white hover:bg-primary-hover">{t('orders.login_btn')}</button></div> : cart.isLoading ? <CartSkeleton /> : cart.isError ? null : orderMessage ? (
             <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-xl p-8 text-center">
               <svg className="w-16 h-16 text-green-500 mx-auto mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" strokeLinecap="round" strokeLinejoin="round" />

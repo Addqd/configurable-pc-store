@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from './api/queryClient'
@@ -46,6 +46,9 @@ function AppStateEffects() {
   const accountId = useAccountStore((s) => s.activeAccountId)
   const restore = useAccountStore((s) => s.restore)
   const previousAccount = useRef(accountId)
+  // Remove the static pre-mount placeholder declared in `index.html` in the same
+  // frame the application first paints, so it never covers rendered content.
+  useLayoutEffect(() => { document.getElementById('boot-splash')?.remove() }, [])
   useEffect(() => { void restore() }, [restore])
   useEffect(() => { document.documentElement.classList.toggle('dark', isDark) }, [isDark])
   // A saved draft opened by account A must never remain editable after A logs out

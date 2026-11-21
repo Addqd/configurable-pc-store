@@ -5,7 +5,8 @@ import { useListReviewsApiV1AdminReviewsGet } from '../../api/generated/client'
 import type { AdminReviewOut } from '../../api/generated/model'
 import { adminErrorText, MAX_SEARCH_LENGTH, type AdminReviewSort } from '../../admin/params'
 import { useDebouncedValue } from '../../utils/useDebouncedValue'
-import { AdminEmpty, AdminError, AdminLoading } from './AdminFeedback'
+import { AdminEmpty, AdminError } from './AdminFeedback'
+import { AdminTableSkeleton } from '../skeletons/AdminSkeletons'
 import { AdminPagination } from './AdminPagination'
 import { ReviewEditor } from './ReviewEditor'
 import { StarsDisplay } from './Stars'
@@ -164,7 +165,15 @@ export function ProductReviewsPanel({ productId }: { productId: number }) {
         {reviews.isError ? (
           <AdminError message={adminErrorText(reviews.error)} onRetry={() => void reviews.refetch()} compact />
         ) : reviews.isLoading ? (
-          <AdminLoading />
+          <AdminTableSkeleton
+            columns={[
+              { widthClass: 'w-[34%]', contentClass: 'h-4 w-40' },
+              { widthClass: 'w-[22%]', contentClass: 'h-4 w-24' },
+              { widthClass: 'w-[20%]', contentClass: 'h-4 w-20' },
+              { contentClass: 'h-10 w-28' },
+            ]}
+            rows={6}
+          />
         ) : total === 0 ? (
           <AdminEmpty
             title={t('admin.reviews.empty_title')}

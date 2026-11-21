@@ -19,6 +19,7 @@ import { useUIStore } from '../stores/uiStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiBox, FiPlus, FiShoppingCart, FiTrash2, FiFolder, FiCheckCircle } from 'react-icons/fi'
+import { SavedBuildsSkeleton, SavedBuildCompatibilitySkeleton } from '../components/skeletons/StoreSkeletons'
 
 function SnapshotImage({ src, alt, className }: { src?: string; alt: string; className: string }) {
   return <img src={src || placeholder} alt={alt} loading="lazy"
@@ -73,10 +74,12 @@ function SavedBuildCard({ build, onOpen, onAddToCart, onDelete }: {
           <h2 className="break-words text-base font-bold text-text-primary sm:text-lg">{build.name}</h2>
           {build.description && <p className="mt-1 line-clamp-2 text-sm text-text-muted">{build.description}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-            <span className={`inline-flex items-center gap-1.5 font-medium ${conflict ? 'text-red-500' : unknown ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
-              <span className={`h-2 w-2 rounded-full ${conflict ? 'bg-red-500' : unknown ? 'bg-amber-500' : 'bg-emerald-500'}`} />
-              {conflict ? t('saved_builds.compatibility_check') : unknown ? t('saved_builds.compatibility_partial') : t('saved_builds.compatibility_ok')}
-            </span>
+            {check.isLoading
+              ? <SavedBuildCompatibilitySkeleton />
+              : <span className={`inline-flex items-center gap-1.5 font-medium ${conflict ? 'text-red-500' : unknown ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+                  <span className={`h-2 w-2 rounded-full ${conflict ? 'bg-red-500' : unknown ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                  {conflict ? t('saved_builds.compatibility_check') : unknown ? t('saved_builds.compatibility_partial') : t('saved_builds.compatibility_ok')}
+                </span>}
             <span className="rounded-md border border-border bg-surface-2 px-2 py-1 text-text-muted">{t('saved_builds.saved_at', { date: relativeSavedDate(Date.parse(build.created_at)) })}</span>
           </div>
         </div>
@@ -197,7 +200,7 @@ function SavesContent() {
         </div>
         {error && <p role="alert" className="mb-4 text-sm text-red-500">{error}</p>}
         {message && <p role="status" className="mb-4 flex flex-wrap items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400"><FiCheckCircle />{message} <Link to="/cart" className="text-primary hover:underline">{t('saved_builds.open_cart')}</Link></p>}
-        {savedBuilds.isError ? <p role="alert">{t('common.load_error')}</p> : savedBuilds.isLoading ? <p role="status">{t('common.loading')}</p> : builds.length === 0 ? (
+        {savedBuilds.isError ? <p role="alert">{t('common.load_error')}</p> : savedBuilds.isLoading ? <SavedBuildsSkeleton /> : builds.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface p-12 text-center">
             <FiBox className="mx-auto mb-4 h-14 w-14 text-text-muted" />
             <h2 className="mb-2 text-xl font-bold text-text-primary">{t('saved_builds.empty_title')}</h2>

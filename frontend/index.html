@@ -5,8 +5,70 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PC Builder — Комплектующие, сборки, конфигуратор</title>
+    <style>
+      /*
+        First-paint placeholder. It only covers the window and shows the brand
+        mark plus a progress track; it does not reproduce the application shell.
+        Colours come from the theme variables with light-theme fallbacks, so the
+        placeholder follows the active theme without a second theme resolver.
+      */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background-color: var(--color-surface-2, #f8fafc);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      #boot-splash .boot-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background-image: linear-gradient(135deg, var(--color-primary, #0059fd), var(--color-primary-hover, #004ce0));
+      }
+
+      #boot-splash .boot-track {
+        position: relative;
+        overflow: hidden;
+        width: 120px;
+        height: 4px;
+        border-radius: 999px;
+        background-color: var(--color-surface-3, #f1f5f9);
+      }
+
+      #boot-splash .boot-track::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(90deg, transparent, var(--color-primary, #0059fd), transparent);
+        transform: translateX(-100%);
+        animation: boot-splash-shimmer 1.4s ease-in-out infinite;
+      }
+
+      @keyframes boot-splash-shimmer {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(100%); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .boot-track::after {
+          animation: none;
+          transform: none;
+          opacity: 0.45;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash" role="status" aria-live="polite" aria-label="Загрузка...">
+      <span class="boot-mark"></span>
+      <span class="boot-track"></span>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

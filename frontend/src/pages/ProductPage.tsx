@@ -20,6 +20,7 @@ import { z } from 'zod'
 import { copyToClipboard } from '../utils/copyToClipboard'
 import { buyNowKey, clearBuyNowKey } from '../api/buyNowKey'
 import { ApiError } from '../api/transport'
+import { ProductPageSkeleton } from '../components/skeletons/StoreSkeletons'
 import {
   useGetProductApiV1ProductsSlugGet, getProductReviewsApiV1ProductsProductIdReviewsGet,
   getMyReviewApiV1ProductsProductIdReviewsMyGet, isFavoritedApiV1FavoritesProductIdIsFavoritedGet,
@@ -38,7 +39,7 @@ export function ProductPage() {
   const { slug = '' } = useParams()
   const { t } = useTranslation()
   const product = useGetProductApiV1ProductsSlugGet(slug, { query: { enabled: !!slug, retry: false } })
-  if (product.isLoading) return <div className="min-h-screen bg-surface-2"><Header /><main className="pt-24 text-center" role="status">{t('common.loading')}</main></div>
+  if (product.isLoading) return <div className="min-h-screen bg-surface-2"><Header /><ProductPageSkeleton /><Footer /></div>
   if (!product.data) return <div className="min-h-screen bg-surface-2"><Header /><main className="pt-24 text-center" role="alert">{product.isError ? t('common.load_error') : t('product.not_found')}</main><Footer /></div>
   return <ProductContent key={slug} product={productFromDetail(product.data)} />
 }
@@ -121,6 +122,7 @@ function ProductContent({ product }: { product: EnrichedProduct }) {
       <div className="mt-6"><ProductDescription product={current} /></div>
       <div className="mt-6"><ProductSpecs product={current} /></div>
       <div className="mb-8 mt-6"><ProductReviews reviews={reviews} rating={current.rating} reviewCount={current.reviewCount}
+        loading={reviewsQuery.isLoading}
         sort={sort} onSortChange={setSort} ownReview={ownQuery.data ? asReview(ownQuery.data) : null} accountName={account?.displayName} reviewDisabled={!!account && (!ownQuery.isSuccess || reviewMutation.isPending)}
         onDeleteReview={() => deleteReview.mutate()}
         onAddReview={async review => { if (!requireAccount()) throw new Error('Authentication required'); await reviewMutation.mutateAsync(review) }} /></div>

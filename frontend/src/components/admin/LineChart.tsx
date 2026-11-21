@@ -10,6 +10,7 @@ import {
 } from 'recharts'
 import { niceAxisMax } from '../../admin/params'
 import { estimateTextWidth, useElementWidth } from '../../admin/useElementWidth'
+import { CHART_BASE_WIDTH, CHART_LEGEND_HEIGHT, chartScale, lineChartHeight } from './chartGeometry'
 import { tooltipContentStyle, tooltipItemStyle, tooltipLabelStyle } from './chartTheme'
 
 export interface ChartPoint {
@@ -43,29 +44,17 @@ interface LineChartProps {
  * available width, exactly like the previous rendering did, so replacing the
  * chart engine does not resize the chart, the card around it or the page.
  */
-const BASE_WIDTH = 720
-const MIN_WIDTH = 200
+const BASE_WIDTH = CHART_BASE_WIDTH
 const MARGIN = { top: 18, bottom: 34, left: 56 }
 /** Gap between a y-axis label and the plot area, in reference units. */
 const AXIS_TICK_MARGIN = 10
 const AXIS_FONT_SIZE = 11
 /** Height of the legend row below the plot: the previous markup was 24px tall. */
-const LEGEND_HEIGHT = 24
+const LEGEND_HEIGHT = CHART_LEGEND_HEIGHT
 const Y_AXIS_MAX_SHARE = 0.45
 
 /** Data-point key of a series; names are arbitrary product names, so indexes are safer. */
 const dataKeyOf = (index: number) => `series${index}`
-
-/**
- * Pixel scale of the drawing area.
- *
- * Wide containers keep the 720-unit reference geometry and therefore grow, which
- * is the approved desktop rendering. Containers between 200 and 720 pixels are
- * drawn 1:1 so 11px axis text stays 11px instead of shrinking with the drawing.
- */
-function chartScale(containerWidth: number): number {
-  return containerWidth / Math.max(MIN_WIDTH, Math.min(BASE_WIDTH, containerWidth))
-}
 
 /** Small dependency-free legend, rendered through the Recharts `Legend` slot. */
 function ChartLegend({ series }: { series: ChartSeries[] }) {
@@ -117,7 +106,7 @@ export function LineChart({
     return row
   })
   const empty = series.length === 0 || labels.length === 0
-  const chartHeight = Math.round(height * scale) + LEGEND_HEIGHT
+  const chartHeight = lineChartHeight(height, containerWidth)
   // The final x-axis label is centred on the last data point, so its right half
   // would leave the drawing. Reserving it keeps long labels (for example
   // `Ноя 2026`) unclipped without moving anything for short ones.

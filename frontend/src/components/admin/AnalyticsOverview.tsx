@@ -8,7 +8,8 @@ import {
 } from '../../api/generated/client'
 import { adminErrorText, daysAgo, formatCompactNumber, formatDecimal, formatMoney, formatNumber, formatRating, isoDate, MAX_SEARCH_LENGTH, monthLabel, monthsAgoStart, niceAxisMax, periodRangeLabel, spansMultipleYears } from '../../admin/params'
 import { useDebouncedValue } from '../../utils/useDebouncedValue'
-import { AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
+import { AdminError } from '../../components/admin/AdminFeedback'
+import { AnalyticsOverviewSkeleton, ChartSkeleton, CompareProductsSkeleton } from '../../components/skeletons/AdminSkeletons'
 import { LineChart } from '../../components/admin/LineChart'
 import { BarList } from '../../components/admin/BarList'
 import { StarsDisplay } from '../../components/admin/Stars'
@@ -84,7 +85,7 @@ export function AnalyticsOverview() {
     return <AdminError message={adminErrorText(overview.error)} onRetry={() => void overview.refetch()} />
   }
   if (overview.isLoading || !overview.data) {
-    return <AdminLoading />
+    return <AnalyticsOverviewSkeleton />
   }
 
   const data = overview.data
@@ -222,7 +223,7 @@ export function AnalyticsOverview() {
             />
             <div className="mt-2 max-h-44 overflow-y-auto">
               {compareProducts.isLoading ? (
-                <p role="status" className="px-1 py-2 text-xs text-text-muted">{t('admin.common.loading')}</p>
+                <CompareProductsSkeleton />
               ) : compareProducts.isError ? (
                 <p role="alert" className="px-1 py-2 text-xs text-danger">{adminErrorText(compareProducts.error)}</p>
               ) : (compareProducts.data?.items.length ?? 0) === 0 ? (
@@ -280,7 +281,7 @@ export function AnalyticsOverview() {
           ) : mode === 'compare' && timeline.isError ? (
             <AdminError message={adminErrorText(timeline.error)} onRetry={() => void timeline.refetch()} compact />
           ) : mode === 'compare' && timeline.isLoading ? (
-            <AdminLoading />
+            <ChartSkeleton height={280} />
           ) : (
             <LineChart
               series={chartSeries}

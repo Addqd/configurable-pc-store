@@ -8,6 +8,7 @@ import type { Product } from '../data/product'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiX, FiSearch, FiCheck } from 'react-icons/fi'
+import { BuilderSelectorSkeleton } from './skeletons/BuilderSkeletons'
 
 interface BuilderProductSelectorProps { category: BuilderCategory; onClose: () => void }
 
@@ -84,7 +85,7 @@ export function BuilderProductSelector({ category, onClose }: BuilderProductSele
         {/* The list has its own fixed desktop height and a permanently scrollable track;
             on short screens it shrinks to remain fully reachable. */}
         <div data-testid="builder-products-scroll" className="h-[400px] max-h-[calc(100dvh-230px)] min-h-0 shrink overflow-y-scroll overscroll-contain px-4 py-3 sm:px-6 [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-border-hover [&::-webkit-scrollbar-track]:bg-surface-2" style={{ scrollbarGutter: 'stable' }}>
-          {error || results.isError ? <p role="alert">{t('common.load_error')}</p> : results.isLoading ? <p role="status">{t('common.loading')}</p> : filtered.length === 0 ? (
+          {error || results.isError ? <p role="alert">{t('common.load_error')}</p> : results.isLoading ? <BuilderSelectorSkeleton /> : filtered.length === 0 ? (
             <div className="py-10 text-center text-sm text-text-muted">
               {t('builder.no_results_default')}
               {search && <button type="button" onClick={() => setSearch('')} className="ml-2 text-primary hover:underline">{t('builder.search_reset')}</button>}

@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { ReviewForm, type NewReview } from './ReviewForm'
 import { StarRating } from './StarRating'
 import type { Review } from '../data/productDetails'
+import { ProductReviewsSkeleton } from './skeletons/StoreSkeletons'
 
 export type ReviewSort = 'newest' | 'oldest' | 'rating'
 
@@ -18,9 +19,11 @@ interface ProductReviewsProps {
   onDeleteReview?: () => void
   accountName?: string
   reviewDisabled?: boolean
+  /** The review list is its own request: the rest of the page is already loaded. */
+  loading?: boolean
 }
 
-export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview, ownReview, onDeleteReview, accountName, reviewDisabled }: ProductReviewsProps) {
+export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview, ownReview, onDeleteReview, accountName, reviewDisabled, loading = false }: ProductReviewsProps) {
   const { t } = useTranslation()
   const [openForm, setOpenForm] = useState(false)
   const sorted = [...reviews].sort((a, b) => {
@@ -63,7 +66,9 @@ export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChang
         </div>
       </div>
 
-      {sorted.length === 0 ? (
+      {loading ? (
+        <ProductReviewsSkeleton />
+      ) : sorted.length === 0 ? (
         <p className="py-5 text-sm text-text-muted">{t('product.reviews.empty')}</p>
       ) : (
         <div className="space-y-4">
