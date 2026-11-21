@@ -20,6 +20,10 @@ class AdminEventOut(BaseModel):
     occurred_at: datetime
     actor_user_id: int | None = None
     actor_role: str | None = None
+    # Resolved by the endpoint from `users.username`, falling back to the
+    # historical snapshot stored in `details` for accounts that no longer exist.
+    # Optional on purpose: the row is never rejected when the lookup misses.
+    actor_username: str | None = None
     category: str
     event_type: str
     outcome: str

@@ -12,6 +12,7 @@ const PRIVATE_ENDPOINT_PATTERNS: readonly RegExp[] = [
   /^\/api\/v1\/cart(?:\/|$)/,
   /^\/api\/v1\/builds(?:\/|$)/,
   /^\/api\/v1\/favorites(?:\/|$)/,
+  /^\/api\/v1\/admin(?:\/|$)/,
   /^\/api\/v1\/products\/[^/]+\/(?:is-favorited|reviews\/my)$/,
 ]
 

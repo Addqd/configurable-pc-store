@@ -6,15 +6,22 @@
  */
 import * as zod from 'zod';
 
+export const reviewOutSourceDefault = `user`;
+export const reviewOutIsPublishedDefault = true;
 export const ReviewOut = zod.object({
   "id": zod.int(),
-  "user_id": zod.int(),
+  "user_id": zod.union([zod.int(),zod.null()]).optional(),
   "product_id": zod.int(),
   "rating": zod.int(),
   "body": zod.string(),
   "created_at": zod.iso.datetime({"offset":true}),
   "updated_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]).optional(),
-  "reviewer_name": zod.string()
+  "reviewer_name": zod.string(),
+  "source": zod.string().default(reviewOutSourceDefault),
+  "author_name": zod.union([zod.string(),zod.null()]).optional(),
+  "is_published": zod.boolean().default(reviewOutIsPublishedDefault),
+  "store_reply": zod.union([zod.string(),zod.null()]).optional(),
+  "displayed_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]).optional()
 })
 
 export type ReviewOut = zod.input<typeof ReviewOut>;

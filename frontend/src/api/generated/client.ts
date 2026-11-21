@@ -24,6 +24,20 @@ import type {
 } from '@tanstack/react-query';
 
 import {
+  AdminComparisonTimelineOut,
+  AdminEventFilterOptionsOut,
+  AdminOverviewOut,
+  AdminPaginatedEventsOut,
+  AdminPaginatedProductStatsOut,
+  AdminPaginatedProductsOut,
+  AdminPaginatedReviewsOut,
+  AdminPaginatedUsersOut,
+  AdminProductDetailOut,
+  AdminProductImageOut,
+  AdminProductStatsDetailOut,
+  AdminReviewOut,
+  AdminUserDetailOut,
+  AdminUserOut,
   BuildCompatibilityOut,
   BuildTotalOut,
   CartOut,
@@ -43,23 +57,41 @@ import {
   PaginatedProductsOut,
   PaginatedReviewsOut,
   ProductDetailOut,
+  ProductFormOptionsOut,
   ProductTypeOut,
   ReviewOut,
   SavedBuildOut,
   SearchSuggestionOut,
+  SpecificationTemplateOut,
   TokenResponse,
   UserOut
 } from './model';
 import type {
+  AdminImageOrderRequest,
+  AdminProductCreate,
+  AdminProductUpdate,
+  AdminReviewCreate,
+  AdminReviewUpdate,
+  AdminUserDeleteRequest,
+  AdminUserUpdate,
+  BodyUploadImageApiV1AdminProductsProductIdImagesPost,
   BuildUpdateItemsRequest,
   BuyNowRequest,
   CartAddBuildRequest,
   CartAddProductRequest,
   CartUpdateQuantityRequest,
+  GetComparisonTimelineApiV1AdminStatsTimelineGetParams,
   GetFilterOptionsApiV1ProductsFiltersGetParams,
+  GetOverviewApiV1AdminStatsOverviewGetParams,
   GetProductReviewsApiV1ProductsProductIdReviewsGetParams,
+  GetProductStatsApiV1AdminStatsProductsGetParams,
+  GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams,
   HTTPValidationError,
+  ListEventsApiV1AdminEventsGetParams,
+  ListProductsApiV1AdminProductsGetParams,
   ListProductsApiV1ProductsGetParams,
+  ListReviewsApiV1AdminReviewsGetParams,
+  ListUsersApiV1AdminUsersGetParams,
   LoginRequest,
   PasswordChange,
   ProfileUpdate,
@@ -284,6 +316,107 @@ export function useGetProductPlaceholderApiV1AssetsProductPlaceholderJpgGet<TDat
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetProductPlaceholderApiV1AssetsProductPlaceholderJpgGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProductImageApiV1MediaProductsFilenameGetUrl = (filename: string,) => {
+
+
+
+
+  return `/api/v1/media/products/${filename}`
+}
+
+/**
+ * @summary Get Product Image
+ */
+export const getProductImageApiV1MediaProductsFilenameGet = async (filename: string, options?: Parameters<typeof apiFetch>[1]): Promise<unknown> => {
+
+  return apiFetch<unknown>(getGetProductImageApiV1MediaProductsFilenameGetUrl(filename),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProductImageApiV1MediaProductsFilenameGetQueryKey = (filename: string,) => {
+    return [
+    `/api/v1/media/products/${filename}`
+    ] as const;
+    }
+
+
+export const getGetProductImageApiV1MediaProductsFilenameGetQueryOptions = <TData = Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError = HTTPValidationError>(filename: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProductImageApiV1MediaProductsFilenameGetQueryKey(filename);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>> = ({ signal }) => getProductImageApiV1MediaProductsFilenameGet(filename, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: filename !== null && filename !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetProductImageApiV1MediaProductsFilenameGetQueryResult = NonNullable<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>>
+export type GetProductImageApiV1MediaProductsFilenameGetQueryError = HTTPValidationError
+
+
+/** @summary Get Product Image */
+export function useGetProductImageApiV1MediaProductsFilenameGet<TData = Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError = HTTPValidationError>(
+ filename: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Image */
+export function useGetProductImageApiV1MediaProductsFilenameGet<TData = Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError = HTTPValidationError>(
+ filename: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Image */
+export function useGetProductImageApiV1MediaProductsFilenameGet<TData = Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError = HTTPValidationError>(
+ filename: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Image */
+export function useGetProductImageApiV1MediaProductsFilenameGet<TData = Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError = HTTPValidationError>(
+ filename: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductImageApiV1MediaProductsFilenameGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetProductImageApiV1MediaProductsFilenameGetQueryOptions(filename,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
@@ -4235,6 +4368,2421 @@ export function useGetProfileApiV1ProfileGet<TData = Awaited<ReturnType<typeof g
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetProfileApiV1ProfileGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListUsersApiV1AdminUsersGetUrl = (params?: ListUsersApiV1AdminUsersGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/users?${stringifiedParams}` : `/api/v1/admin/users`
+}
+
+/**
+ * @summary List Users
+ */
+export const listUsersApiV1AdminUsersGet = async (params?: ListUsersApiV1AdminUsersGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminPaginatedUsersOut> => {
+
+  return apiFetch<AdminPaginatedUsersOut>(getListUsersApiV1AdminUsersGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminPaginatedUsersOut
+  }
+);}
+
+
+
+
+
+export const getListUsersApiV1AdminUsersGetQueryKey = (params?: ListUsersApiV1AdminUsersGetParams,) => {
+    return [
+    `/api/v1/admin/users`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListUsersApiV1AdminUsersGetQueryOptions = <TData = Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError = void | HTTPValidationError>(params?: ListUsersApiV1AdminUsersGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListUsersApiV1AdminUsersGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>> = ({ signal }) => listUsersApiV1AdminUsersGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListUsersApiV1AdminUsersGetQueryResult = NonNullable<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>>
+export type ListUsersApiV1AdminUsersGetQueryError = void | HTTPValidationError
+
+
+/** @summary List Users */
+export function useListUsersApiV1AdminUsersGet<TData = Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError = void | HTTPValidationError>(
+ params: undefined |  ListUsersApiV1AdminUsersGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>,
+          TError,
+          Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Users */
+export function useListUsersApiV1AdminUsersGet<TData = Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError = void | HTTPValidationError>(
+ params?: ListUsersApiV1AdminUsersGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>,
+          TError,
+          Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Users */
+export function useListUsersApiV1AdminUsersGet<TData = Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError = void | HTTPValidationError>(
+ params?: ListUsersApiV1AdminUsersGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Users */
+export function useListUsersApiV1AdminUsersGet<TData = Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError = void | HTTPValidationError>(
+ params?: ListUsersApiV1AdminUsersGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listUsersApiV1AdminUsersGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListUsersApiV1AdminUsersGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetUserApiV1AdminUsersUserIdGetUrl = (userId: number,) => {
+
+
+
+
+  return `/api/v1/admin/users/${userId}`
+}
+
+/**
+ * @summary Get User
+ */
+export const getUserApiV1AdminUsersUserIdGet = async (userId: number, options?: Parameters<typeof apiFetch>[1]): Promise<AdminUserDetailOut> => {
+
+  return apiFetch<AdminUserDetailOut>(getGetUserApiV1AdminUsersUserIdGetUrl(userId),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminUserDetailOut
+  }
+);}
+
+
+
+
+
+export const getGetUserApiV1AdminUsersUserIdGetQueryKey = (userId: number,) => {
+    return [
+    `/api/v1/admin/users/${userId}`
+    ] as const;
+    }
+
+
+export const getGetUserApiV1AdminUsersUserIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError = void | HTTPValidationError>(userId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetUserApiV1AdminUsersUserIdGetQueryKey(userId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>> = ({ signal }) => getUserApiV1AdminUsersUserIdGet(userId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: userId !== null && userId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetUserApiV1AdminUsersUserIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>>
+export type GetUserApiV1AdminUsersUserIdGetQueryError = void | HTTPValidationError
+
+
+/** @summary Get User */
+export function useGetUserApiV1AdminUsersUserIdGet<TData = Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError = void | HTTPValidationError>(
+ userId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get User */
+export function useGetUserApiV1AdminUsersUserIdGet<TData = Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError = void | HTTPValidationError>(
+ userId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get User */
+export function useGetUserApiV1AdminUsersUserIdGet<TData = Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError = void | HTTPValidationError>(
+ userId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get User */
+export function useGetUserApiV1AdminUsersUserIdGet<TData = Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError = void | HTTPValidationError>(
+ userId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getUserApiV1AdminUsersUserIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetUserApiV1AdminUsersUserIdGetQueryOptions(userId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateUserApiV1AdminUsersUserIdPatchUrl = (userId: number,) => {
+
+
+
+
+  return `/api/v1/admin/users/${userId}`
+}
+
+/**
+ * @summary Update User
+ */
+export const updateUserApiV1AdminUsersUserIdPatch = async (userId: number,
+    adminUserUpdate: AdminUserUpdate, options?: Parameters<typeof apiFetch>[1]): Promise<AdminUserOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<AdminUserOut>(getUpdateUserApiV1AdminUsersUserIdPatchUrl(userId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminUserUpdate),
+    schema: AdminUserOut
+  }
+);}
+
+
+
+
+
+export const getUpdateUserApiV1AdminUsersUserIdPatchMutationKey = () => ['updateUserApiV1AdminUsersUserIdPatch'] as const;
+
+export const getUpdateUserApiV1AdminUsersUserIdPatchMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserApiV1AdminUsersUserIdPatch>>, TError,UpdateUserApiV1AdminUsersUserIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateUserApiV1AdminUsersUserIdPatch>>, TError,UpdateUserApiV1AdminUsersUserIdPatchMutationVariables, TContext> => {
+
+const mutationKey = getUpdateUserApiV1AdminUsersUserIdPatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateUserApiV1AdminUsersUserIdPatch>>, UpdateUserApiV1AdminUsersUserIdPatchMutationVariables> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  updateUserApiV1AdminUsersUserIdPatch(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateUserApiV1AdminUsersUserIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateUserApiV1AdminUsersUserIdPatch>>>
+    export type UpdateUserApiV1AdminUsersUserIdPatchMutationBody = AdminUserUpdate
+    export type UpdateUserApiV1AdminUsersUserIdPatchMutationError = void | HTTPValidationError
+    export type UpdateUserApiV1AdminUsersUserIdPatchMutationVariables = {userId: number;data: AdminUserUpdate}
+
+    /** @summary Update User */
+export const useUpdateUserApiV1AdminUsersUserIdPatch = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateUserApiV1AdminUsersUserIdPatch>>, TError,UpdateUserApiV1AdminUsersUserIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateUserApiV1AdminUsersUserIdPatch>>,
+        TError,
+        UpdateUserApiV1AdminUsersUserIdPatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateUserApiV1AdminUsersUserIdPatchMutationOptions(options), queryClient);
+    }
+
+export const getDeleteUserApiV1AdminUsersUserIdDeleteUrl = (userId: number,) => {
+
+
+
+
+  return `/api/v1/admin/users/${userId}`
+}
+
+/**
+ * @summary Delete User
+ */
+export const deleteUserApiV1AdminUsersUserIdDelete = async (userId: number,
+    adminUserDeleteRequest: AdminUserDeleteRequest, options?: Parameters<typeof apiFetch>[1]): Promise<void> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<void>(getDeleteUserApiV1AdminUsersUserIdDeleteUrl(userId),
+  {
+    ...options,
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminUserDeleteRequest)
+  }
+);}
+
+
+
+
+
+export const getDeleteUserApiV1AdminUsersUserIdDeleteMutationKey = () => ['deleteUserApiV1AdminUsersUserIdDelete'] as const;
+
+export const getDeleteUserApiV1AdminUsersUserIdDeleteMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserApiV1AdminUsersUserIdDelete>>, TError,DeleteUserApiV1AdminUsersUserIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteUserApiV1AdminUsersUserIdDelete>>, TError,DeleteUserApiV1AdminUsersUserIdDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteUserApiV1AdminUsersUserIdDeleteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteUserApiV1AdminUsersUserIdDelete>>, DeleteUserApiV1AdminUsersUserIdDeleteMutationVariables> = (props) => {
+          const {userId,data} = props ?? {};
+
+          return  deleteUserApiV1AdminUsersUserIdDelete(userId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteUserApiV1AdminUsersUserIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteUserApiV1AdminUsersUserIdDelete>>>
+    export type DeleteUserApiV1AdminUsersUserIdDeleteMutationBody = AdminUserDeleteRequest
+    export type DeleteUserApiV1AdminUsersUserIdDeleteMutationError = void | HTTPValidationError
+    export type DeleteUserApiV1AdminUsersUserIdDeleteMutationVariables = {userId: number;data: AdminUserDeleteRequest}
+
+    /** @summary Delete User */
+export const useDeleteUserApiV1AdminUsersUserIdDelete = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteUserApiV1AdminUsersUserIdDelete>>, TError,DeleteUserApiV1AdminUsersUserIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteUserApiV1AdminUsersUserIdDelete>>,
+        TError,
+        DeleteUserApiV1AdminUsersUserIdDeleteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteUserApiV1AdminUsersUserIdDeleteMutationOptions(options), queryClient);
+    }
+
+export const getListProductsApiV1AdminProductsGetUrl = (params?: ListProductsApiV1AdminProductsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/products?${stringifiedParams}` : `/api/v1/admin/products`
+}
+
+/**
+ * @summary List Products
+ */
+export const listProductsApiV1AdminProductsGet = async (params?: ListProductsApiV1AdminProductsGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminPaginatedProductsOut> => {
+
+  return apiFetch<AdminPaginatedProductsOut>(getListProductsApiV1AdminProductsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminPaginatedProductsOut
+  }
+);}
+
+
+
+
+
+export const getListProductsApiV1AdminProductsGetQueryKey = (params?: ListProductsApiV1AdminProductsGetParams,) => {
+    return [
+    `/api/v1/admin/products`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListProductsApiV1AdminProductsGetQueryOptions = <TData = Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError = void | HTTPValidationError>(params?: ListProductsApiV1AdminProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProductsApiV1AdminProductsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>> = ({ signal }) => listProductsApiV1AdminProductsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListProductsApiV1AdminProductsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>>
+export type ListProductsApiV1AdminProductsGetQueryError = void | HTTPValidationError
+
+
+/** @summary List Products */
+export function useListProductsApiV1AdminProductsGet<TData = Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError = void | HTTPValidationError>(
+ params: undefined |  ListProductsApiV1AdminProductsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Products */
+export function useListProductsApiV1AdminProductsGet<TData = Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError = void | HTTPValidationError>(
+ params?: ListProductsApiV1AdminProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Products */
+export function useListProductsApiV1AdminProductsGet<TData = Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError = void | HTTPValidationError>(
+ params?: ListProductsApiV1AdminProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Products */
+export function useListProductsApiV1AdminProductsGet<TData = Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError = void | HTTPValidationError>(
+ params?: ListProductsApiV1AdminProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProductsApiV1AdminProductsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListProductsApiV1AdminProductsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateProductApiV1AdminProductsPostUrl = () => {
+
+
+
+
+  return `/api/v1/admin/products`
+}
+
+/**
+ * @summary Create Product
+ */
+export const createProductApiV1AdminProductsPost = async (adminProductCreate: AdminProductCreate, options?: Parameters<typeof apiFetch>[1]): Promise<AdminProductDetailOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<AdminProductDetailOut>(getCreateProductApiV1AdminProductsPostUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminProductCreate),
+    schema: AdminProductDetailOut
+  }
+);}
+
+
+
+
+
+export const getCreateProductApiV1AdminProductsPostMutationKey = () => ['createProductApiV1AdminProductsPost'] as const;
+
+export const getCreateProductApiV1AdminProductsPostMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProductApiV1AdminProductsPost>>, TError,CreateProductApiV1AdminProductsPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProductApiV1AdminProductsPost>>, TError,CreateProductApiV1AdminProductsPostMutationVariables, TContext> => {
+
+const mutationKey = getCreateProductApiV1AdminProductsPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProductApiV1AdminProductsPost>>, CreateProductApiV1AdminProductsPostMutationVariables> = (props) => {
+          const {data} = props ?? {};
+
+          return  createProductApiV1AdminProductsPost(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateProductApiV1AdminProductsPostMutationResult = NonNullable<Awaited<ReturnType<typeof createProductApiV1AdminProductsPost>>>
+    export type CreateProductApiV1AdminProductsPostMutationBody = AdminProductCreate
+    export type CreateProductApiV1AdminProductsPostMutationError = void | HTTPValidationError
+    export type CreateProductApiV1AdminProductsPostMutationVariables = {data: AdminProductCreate}
+
+    /** @summary Create Product */
+export const useCreateProductApiV1AdminProductsPost = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProductApiV1AdminProductsPost>>, TError,CreateProductApiV1AdminProductsPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createProductApiV1AdminProductsPost>>,
+        TError,
+        CreateProductApiV1AdminProductsPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateProductApiV1AdminProductsPostMutationOptions(options), queryClient);
+    }
+
+export const getGetProductOptionsApiV1AdminProductOptionsGetUrl = () => {
+
+
+
+
+  return `/api/v1/admin/product-options`
+}
+
+/**
+ * @summary Get Product Options
+ */
+export const getProductOptionsApiV1AdminProductOptionsGet = async ( options?: Parameters<typeof apiFetch>[1]): Promise<ProductFormOptionsOut> => {
+
+  return apiFetch<ProductFormOptionsOut>(getGetProductOptionsApiV1AdminProductOptionsGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: ProductFormOptionsOut
+  }
+);}
+
+
+
+
+
+export const getGetProductOptionsApiV1AdminProductOptionsGetQueryKey = () => {
+    return [
+    `/api/v1/admin/product-options`
+    ] as const;
+    }
+
+
+export const getGetProductOptionsApiV1AdminProductOptionsGetQueryOptions = <TData = Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError = void>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProductOptionsApiV1AdminProductOptionsGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>> = ({ signal }) => getProductOptionsApiV1AdminProductOptionsGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetProductOptionsApiV1AdminProductOptionsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>>
+export type GetProductOptionsApiV1AdminProductOptionsGetQueryError = void
+
+
+/** @summary Get Product Options */
+export function useGetProductOptionsApiV1AdminProductOptionsGet<TData = Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError = void>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Options */
+export function useGetProductOptionsApiV1AdminProductOptionsGet<TData = Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError = void>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Options */
+export function useGetProductOptionsApiV1AdminProductOptionsGet<TData = Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError = void>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Options */
+export function useGetProductOptionsApiV1AdminProductOptionsGet<TData = Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError = void>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductOptionsApiV1AdminProductOptionsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetProductOptionsApiV1AdminProductOptionsGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetUrl = (productTypeId: number,) => {
+
+
+
+
+  return `/api/v1/admin/product-types/${productTypeId}/spec-fields`
+}
+
+/**
+ * @summary Get Spec Template
+ */
+export const getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet = async (productTypeId: number, options?: Parameters<typeof apiFetch>[1]): Promise<SpecificationTemplateOut> => {
+
+  return apiFetch<SpecificationTemplateOut>(getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetUrl(productTypeId),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: SpecificationTemplateOut
+  }
+);}
+
+
+
+
+
+export const getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryKey = (productTypeId: number,) => {
+    return [
+    `/api/v1/admin/product-types/${productTypeId}/spec-fields`
+    ] as const;
+    }
+
+
+export const getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryOptions = <TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryKey(productTypeId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>> = ({ signal }) => getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet(productTypeId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: productTypeId !== null && productTypeId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>>
+export type GetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryError = void | HTTPValidationError
+
+
+/** @summary Get Spec Template */
+export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
+ productTypeId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Spec Template */
+export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
+ productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Spec Template */
+export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
+ productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Spec Template */
+export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
+ productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryOptions(productTypeId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProductApiV1AdminProductsProductIdGetUrl = (productId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}`
+}
+
+/**
+ * @summary Get Product
+ */
+export const getProductApiV1AdminProductsProductIdGet = async (productId: number, options?: Parameters<typeof apiFetch>[1]): Promise<AdminProductDetailOut> => {
+
+  return apiFetch<AdminProductDetailOut>(getGetProductApiV1AdminProductsProductIdGetUrl(productId),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminProductDetailOut
+  }
+);}
+
+
+
+
+
+export const getGetProductApiV1AdminProductsProductIdGetQueryKey = (productId: number,) => {
+    return [
+    `/api/v1/admin/products/${productId}`
+    ] as const;
+    }
+
+
+export const getGetProductApiV1AdminProductsProductIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError = void | HTTPValidationError>(productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProductApiV1AdminProductsProductIdGetQueryKey(productId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>> = ({ signal }) => getProductApiV1AdminProductsProductIdGet(productId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: productId !== null && productId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetProductApiV1AdminProductsProductIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>>
+export type GetProductApiV1AdminProductsProductIdGetQueryError = void | HTTPValidationError
+
+
+/** @summary Get Product */
+export function useGetProductApiV1AdminProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product */
+export function useGetProductApiV1AdminProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product */
+export function useGetProductApiV1AdminProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product */
+export function useGetProductApiV1AdminProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductApiV1AdminProductsProductIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetProductApiV1AdminProductsProductIdGetQueryOptions(productId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateProductApiV1AdminProductsProductIdPatchUrl = (productId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}`
+}
+
+/**
+ * @summary Update Product
+ */
+export const updateProductApiV1AdminProductsProductIdPatch = async (productId: number,
+    adminProductUpdate: AdminProductUpdate, options?: Parameters<typeof apiFetch>[1]): Promise<AdminProductDetailOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<AdminProductDetailOut>(getUpdateProductApiV1AdminProductsProductIdPatchUrl(productId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminProductUpdate),
+    schema: AdminProductDetailOut
+  }
+);}
+
+
+
+
+
+export const getUpdateProductApiV1AdminProductsProductIdPatchMutationKey = () => ['updateProductApiV1AdminProductsProductIdPatch'] as const;
+
+export const getUpdateProductApiV1AdminProductsProductIdPatchMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProductApiV1AdminProductsProductIdPatch>>, TError,UpdateProductApiV1AdminProductsProductIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateProductApiV1AdminProductsProductIdPatch>>, TError,UpdateProductApiV1AdminProductsProductIdPatchMutationVariables, TContext> => {
+
+const mutationKey = getUpdateProductApiV1AdminProductsProductIdPatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateProductApiV1AdminProductsProductIdPatch>>, UpdateProductApiV1AdminProductsProductIdPatchMutationVariables> = (props) => {
+          const {productId,data} = props ?? {};
+
+          return  updateProductApiV1AdminProductsProductIdPatch(productId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateProductApiV1AdminProductsProductIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateProductApiV1AdminProductsProductIdPatch>>>
+    export type UpdateProductApiV1AdminProductsProductIdPatchMutationBody = AdminProductUpdate
+    export type UpdateProductApiV1AdminProductsProductIdPatchMutationError = void | HTTPValidationError
+    export type UpdateProductApiV1AdminProductsProductIdPatchMutationVariables = {productId: number;data: AdminProductUpdate}
+
+    /** @summary Update Product */
+export const useUpdateProductApiV1AdminProductsProductIdPatch = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProductApiV1AdminProductsProductIdPatch>>, TError,UpdateProductApiV1AdminProductsProductIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateProductApiV1AdminProductsProductIdPatch>>,
+        TError,
+        UpdateProductApiV1AdminProductsProductIdPatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateProductApiV1AdminProductsProductIdPatchMutationOptions(options), queryClient);
+    }
+
+export const getDeactivateProductApiV1AdminProductsProductIdDeleteUrl = (productId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}`
+}
+
+/**
+ * Soft delete: the product becomes inactive, history is preserved.
+ * @summary Deactivate Product
+ */
+export const deactivateProductApiV1AdminProductsProductIdDelete = async (productId: number, options?: Parameters<typeof apiFetch>[1]): Promise<void> => {
+
+  return apiFetch<void>(getDeactivateProductApiV1AdminProductsProductIdDeleteUrl(productId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeactivateProductApiV1AdminProductsProductIdDeleteMutationKey = () => ['deactivateProductApiV1AdminProductsProductIdDelete'] as const;
+
+export const getDeactivateProductApiV1AdminProductsProductIdDeleteMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deactivateProductApiV1AdminProductsProductIdDelete>>, TError,DeactivateProductApiV1AdminProductsProductIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deactivateProductApiV1AdminProductsProductIdDelete>>, TError,DeactivateProductApiV1AdminProductsProductIdDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeactivateProductApiV1AdminProductsProductIdDeleteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deactivateProductApiV1AdminProductsProductIdDelete>>, DeactivateProductApiV1AdminProductsProductIdDeleteMutationVariables> = (props) => {
+          const {productId} = props ?? {};
+
+          return  deactivateProductApiV1AdminProductsProductIdDelete(productId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeactivateProductApiV1AdminProductsProductIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deactivateProductApiV1AdminProductsProductIdDelete>>>
+
+    export type DeactivateProductApiV1AdminProductsProductIdDeleteMutationError = void | HTTPValidationError
+    export type DeactivateProductApiV1AdminProductsProductIdDeleteMutationVariables = {productId: number}
+
+    /**
+ * Soft delete: the product becomes inactive, history is preserved.
+ * @summary Deactivate Product
+ */
+export const useDeactivateProductApiV1AdminProductsProductIdDelete = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deactivateProductApiV1AdminProductsProductIdDelete>>, TError,DeactivateProductApiV1AdminProductsProductIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deactivateProductApiV1AdminProductsProductIdDelete>>,
+        TError,
+        DeactivateProductApiV1AdminProductsProductIdDeleteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeactivateProductApiV1AdminProductsProductIdDeleteMutationOptions(options), queryClient);
+    }
+
+export const getListImagesApiV1AdminProductsProductIdImagesGetUrl = (productId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}/images`
+}
+
+/**
+ * @summary List Images
+ */
+export const listImagesApiV1AdminProductsProductIdImagesGet = async (productId: number, options?: Parameters<typeof apiFetch>[1]): Promise<AdminProductImageOut[]> => {
+
+  return apiFetch<AdminProductImageOut[]>(getListImagesApiV1AdminProductsProductIdImagesGetUrl(productId),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: zod.array(AdminProductImageOut)
+  }
+);}
+
+
+
+
+
+export const getListImagesApiV1AdminProductsProductIdImagesGetQueryKey = (productId: number,) => {
+    return [
+    `/api/v1/admin/products/${productId}/images`
+    ] as const;
+    }
+
+
+export const getListImagesApiV1AdminProductsProductIdImagesGetQueryOptions = <TData = Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError = void | HTTPValidationError>(productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListImagesApiV1AdminProductsProductIdImagesGetQueryKey(productId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>> = ({ signal }) => listImagesApiV1AdminProductsProductIdImagesGet(productId, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: productId !== null && productId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListImagesApiV1AdminProductsProductIdImagesGetQueryResult = NonNullable<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>>
+export type ListImagesApiV1AdminProductsProductIdImagesGetQueryError = void | HTTPValidationError
+
+
+/** @summary List Images */
+export function useListImagesApiV1AdminProductsProductIdImagesGet<TData = Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError = void | HTTPValidationError>(
+ productId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Images */
+export function useListImagesApiV1AdminProductsProductIdImagesGet<TData = Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError = void | HTTPValidationError>(
+ productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>,
+          TError,
+          Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Images */
+export function useListImagesApiV1AdminProductsProductIdImagesGet<TData = Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError = void | HTTPValidationError>(
+ productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Images */
+export function useListImagesApiV1AdminProductsProductIdImagesGet<TData = Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError = void | HTTPValidationError>(
+ productId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listImagesApiV1AdminProductsProductIdImagesGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListImagesApiV1AdminProductsProductIdImagesGetQueryOptions(productId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUploadImageApiV1AdminProductsProductIdImagesPostUrl = (productId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}/images`
+}
+
+/**
+ * @summary Upload Image
+ */
+export const uploadImageApiV1AdminProductsProductIdImagesPost = async (productId: number,
+    bodyUploadImageApiV1AdminProductsProductIdImagesPost: BodyUploadImageApiV1AdminProductsProductIdImagesPost, options?: Parameters<typeof apiFetch>[1]): Promise<AdminProductImageOut> => {
+    const formData = new FormData();
+formData.append(`file`, bodyUploadImageApiV1AdminProductsProductIdImagesPost.file);
+if(bodyUploadImageApiV1AdminProductsProductIdImagesPost.alt_text !== undefined && bodyUploadImageApiV1AdminProductsProductIdImagesPost.alt_text !== null) {
+ formData.append(`alt_text`, bodyUploadImageApiV1AdminProductsProductIdImagesPost.alt_text);
+ }
+
+  return apiFetch<AdminProductImageOut>(getUploadImageApiV1AdminProductsProductIdImagesPostUrl(productId),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData,
+    schema: AdminProductImageOut
+  }
+);}
+
+
+
+
+
+export const getUploadImageApiV1AdminProductsProductIdImagesPostMutationKey = () => ['uploadImageApiV1AdminProductsProductIdImagesPost'] as const;
+
+export const getUploadImageApiV1AdminProductsProductIdImagesPostMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadImageApiV1AdminProductsProductIdImagesPost>>, TError,UploadImageApiV1AdminProductsProductIdImagesPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof uploadImageApiV1AdminProductsProductIdImagesPost>>, TError,UploadImageApiV1AdminProductsProductIdImagesPostMutationVariables, TContext> => {
+
+const mutationKey = getUploadImageApiV1AdminProductsProductIdImagesPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof uploadImageApiV1AdminProductsProductIdImagesPost>>, UploadImageApiV1AdminProductsProductIdImagesPostMutationVariables> = (props) => {
+          const {productId,data} = props ?? {};
+
+          return  uploadImageApiV1AdminProductsProductIdImagesPost(productId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UploadImageApiV1AdminProductsProductIdImagesPostMutationResult = NonNullable<Awaited<ReturnType<typeof uploadImageApiV1AdminProductsProductIdImagesPost>>>
+    export type UploadImageApiV1AdminProductsProductIdImagesPostMutationBody = BodyUploadImageApiV1AdminProductsProductIdImagesPost
+    export type UploadImageApiV1AdminProductsProductIdImagesPostMutationError = void | HTTPValidationError
+    export type UploadImageApiV1AdminProductsProductIdImagesPostMutationVariables = {productId: number;data: BodyUploadImageApiV1AdminProductsProductIdImagesPost}
+
+    /** @summary Upload Image */
+export const useUploadImageApiV1AdminProductsProductIdImagesPost = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof uploadImageApiV1AdminProductsProductIdImagesPost>>, TError,UploadImageApiV1AdminProductsProductIdImagesPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof uploadImageApiV1AdminProductsProductIdImagesPost>>,
+        TError,
+        UploadImageApiV1AdminProductsProductIdImagesPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUploadImageApiV1AdminProductsProductIdImagesPostMutationOptions(options), queryClient);
+    }
+
+export const getDeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteUrl = (productId: number,
+    imageId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}/images/${imageId}`
+}
+
+/**
+ * @summary Delete Image
+ */
+export const deleteImageApiV1AdminProductsProductIdImagesImageIdDelete = async (productId: number,
+    imageId: number, options?: Parameters<typeof apiFetch>[1]): Promise<void> => {
+
+  return apiFetch<void>(getDeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteUrl(productId,imageId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationKey = () => ['deleteImageApiV1AdminProductsProductIdImagesImageIdDelete'] as const;
+
+export const getDeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteImageApiV1AdminProductsProductIdImagesImageIdDelete>>, TError,DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteImageApiV1AdminProductsProductIdImagesImageIdDelete>>, TError,DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteImageApiV1AdminProductsProductIdImagesImageIdDelete>>, DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationVariables> = (props) => {
+          const {productId,imageId} = props ?? {};
+
+          return  deleteImageApiV1AdminProductsProductIdImagesImageIdDelete(productId,imageId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteImageApiV1AdminProductsProductIdImagesImageIdDelete>>>
+
+    export type DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationError = void | HTTPValidationError
+    export type DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationVariables = {productId: number;imageId: number}
+
+    /** @summary Delete Image */
+export const useDeleteImageApiV1AdminProductsProductIdImagesImageIdDelete = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteImageApiV1AdminProductsProductIdImagesImageIdDelete>>, TError,DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteImageApiV1AdminProductsProductIdImagesImageIdDelete>>,
+        TError,
+        DeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteImageApiV1AdminProductsProductIdImagesImageIdDeleteMutationOptions(options), queryClient);
+    }
+
+export const getReorderImagesApiV1AdminProductsProductIdImagesOrderPutUrl = (productId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}/images/order`
+}
+
+/**
+ * @summary Reorder Images
+ */
+export const reorderImagesApiV1AdminProductsProductIdImagesOrderPut = async (productId: number,
+    adminImageOrderRequest: AdminImageOrderRequest, options?: Parameters<typeof apiFetch>[1]): Promise<AdminProductImageOut[]> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<AdminProductImageOut[]>(getReorderImagesApiV1AdminProductsProductIdImagesOrderPutUrl(productId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminImageOrderRequest),
+    schema: zod.array(AdminProductImageOut)
+  }
+);}
+
+
+
+
+
+export const getReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationKey = () => ['reorderImagesApiV1AdminProductsProductIdImagesOrderPut'] as const;
+
+export const getReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderImagesApiV1AdminProductsProductIdImagesOrderPut>>, TError,ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof reorderImagesApiV1AdminProductsProductIdImagesOrderPut>>, TError,ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationVariables, TContext> => {
+
+const mutationKey = getReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof reorderImagesApiV1AdminProductsProductIdImagesOrderPut>>, ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationVariables> = (props) => {
+          const {productId,data} = props ?? {};
+
+          return  reorderImagesApiV1AdminProductsProductIdImagesOrderPut(productId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationResult = NonNullable<Awaited<ReturnType<typeof reorderImagesApiV1AdminProductsProductIdImagesOrderPut>>>
+    export type ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationBody = AdminImageOrderRequest
+    export type ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationError = void | HTTPValidationError
+    export type ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationVariables = {productId: number;data: AdminImageOrderRequest}
+
+    /** @summary Reorder Images */
+export const useReorderImagesApiV1AdminProductsProductIdImagesOrderPut = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof reorderImagesApiV1AdminProductsProductIdImagesOrderPut>>, TError,ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof reorderImagesApiV1AdminProductsProductIdImagesOrderPut>>,
+        TError,
+        ReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationVariables,
+        TContext
+      > => {
+      return useMutation(getReorderImagesApiV1AdminProductsProductIdImagesOrderPutMutationOptions(options), queryClient);
+    }
+
+export const getListReviewsApiV1AdminReviewsGetUrl = (params?: ListReviewsApiV1AdminReviewsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/reviews?${stringifiedParams}` : `/api/v1/admin/reviews`
+}
+
+/**
+ * @summary List Reviews
+ */
+export const listReviewsApiV1AdminReviewsGet = async (params?: ListReviewsApiV1AdminReviewsGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminPaginatedReviewsOut> => {
+
+  return apiFetch<AdminPaginatedReviewsOut>(getListReviewsApiV1AdminReviewsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminPaginatedReviewsOut
+  }
+);}
+
+
+
+
+
+export const getListReviewsApiV1AdminReviewsGetQueryKey = (params?: ListReviewsApiV1AdminReviewsGetParams,) => {
+    return [
+    `/api/v1/admin/reviews`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListReviewsApiV1AdminReviewsGetQueryOptions = <TData = Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError = void | HTTPValidationError>(params?: ListReviewsApiV1AdminReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListReviewsApiV1AdminReviewsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>> = ({ signal }) => listReviewsApiV1AdminReviewsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListReviewsApiV1AdminReviewsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>>
+export type ListReviewsApiV1AdminReviewsGetQueryError = void | HTTPValidationError
+
+
+/** @summary List Reviews */
+export function useListReviewsApiV1AdminReviewsGet<TData = Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError = void | HTTPValidationError>(
+ params: undefined |  ListReviewsApiV1AdminReviewsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Reviews */
+export function useListReviewsApiV1AdminReviewsGet<TData = Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError = void | HTTPValidationError>(
+ params?: ListReviewsApiV1AdminReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Reviews */
+export function useListReviewsApiV1AdminReviewsGet<TData = Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError = void | HTTPValidationError>(
+ params?: ListReviewsApiV1AdminReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Reviews */
+export function useListReviewsApiV1AdminReviewsGet<TData = Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError = void | HTTPValidationError>(
+ params?: ListReviewsApiV1AdminReviewsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listReviewsApiV1AdminReviewsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListReviewsApiV1AdminReviewsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateReviewApiV1AdminProductsProductIdReviewsPostUrl = (productId: number,) => {
+
+
+
+
+  return `/api/v1/admin/products/${productId}/reviews`
+}
+
+/**
+ * @summary Create Review
+ */
+export const createReviewApiV1AdminProductsProductIdReviewsPost = async (productId: number,
+    adminReviewCreate: AdminReviewCreate, options?: Parameters<typeof apiFetch>[1]): Promise<AdminReviewOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<AdminReviewOut>(getCreateReviewApiV1AdminProductsProductIdReviewsPostUrl(productId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminReviewCreate),
+    schema: AdminReviewOut
+  }
+);}
+
+
+
+
+
+export const getCreateReviewApiV1AdminProductsProductIdReviewsPostMutationKey = () => ['createReviewApiV1AdminProductsProductIdReviewsPost'] as const;
+
+export const getCreateReviewApiV1AdminProductsProductIdReviewsPostMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createReviewApiV1AdminProductsProductIdReviewsPost>>, TError,CreateReviewApiV1AdminProductsProductIdReviewsPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createReviewApiV1AdminProductsProductIdReviewsPost>>, TError,CreateReviewApiV1AdminProductsProductIdReviewsPostMutationVariables, TContext> => {
+
+const mutationKey = getCreateReviewApiV1AdminProductsProductIdReviewsPostMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createReviewApiV1AdminProductsProductIdReviewsPost>>, CreateReviewApiV1AdminProductsProductIdReviewsPostMutationVariables> = (props) => {
+          const {productId,data} = props ?? {};
+
+          return  createReviewApiV1AdminProductsProductIdReviewsPost(productId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateReviewApiV1AdminProductsProductIdReviewsPostMutationResult = NonNullable<Awaited<ReturnType<typeof createReviewApiV1AdminProductsProductIdReviewsPost>>>
+    export type CreateReviewApiV1AdminProductsProductIdReviewsPostMutationBody = AdminReviewCreate
+    export type CreateReviewApiV1AdminProductsProductIdReviewsPostMutationError = void | HTTPValidationError
+    export type CreateReviewApiV1AdminProductsProductIdReviewsPostMutationVariables = {productId: number;data: AdminReviewCreate}
+
+    /** @summary Create Review */
+export const useCreateReviewApiV1AdminProductsProductIdReviewsPost = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createReviewApiV1AdminProductsProductIdReviewsPost>>, TError,CreateReviewApiV1AdminProductsProductIdReviewsPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof createReviewApiV1AdminProductsProductIdReviewsPost>>,
+        TError,
+        CreateReviewApiV1AdminProductsProductIdReviewsPostMutationVariables,
+        TContext
+      > => {
+      return useMutation(getCreateReviewApiV1AdminProductsProductIdReviewsPostMutationOptions(options), queryClient);
+    }
+
+export const getUpdateReviewApiV1AdminReviewsReviewIdPatchUrl = (reviewId: number,) => {
+
+
+
+
+  return `/api/v1/admin/reviews/${reviewId}`
+}
+
+/**
+ * @summary Update Review
+ */
+export const updateReviewApiV1AdminReviewsReviewIdPatch = async (reviewId: number,
+    adminReviewUpdate: AdminReviewUpdate, options?: Parameters<typeof apiFetch>[1]): Promise<AdminReviewOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return apiFetch<AdminReviewOut>(getUpdateReviewApiV1AdminReviewsReviewIdPatchUrl(reviewId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(adminReviewUpdate),
+    schema: AdminReviewOut
+  }
+);}
+
+
+
+
+
+export const getUpdateReviewApiV1AdminReviewsReviewIdPatchMutationKey = () => ['updateReviewApiV1AdminReviewsReviewIdPatch'] as const;
+
+export const getUpdateReviewApiV1AdminReviewsReviewIdPatchMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateReviewApiV1AdminReviewsReviewIdPatch>>, TError,UpdateReviewApiV1AdminReviewsReviewIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateReviewApiV1AdminReviewsReviewIdPatch>>, TError,UpdateReviewApiV1AdminReviewsReviewIdPatchMutationVariables, TContext> => {
+
+const mutationKey = getUpdateReviewApiV1AdminReviewsReviewIdPatchMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateReviewApiV1AdminReviewsReviewIdPatch>>, UpdateReviewApiV1AdminReviewsReviewIdPatchMutationVariables> = (props) => {
+          const {reviewId,data} = props ?? {};
+
+          return  updateReviewApiV1AdminReviewsReviewIdPatch(reviewId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateReviewApiV1AdminReviewsReviewIdPatchMutationResult = NonNullable<Awaited<ReturnType<typeof updateReviewApiV1AdminReviewsReviewIdPatch>>>
+    export type UpdateReviewApiV1AdminReviewsReviewIdPatchMutationBody = AdminReviewUpdate
+    export type UpdateReviewApiV1AdminReviewsReviewIdPatchMutationError = void | HTTPValidationError
+    export type UpdateReviewApiV1AdminReviewsReviewIdPatchMutationVariables = {reviewId: number;data: AdminReviewUpdate}
+
+    /** @summary Update Review */
+export const useUpdateReviewApiV1AdminReviewsReviewIdPatch = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateReviewApiV1AdminReviewsReviewIdPatch>>, TError,UpdateReviewApiV1AdminReviewsReviewIdPatchMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof updateReviewApiV1AdminReviewsReviewIdPatch>>,
+        TError,
+        UpdateReviewApiV1AdminReviewsReviewIdPatchMutationVariables,
+        TContext
+      > => {
+      return useMutation(getUpdateReviewApiV1AdminReviewsReviewIdPatchMutationOptions(options), queryClient);
+    }
+
+export const getDeleteReviewApiV1AdminReviewsReviewIdDeleteUrl = (reviewId: number,) => {
+
+
+
+
+  return `/api/v1/admin/reviews/${reviewId}`
+}
+
+/**
+ * @summary Delete Review
+ */
+export const deleteReviewApiV1AdminReviewsReviewIdDelete = async (reviewId: number, options?: Parameters<typeof apiFetch>[1]): Promise<void> => {
+
+  return apiFetch<void>(getDeleteReviewApiV1AdminReviewsReviewIdDeleteUrl(reviewId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteReviewApiV1AdminReviewsReviewIdDeleteMutationKey = () => ['deleteReviewApiV1AdminReviewsReviewIdDelete'] as const;
+
+export const getDeleteReviewApiV1AdminReviewsReviewIdDeleteMutationOptions = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReviewApiV1AdminReviewsReviewIdDelete>>, TError,DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteReviewApiV1AdminReviewsReviewIdDelete>>, TError,DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationVariables, TContext> => {
+
+const mutationKey = getDeleteReviewApiV1AdminReviewsReviewIdDeleteMutationKey();
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteReviewApiV1AdminReviewsReviewIdDelete>>, DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationVariables> = (props) => {
+          const {reviewId} = props ?? {};
+
+          return  deleteReviewApiV1AdminReviewsReviewIdDelete(reviewId,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteReviewApiV1AdminReviewsReviewIdDelete>>>
+
+    export type DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationError = void | HTTPValidationError
+    export type DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationVariables = {reviewId: number}
+
+    /** @summary Delete Review */
+export const useDeleteReviewApiV1AdminReviewsReviewIdDelete = <TError = void | HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteReviewApiV1AdminReviewsReviewIdDelete>>, TError,DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteReviewApiV1AdminReviewsReviewIdDelete>>,
+        TError,
+        DeleteReviewApiV1AdminReviewsReviewIdDeleteMutationVariables,
+        TContext
+      > => {
+      return useMutation(getDeleteReviewApiV1AdminReviewsReviewIdDeleteMutationOptions(options), queryClient);
+    }
+
+export const getGetFilterOptionsApiV1AdminEventsFiltersGetUrl = () => {
+
+
+
+
+  return `/api/v1/admin/events/filters`
+}
+
+/**
+ * @summary Get Filter Options
+ */
+export const getFilterOptionsApiV1AdminEventsFiltersGet = async ( options?: Parameters<typeof apiFetch>[1]): Promise<AdminEventFilterOptionsOut> => {
+
+  return apiFetch<AdminEventFilterOptionsOut>(getGetFilterOptionsApiV1AdminEventsFiltersGetUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminEventFilterOptionsOut
+  }
+);}
+
+
+
+
+
+export const getGetFilterOptionsApiV1AdminEventsFiltersGetQueryKey = () => {
+    return [
+    `/api/v1/admin/events/filters`
+    ] as const;
+    }
+
+
+export const getGetFilterOptionsApiV1AdminEventsFiltersGetQueryOptions = <TData = Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError = void>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetFilterOptionsApiV1AdminEventsFiltersGetQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>> = ({ signal }) => getFilterOptionsApiV1AdminEventsFiltersGet({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetFilterOptionsApiV1AdminEventsFiltersGetQueryResult = NonNullable<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>>
+export type GetFilterOptionsApiV1AdminEventsFiltersGetQueryError = void
+
+
+/** @summary Get Filter Options */
+export function useGetFilterOptionsApiV1AdminEventsFiltersGet<TData = Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError = void>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>,
+          TError,
+          Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Filter Options */
+export function useGetFilterOptionsApiV1AdminEventsFiltersGet<TData = Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError = void>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>,
+          TError,
+          Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Filter Options */
+export function useGetFilterOptionsApiV1AdminEventsFiltersGet<TData = Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError = void>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Filter Options */
+export function useGetFilterOptionsApiV1AdminEventsFiltersGet<TData = Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError = void>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getFilterOptionsApiV1AdminEventsFiltersGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetFilterOptionsApiV1AdminEventsFiltersGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListEventsApiV1AdminEventsGetUrl = (params?: ListEventsApiV1AdminEventsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/events?${stringifiedParams}` : `/api/v1/admin/events`
+}
+
+/**
+ * @summary List Events
+ */
+export const listEventsApiV1AdminEventsGet = async (params?: ListEventsApiV1AdminEventsGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminPaginatedEventsOut> => {
+
+  return apiFetch<AdminPaginatedEventsOut>(getListEventsApiV1AdminEventsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminPaginatedEventsOut
+  }
+);}
+
+
+
+
+
+export const getListEventsApiV1AdminEventsGetQueryKey = (params?: ListEventsApiV1AdminEventsGetParams,) => {
+    return [
+    `/api/v1/admin/events`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListEventsApiV1AdminEventsGetQueryOptions = <TData = Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError = void | HTTPValidationError>(params?: ListEventsApiV1AdminEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListEventsApiV1AdminEventsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>> = ({ signal }) => listEventsApiV1AdminEventsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListEventsApiV1AdminEventsGetQueryResult = NonNullable<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>>
+export type ListEventsApiV1AdminEventsGetQueryError = void | HTTPValidationError
+
+
+/** @summary List Events */
+export function useListEventsApiV1AdminEventsGet<TData = Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError = void | HTTPValidationError>(
+ params: undefined |  ListEventsApiV1AdminEventsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Events */
+export function useListEventsApiV1AdminEventsGet<TData = Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError = void | HTTPValidationError>(
+ params?: ListEventsApiV1AdminEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>,
+          TError,
+          Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Events */
+export function useListEventsApiV1AdminEventsGet<TData = Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError = void | HTTPValidationError>(
+ params?: ListEventsApiV1AdminEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary List Events */
+export function useListEventsApiV1AdminEventsGet<TData = Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError = void | HTTPValidationError>(
+ params?: ListEventsApiV1AdminEventsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listEventsApiV1AdminEventsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListEventsApiV1AdminEventsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetOverviewApiV1AdminStatsOverviewGetUrl = (params?: GetOverviewApiV1AdminStatsOverviewGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/stats/overview?${stringifiedParams}` : `/api/v1/admin/stats/overview`
+}
+
+/**
+ * @summary Get Overview
+ */
+export const getOverviewApiV1AdminStatsOverviewGet = async (params?: GetOverviewApiV1AdminStatsOverviewGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminOverviewOut> => {
+
+  return apiFetch<AdminOverviewOut>(getGetOverviewApiV1AdminStatsOverviewGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminOverviewOut
+  }
+);}
+
+
+
+
+
+export const getGetOverviewApiV1AdminStatsOverviewGetQueryKey = (params?: GetOverviewApiV1AdminStatsOverviewGetParams,) => {
+    return [
+    `/api/v1/admin/stats/overview`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetOverviewApiV1AdminStatsOverviewGetQueryOptions = <TData = Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError = void | HTTPValidationError>(params?: GetOverviewApiV1AdminStatsOverviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOverviewApiV1AdminStatsOverviewGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>> = ({ signal }) => getOverviewApiV1AdminStatsOverviewGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetOverviewApiV1AdminStatsOverviewGetQueryResult = NonNullable<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>>
+export type GetOverviewApiV1AdminStatsOverviewGetQueryError = void | HTTPValidationError
+
+
+/** @summary Get Overview */
+export function useGetOverviewApiV1AdminStatsOverviewGet<TData = Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError = void | HTTPValidationError>(
+ params: undefined |  GetOverviewApiV1AdminStatsOverviewGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Overview */
+export function useGetOverviewApiV1AdminStatsOverviewGet<TData = Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError = void | HTTPValidationError>(
+ params?: GetOverviewApiV1AdminStatsOverviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>,
+          TError,
+          Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Overview */
+export function useGetOverviewApiV1AdminStatsOverviewGet<TData = Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError = void | HTTPValidationError>(
+ params?: GetOverviewApiV1AdminStatsOverviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Overview */
+export function useGetOverviewApiV1AdminStatsOverviewGet<TData = Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError = void | HTTPValidationError>(
+ params?: GetOverviewApiV1AdminStatsOverviewGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getOverviewApiV1AdminStatsOverviewGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetOverviewApiV1AdminStatsOverviewGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProductStatsApiV1AdminStatsProductsGetUrl = (params?: GetProductStatsApiV1AdminStatsProductsGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/stats/products?${stringifiedParams}` : `/api/v1/admin/stats/products`
+}
+
+/**
+ * @summary Get Product Stats
+ */
+export const getProductStatsApiV1AdminStatsProductsGet = async (params?: GetProductStatsApiV1AdminStatsProductsGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminPaginatedProductStatsOut> => {
+
+  return apiFetch<AdminPaginatedProductStatsOut>(getGetProductStatsApiV1AdminStatsProductsGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminPaginatedProductStatsOut
+  }
+);}
+
+
+
+
+
+export const getGetProductStatsApiV1AdminStatsProductsGetQueryKey = (params?: GetProductStatsApiV1AdminStatsProductsGetParams,) => {
+    return [
+    `/api/v1/admin/stats/products`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetProductStatsApiV1AdminStatsProductsGetQueryOptions = <TData = Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError = void | HTTPValidationError>(params?: GetProductStatsApiV1AdminStatsProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProductStatsApiV1AdminStatsProductsGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>> = ({ signal }) => getProductStatsApiV1AdminStatsProductsGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetProductStatsApiV1AdminStatsProductsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>>
+export type GetProductStatsApiV1AdminStatsProductsGetQueryError = void | HTTPValidationError
+
+
+/** @summary Get Product Stats */
+export function useGetProductStatsApiV1AdminStatsProductsGet<TData = Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError = void | HTTPValidationError>(
+ params: undefined |  GetProductStatsApiV1AdminStatsProductsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Stats */
+export function useGetProductStatsApiV1AdminStatsProductsGet<TData = Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError = void | HTTPValidationError>(
+ params?: GetProductStatsApiV1AdminStatsProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Stats */
+export function useGetProductStatsApiV1AdminStatsProductsGet<TData = Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError = void | HTTPValidationError>(
+ params?: GetProductStatsApiV1AdminStatsProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Stats */
+export function useGetProductStatsApiV1AdminStatsProductsGet<TData = Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError = void | HTTPValidationError>(
+ params?: GetProductStatsApiV1AdminStatsProductsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsApiV1AdminStatsProductsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetProductStatsApiV1AdminStatsProductsGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetComparisonTimelineApiV1AdminStatsTimelineGetUrl = (params: GetComparisonTimelineApiV1AdminStatsTimelineGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+    const explodeParameters = ["product_ids"];
+
+    if (Array.isArray(value) && explodeParameters.includes(key)) {
+      value.forEach((v) => {
+        normalizedParams.append(key, v === null ? 'null' : String(v));
+      });
+      return;
+    }
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/stats/timeline?${stringifiedParams}` : `/api/v1/admin/stats/timeline`
+}
+
+/**
+ * @summary Get Comparison Timeline
+ */
+export const getComparisonTimelineApiV1AdminStatsTimelineGet = async (params: GetComparisonTimelineApiV1AdminStatsTimelineGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminComparisonTimelineOut> => {
+
+  return apiFetch<AdminComparisonTimelineOut>(getGetComparisonTimelineApiV1AdminStatsTimelineGetUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminComparisonTimelineOut
+  }
+);}
+
+
+
+
+
+export const getGetComparisonTimelineApiV1AdminStatsTimelineGetQueryKey = (params?: GetComparisonTimelineApiV1AdminStatsTimelineGetParams,) => {
+    return [
+    `/api/v1/admin/stats/timeline`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetComparisonTimelineApiV1AdminStatsTimelineGetQueryOptions = <TData = Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError = void | HTTPValidationError>(params: GetComparisonTimelineApiV1AdminStatsTimelineGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetComparisonTimelineApiV1AdminStatsTimelineGetQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>> = ({ signal }) => getComparisonTimelineApiV1AdminStatsTimelineGet(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetComparisonTimelineApiV1AdminStatsTimelineGetQueryResult = NonNullable<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>>
+export type GetComparisonTimelineApiV1AdminStatsTimelineGetQueryError = void | HTTPValidationError
+
+
+/** @summary Get Comparison Timeline */
+export function useGetComparisonTimelineApiV1AdminStatsTimelineGet<TData = Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError = void | HTTPValidationError>(
+ params: GetComparisonTimelineApiV1AdminStatsTimelineGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>,
+          TError,
+          Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Comparison Timeline */
+export function useGetComparisonTimelineApiV1AdminStatsTimelineGet<TData = Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError = void | HTTPValidationError>(
+ params: GetComparisonTimelineApiV1AdminStatsTimelineGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>,
+          TError,
+          Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Comparison Timeline */
+export function useGetComparisonTimelineApiV1AdminStatsTimelineGet<TData = Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError = void | HTTPValidationError>(
+ params: GetComparisonTimelineApiV1AdminStatsTimelineGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Comparison Timeline */
+export function useGetComparisonTimelineApiV1AdminStatsTimelineGet<TData = Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError = void | HTTPValidationError>(
+ params: GetComparisonTimelineApiV1AdminStatsTimelineGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getComparisonTimelineApiV1AdminStatsTimelineGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetComparisonTimelineApiV1AdminStatsTimelineGetQueryOptions(params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProductStatsDetailApiV1AdminStatsProductsProductIdGetUrl = (productId: number,
+    params?: GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/v1/admin/stats/products/${productId}?${stringifiedParams}` : `/api/v1/admin/stats/products/${productId}`
+}
+
+/**
+ * @summary Get Product Stats Detail
+ */
+export const getProductStatsDetailApiV1AdminStatsProductsProductIdGet = async (productId: number,
+    params?: GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams, options?: Parameters<typeof apiFetch>[1]): Promise<AdminProductStatsDetailOut> => {
+
+  return apiFetch<AdminProductStatsDetailOut>(getGetProductStatsDetailApiV1AdminStatsProductsProductIdGetUrl(productId,params),
+  {
+    ...options,
+    method: 'GET'
+
+    ,
+    schema: AdminProductStatsDetailOut
+  }
+);}
+
+
+
+
+
+export const getGetProductStatsDetailApiV1AdminStatsProductsProductIdGetQueryKey = (productId: number,
+    params?: GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams,) => {
+    return [
+    `/api/v1/admin/stats/products/${productId}`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getGetProductStatsDetailApiV1AdminStatsProductsProductIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError = void | HTTPValidationError>(productId: number,
+    params?: GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProductStatsDetailApiV1AdminStatsProductsProductIdGetQueryKey(productId,params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>> = ({ signal }) => getProductStatsDetailApiV1AdminStatsProductsProductIdGet(productId,params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: productId !== null && productId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetProductStatsDetailApiV1AdminStatsProductsProductIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>>
+export type GetProductStatsDetailApiV1AdminStatsProductsProductIdGetQueryError = void | HTTPValidationError
+
+
+/** @summary Get Product Stats Detail */
+export function useGetProductStatsDetailApiV1AdminStatsProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number,
+    params: undefined |  GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Stats Detail */
+export function useGetProductStatsDetailApiV1AdminStatsProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number,
+    params?: GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>
+        > , 'initialData'
+      >, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Stats Detail */
+export function useGetProductStatsDetailApiV1AdminStatsProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number,
+    params?: GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/** @summary Get Product Stats Detail */
+export function useGetProductStatsDetailApiV1AdminStatsProductsProductIdGet<TData = Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError = void | HTTPValidationError>(
+ productId: number,
+    params?: GetProductStatsDetailApiV1AdminStatsProductsProductIdGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getProductStatsDetailApiV1AdminStatsProductsProductIdGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetProductStatsDetailApiV1AdminStatsProductsProductIdGetQueryOptions(productId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 
