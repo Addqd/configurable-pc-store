@@ -49,9 +49,14 @@ export function BuilderPage() {
   // The query key contains the selected items, so cached data always belongs to the
   // current configuration. `isFetching` alone is not a loading state: a background
   // refetch of the same selection must keep its verdict instead of hiding it.
-  const status = compatibility.isSuccess ? compatibility.data.overall_status : 'unknown'
-  const diagnostics = compatibility.isSuccess ? compatibility.data.items.filter(item => item.status !== 'compatible') : []
+  // A failed background refetch also keeps the cached verdict (TanStack Query keeps
+  // `data` in an error state), so the verdict follows data availability, not success.
+  const verdict = compatibility.data
+  const status = verdict ? verdict.overall_status : 'unknown'
+  const diagnostics = verdict ? verdict.items.filter(item => item.status !== 'compatible') : []
   const compatibilityPending = count > 0 && compatibility.isPending
+  // Only a check without any result for the current configuration may show an error.
+  const compatibilityFailed = compatibility.isError && verdict === undefined
   // A saved build is being loaded into the configurator: its name and its match with
   // the current selection are still unknown, so actions must wait for that answer.
   const savedPending = editingBuildId !== null && !!activeAccountId && saved.isPending
@@ -200,7 +205,7 @@ export function BuilderPage() {
                 </div>
               )}
             </section>
-            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={compatibility.isSuccess} loading={compatibilityPending} error={compatibility.isError} messages={messages} savedPending={savedPending} />
+            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={verdict !== undefined} loading={compatibilityPending} error={compatibilityFailed} messages={messages} savedPending={savedPending} />
           </div>
         </div>
       </main>

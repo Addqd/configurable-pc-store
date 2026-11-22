@@ -82,6 +82,7 @@ describe('admin product creation', () => {
     setup()
     expect(await screen.findByRole('heading', { name: 'Добавление товара' })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Назад/ })).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'В магазин' }).getAttribute('href')).toBe('/')
     expect(screen.queryByLabelText(/SKU/)).toBeNull()
     expect(screen.getByText('0 / 10 изображений')).toBeTruthy()
   })

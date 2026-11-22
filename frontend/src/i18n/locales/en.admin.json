@@ -22,6 +22,7 @@
       "saving": "Saving…",
       "no_changes": "There are no changes to save.",
       "back": "Back",
+      "back_to_store": "Back to Store",
       "search_limit": "Search is limited to {{max}} characters."
     },
     "access": {

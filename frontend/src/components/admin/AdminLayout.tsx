@@ -1,5 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
+import { Link } from 'react-router'
+import { FiArrowLeft } from 'react-icons/fi'
 import { Header } from '../Header'
 
 interface AdminLayoutProps {
@@ -10,7 +12,8 @@ interface AdminLayoutProps {
 
 /**
  * Shared administration chrome. The storefront Header stays the single global
- * header; admin pages only add a page container and a small admin footer.
+ * header; admin pages only add a page container, an explicit way back to the
+ * storefront and a small admin footer.
  */
 export function AdminLayout({ children, footer = true }: AdminLayoutProps) {
   const { t } = useTranslation()
@@ -19,6 +22,15 @@ export function AdminLayout({ children, footer = true }: AdminLayoutProps) {
       <Header />
       <main className="w-full flex-1 pt-16">
         <div className="mx-auto w-full max-w-[1240px] px-4 pb-8 pt-6 sm:px-6">
+          <div className="mb-3">
+            <Link
+              to="/"
+              className="pc-hover-link inline-flex items-center gap-2 rounded-md px-2 py-1 text-sm text-text-muted transition-colors hover:text-primary"
+            >
+              <FiArrowLeft className="h-4 w-4" aria-hidden="true" />
+              {t('admin.common.back_to_store')}
+            </Link>
+          </div>
           {children}
         </div>
       </main>

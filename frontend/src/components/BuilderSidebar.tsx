@@ -68,8 +68,10 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
         <strong className="text-lg text-text-primary">{t('builder.total')}</strong>
         <strong className="text-2xl text-text-primary">{formatPrice(price)}</strong>
       </div>
+      {/* The description is referenced only when the element that carries the id is
+          actually rendered: a pending saved build shows a skeleton, not a text. */}
       <button type="button" onClick={onAddToCart} disabled={!eligible}
-        aria-describedby={!eligible ? 'builder-cart-validation' : undefined}
+        aria-describedby={!eligible && cartHint ? 'builder-cart-validation' : undefined}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-default disabled:opacity-50 disabled:hover:bg-primary dark:text-[#08090C]">
         <FiShoppingCart className="h-5 w-5" /> {t('builder.add_to_cart')} <span aria-hidden="true">→</span>
       </button>

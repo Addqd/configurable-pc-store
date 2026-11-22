@@ -67,6 +67,7 @@ describe('admin analytics', () => {
     // Both horizontal rankings keep their card legends below the bars.
     expect(screen.getAllByText('Товаров в заказах').length).toBeGreaterThan(1)
     expect(screen.getAllByText('Средняя оценка').length).toBeGreaterThan(0)
+    expect(screen.getByRole('link', { name: 'В магазин' }).getAttribute('href')).toBe('/')
   })
 
   it('localizes chart units and compact numbers when the language is English', async () => {

@@ -17,6 +17,7 @@ import { OrdersPage } from './pages/OrdersPage'
 import { SavesPage } from './pages/SavesPage'
 import { NotFound } from './pages/NotFound'
 import { AuthModal } from './components/AuthModal'
+import { RouteScrollManager } from './navigation/RouteScrollManager'
 import { AdminGate } from './admin/access'
 import { AdminProductsPage } from './pages/admin/AdminProductsPage'
 import { AdminProductFormPage } from './pages/admin/AdminProductFormPage'
@@ -77,6 +78,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
+        <RouteScrollManager />
         <AppStateEffects />
         <LangUpdater />
         {/* The existing pages own their Header. Do not add a second global Header. */}

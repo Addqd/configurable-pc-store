@@ -13,11 +13,12 @@ vi.mock('../components/Footer', () => ({ Footer: () => <div /> }))
 vi.mock('../components/BackButton', () => ({ BackButton: () => <div /> }))
 vi.mock('../components/BuilderComponentRow', () => ({ BuilderComponentRow: () => <div /> }))
 vi.mock('../components/BuilderSidebar', () => ({
-  BuilderSidebar: ({ status, loading = false, error = false }: { status: string; loading?: boolean; error?: boolean }) => (
+  BuilderSidebar: ({ status, loading = false, error = false, checked = false }: { status: string; loading?: boolean; error?: boolean; checked?: boolean }) => (
     <div>
       <div data-testid="compatibility-status">{status}</div>
       <div data-testid="compatibility-loading">{String(loading)}</div>
       <div data-testid="compatibility-error">{String(error)}</div>
+      <div data-testid="compatibility-checked">{String(checked)}</div>
     </div>
   ),
 }))
@@ -150,9 +151,11 @@ describe('compatibility query freshness', () => {
     render(<MemoryRouter><BuilderPage /></MemoryRouter>, { client })
 
     await waitFor(() => expect(screen.getByTestId('compatibility-status').textContent).toBe('compatible'))
+    const callsBefore = fetchMock.mock.calls.length
     pending = true
     await act(async () => { void client.refetchQueries({ queryKey: ['current-compatibility', [{ slot: 'cpu', product_id: product.id }]] }) })
 
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore)
     expect(screen.getByTestId('compatibility-loading').textContent).toBe('false')
     expect(screen.getByTestId('compatibility-status').textContent).toBe('compatible')
   })
@@ -175,6 +178,75 @@ describe('compatibility query freshness', () => {
 
     await waitFor(() => expect(screen.getByTestId('compatibility-status').textContent).toBe('compatible'))
     expect(screen.getByTestId('compatibility-error').textContent).toBe('false')
+  })
+
+  it('keeps a cached verdict when the background refetch of the same selection fails', async () => {
+    const product = getProductsForCategory('cpu')[0]
+    useBuilderStore.getState().setProduct('cpu', product)
+    const client = createTestQueryClient()
+    let failing = false
+    const fetchMock = vi.fn(async () => failing
+      ? new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      : compatibility('compatible'))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>, { client })
+
+    await waitFor(() => expect(screen.getByTestId('compatibility-status').textContent).toBe('compatible'))
+    const callsBefore = fetchMock.mock.calls.length
+    failing = true
+    await act(async () => { await client.refetchQueries({ queryKey: ['current-compatibility', [{ slot: 'cpu', product_id: product.id }]] }) })
+    // A real background refetch happened, and the cached verdict survived it.
+    expect(fetchMock.mock.calls.length).toBeGreaterThan(callsBefore)
+    await waitFor(() => expect(client.getQueryState(['current-compatibility', [{ slot: 'cpu', product_id: product.id }]])?.status).toBe('error'))
+    expect(screen.getByTestId('compatibility-status').textContent).toBe('compatible')
+
+    // The failed refetch kept its data: the verdict stays, and no error replaces it.
+    expect(screen.getByTestId('compatibility-status').textContent).toBe('compatible')
+    expect(screen.getByTestId('compatibility-checked').textContent).toBe('true')
+    expect(screen.getByTestId('compatibility-error').textContent).toBe('false')
+    expect(screen.getByTestId('compatibility-loading').textContent).toBe('false')  })
+
+  it('never shows a previous configuration verdict while the new selection is pending', async () => {
+    const [first, second] = getProductsForCategory('cpu')
+    useBuilderStore.getState().setProduct('cpu', first)
+    let resolveSecond!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn(async (_url: string, init: RequestInit) => {
+      const id = JSON.parse(String(init.body)).items[0].product_id
+      if (id === first.id) return compatibility('compatible')
+      return new Promise<Response>(resolve => { resolveSecond = resolve })
+    }))
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+
+    await waitFor(() => expect(screen.getByTestId('compatibility-status').textContent).toBe('compatible'))
+    act(() => useBuilderStore.getState().setProduct('cpu', second))
+
+    await waitFor(() => expect(screen.getByTestId('compatibility-loading').textContent).toBe('true'))
+    expect(screen.getByTestId('compatibility-status').textContent).toBe('unknown')
+    expect(screen.getByTestId('compatibility-checked').textContent).toBe('false')
+
+    await act(async () => { resolveSecond(compatibility('incompatible')) })
+    await waitFor(() => expect(screen.getByTestId('compatibility-status').textContent).toBe('incompatible'))
+  })
+
+  it('shows the verdict again when a failed check is retried successfully', async () => {
+    const product = getProductsForCategory('cpu')[0]
+    useBuilderStore.getState().setProduct('cpu', product)
+    const client = createTestQueryClient()
+    let failing = true
+    vi.stubGlobal('fetch', vi.fn(async () => failing
+      ? new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      : compatibility('unknown')))
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>, { client })
+
+    await waitFor(() => expect(screen.getByTestId('compatibility-error').textContent).toBe('true'))
+    expect(screen.getByTestId('compatibility-status').textContent).toBe('unknown')
+    expect(screen.getByTestId('compatibility-loading').textContent).toBe('false')
+
+    failing = false
+    await act(async () => { await client.refetchQueries({ queryKey: ['current-compatibility', [{ slot: 'cpu', product_id: product.id }]] }) })
+
+    await waitFor(() => expect(screen.getByTestId('compatibility-error').textContent).toBe('false'))
+    expect(screen.getByTestId('compatibility-checked').textContent).toBe('true')
   })
 })
 
