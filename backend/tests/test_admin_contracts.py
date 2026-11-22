@@ -414,11 +414,12 @@ def test_comparison_monthly_series_share_one_month_interval():
     older = {august: (1, 2, Decimal("200.00")), march: (2, 3, Decimal("250.50"))}
     newer = {date(2026, 1, 1): (1, 1, Decimal("70.00"))}
 
-    start, end = analytics_service._month_bounds([older, newer], None, None)
+    # Several calendar months: the shared axis keeps the monthly resolution.
+    start, end = analytics_service._bucket_bounds([older, newer], None, None, "month")
     assert (start, end) == (august, march)
 
-    left = analytics_service._fill_between(older, start, end)
-    right = analytics_service._fill_between(newer, start, end)
+    left = analytics_service._fill_between(older, start, end, "month")
+    right = analytics_service._fill_between(newer, start, end, "month")
     assert [point.month for point in left] == [point.month for point in right]
     assert len(left) == 8
     assert left[0].month == august
@@ -432,10 +433,11 @@ def test_comparison_monthly_series_share_one_month_interval():
     assert Decimal(right[0].amount) == Decimal("0.00")
 
     # An explicit range wins for every series.
-    start, end = analytics_service._month_bounds(
-        [older, newer], date(2026, 2, 3), date(2026, 3, 9)
+    start, end = analytics_service._bucket_bounds(
+        [older, newer], date(2026, 2, 3), date(2026, 3, 9), "month"
     )
     assert (start, end) == (date(2026, 2, 1), march)
     assert [
-        point.month for point in analytics_service._fill_between(newer, start, end)
+        point.month
+        for point in analytics_service._fill_between(newer, start, end, "month")
     ] == [date(2026, 2, 1), march]

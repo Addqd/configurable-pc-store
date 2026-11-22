@@ -12,6 +12,7 @@ import { AdminLayout } from '../../components/admin/AdminLayout'
 import { AdminEmpty, AdminError } from '../../components/admin/AdminFeedback'
 import { AdminTableSkeleton } from '../../components/skeletons/AdminSkeletons'
 import { AdminPagination } from '../../components/admin/AdminPagination'
+import { DateFilterField } from '../../components/admin/DateFilterField'
 import {
   adminCard, adminControl, adminSelect, adminTableHead, adminTableHeadCell, adminTableCell,
 } from '../../components/admin/adminStyles'
@@ -158,24 +159,18 @@ export function AdminEventsPage() {
           <div className="rounded-lg border border-border bg-surface-2 p-3">
             <p className="mb-2 text-sm font-medium text-text-secondary">{t('admin.events.period')}</p>
             <div className="flex flex-wrap items-end gap-3">
-              <label className="min-w-[140px] flex-1">
-                <span className="mb-1 block text-xs text-text-muted">{t('admin.events.date_from')}</span>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(event) => setSearchParams((current) => withParams(current, { date_from: event.target.value, page: 1 }))}
-                  className={`${adminControl} h-9`}
-                />
-              </label>
-              <label className="min-w-[140px] flex-1">
-                <span className="mb-1 block text-xs text-text-muted">{t('admin.events.date_to')}</span>
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(event) => setSearchParams((current) => withParams(current, { date_to: event.target.value, page: 1 }))}
-                  className={`${adminControl} h-9`}
-                />
-              </label>
+              <DateFilterField
+                id="events-date-from"
+                label={t('admin.events.date_from')}
+                value={dateFrom}
+                onChange={(next) => setSearchParams((current) => withParams(current, { date_from: next, page: 1 }))}
+              />
+              <DateFilterField
+                id="events-date-to"
+                label={t('admin.events.date_to')}
+                value={dateTo}
+                onChange={(next) => setSearchParams((current) => withParams(current, { date_to: next, page: 1 }))}
+              />
               <button
                 type="button"
                 onClick={() => setSearchParams((current) => withParams(current, { date_from: '', date_to: '', page: 1 }))}

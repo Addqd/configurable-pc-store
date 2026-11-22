@@ -1140,7 +1140,6 @@ export function AdminProductFormPage() {
                               <select disabled className={`${adminControl} appearance-none pr-10`} aria-label={t('admin.form.spec_param')}>
                                 <option>{t('admin.form.spec_param')}</option>
                               </select>
-                              <SpecChevron />
                             </div>
                             <div className="relative">
                               <select disabled className={`${adminControl} appearance-none pr-10`} aria-label={t('admin.form.spec_value')}>
@@ -1171,7 +1170,6 @@ export function AdminProductFormPage() {
                           <div className="relative flex h-11 items-center rounded-lg border border-border bg-surface-2 px-3.5 pr-10 text-sm text-text-primary">
                             <span className="truncate">{field.label}</span>
                             {field.is_required && <span className="ml-1 text-text-secondary" aria-hidden="true">*</span>}
-                            <SpecChevron />
                           </div>
                           <div className="relative">
                             <select

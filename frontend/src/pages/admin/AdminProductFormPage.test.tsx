@@ -129,6 +129,56 @@ describe('admin product creation', () => {
     })
   })
 
+  it('removes the dropdown arrow from the fixed characteristic labels only', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
+
+    const valueSelect = await screen.findByLabelText('Объём памяти')
+    const row = valueSelect.closest('.grid') as HTMLElement
+    const [labelBox, valueBox] = Array.from(row.children) as HTMLElement[]
+
+    // The left box only states the server-driven characteristic name: it is not a
+    // control, so it must not carry a dropdown indicator.
+    expect(labelBox.textContent).toBe('Объём памяти*')
+    expect(labelBox.querySelector('svg')).toBeNull()
+    expect(labelBox.getAttribute('role')).toBeNull()
+    // The right selector keeps its own arrow and stays fully interactive.
+    expect(valueBox.querySelector('svg')).not.toBeNull()
+    fireEvent.change(valueSelect, { target: { value: '16 ГБ' } })
+    expect((valueSelect as HTMLSelectElement).value).toBe('16 ГБ')
+  })
+
+  it('keeps the approved label box styling while dropping its arrow', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
+    const valueSelect = await screen.findByLabelText('Шина памяти')
+    const labelBox = (valueSelect.closest('.grid') as HTMLElement).children[0] as HTMLElement
+    expect(labelBox.className).toBe(
+      'relative flex h-11 items-center rounded-lg border border-border bg-surface-2 px-3.5 pr-10 text-sm text-text-primary',
+    )
+    expect(labelBox.querySelectorAll('svg')).toHaveLength(0)
+  })
+
+  it('drops the placeholder arrows of the characteristic label column too', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    // Without a chosen product type the panel shows three placeholder rows.
+    const placeholders = screen.getAllByLabelText('Выберите параметр...')
+    expect(placeholders).toHaveLength(3)
+    for (const param of placeholders) {
+      expect(param.parentElement?.querySelector('svg')).toBeNull()
+    }
+    const values = screen.getAllByLabelText('Выберите значение...')
+    expect(values).toHaveLength(3)
+    for (const value of values) {
+      expect(value.parentElement?.querySelector('svg')).not.toBeNull()
+    }
+  })
+
   it('applies the existing type and size validation to files dropped from the OS', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })

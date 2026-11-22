@@ -12,7 +12,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import Numeric, cast, distinct, func, or_, select
 from sqlalchemy.orm import Session
@@ -42,6 +42,10 @@ from app.services.sql_utils import like_pattern, money
 
 MAX_COMPARISON_PRODUCTS = 5
 MAX_MONTHS = 120
+# Maximum number of buckets a daily series may contain.
+MAX_DAYS = 400
+
+Granularity = Literal["day", "month"]
 
 
 def _sales_bounds(
@@ -97,6 +101,15 @@ def _month_first(month_value: datetime | date) -> date:
     return date(month_value.year, month_value.month, 1)
 
 
+def _day_of(value: datetime | date) -> date:
+    return date(value.year, value.month, value.day)
+
+
+def _bucket_first(value: datetime | date, granularity: Granularity) -> date:
+    """Start of the bucket a ledger timestamp belongs to."""
+    return _month_first(value) if granularity == "month" else _day_of(value)
+
+
 def _month_sequence(start: date, end: date) -> list[date]:
     current = _month_start(start)
     last = _month_start(end)
@@ -110,24 +123,37 @@ def _month_sequence(start: date, end: date) -> list[date]:
     return months
 
 
-def _monthly_rows(
+def _bucket_sequence(start: date, end: date, granularity: Granularity) -> list[date]:
+    """Ordered bucket starts between `start` and `end`, both inclusive."""
+    if granularity == "month":
+        return _month_sequence(start, end)
+    days: list[date] = []
+    current = start
+    while current <= end and len(days) < MAX_DAYS:
+        days.append(current)
+        current += timedelta(days=1)
+    return days
+
+
+def _bucket_rows(
     db: Session,
     filters: list[Any],
+    granularity: Granularity,
     product_id: int | None = None,
 ) -> dict[date, tuple[int, int, Decimal]]:
-    month = func.date_trunc("month", SaleLineFact.ordered_at).label("month")
+    bucket = func.date_trunc(granularity, SaleLineFact.ordered_at).label("bucket")
     statement = select(
-        month,
+        bucket,
         func.count(distinct(SaleLineFact.source_order_id)),
         func.coalesce(func.sum(SaleLineFact.quantity), 0),
         func.coalesce(func.sum(SaleLineFact.line_total), 0),
     ).where(*filters)
     if product_id is not None:
         statement = statement.where(SaleLineFact.product_id == product_id)
-    statement = statement.group_by(month).order_by(month)
+    statement = statement.group_by(bucket).order_by(bucket)
     series: dict[date, tuple[int, int, Decimal]] = {}
-    for month_value, orders, units, amount in db.execute(statement).all():
-        series[_month_first(month_value)] = (
+    for bucket_value, orders, units, amount in db.execute(statement).all():
+        series[_bucket_first(bucket_value, granularity)] = (
             int(orders or 0),
             int(units or 0),
             money(amount),
@@ -135,57 +161,104 @@ def _monthly_rows(
     return series
 
 
-def _month_bounds(
+def _sales_span(db: Session, filters: list[Any]) -> tuple[date | None, date | None]:
+    """First and last calendar day that actually produced a sales row."""
+    earliest, latest = db.execute(
+        select(
+            func.min(SaleLineFact.ordered_at), func.max(SaleLineFact.ordered_at)
+        ).where(*filters)
+    ).one()
+    if earliest is None or latest is None:
+        return None, None
+    return _day_of(earliest), _day_of(latest)
+
+
+def _granularity_for(
+    span: tuple[date | None, date | None],
+    date_from: date | None,
+    date_to: date | None,
+) -> Granularity:
+    """Daily buckets when the sales records cover one calendar month only.
+
+    The rule looks at the records, not at the requested period, so a 30-day,
+    three-month or all-time selection over a single month of sales still becomes a
+    readable daily line. Several calendar months keep the existing monthly
+    aggregation. With no sales at all the requested interval decides.
+    """
+    earliest, latest = span
+    if earliest is not None and latest is not None:
+        same_month = (earliest.year, earliest.month) == (latest.year, latest.month)
+        return "day" if same_month else "month"
+    start = date_from or date_to
+    end = date_to or date_from
+    same_month_range = (
+        start is not None
+        and end is not None
+        and (start.year, start.month) == (end.year, end.month)
+    )
+    return "day" if same_month_range else "month"
+
+
+def _bucket_bounds(
     series_group: Sequence[dict[date, tuple[int, int, Decimal]]],
     date_from: date | None,
     date_to: date | None,
+    granularity: Granularity,
 ) -> tuple[date, date]:
-    """One calendar-month interval shared by every series of a request.
+    """One interval, in the request's granularity, shared by every series.
 
     An explicit range wins; otherwise the interval is derived from all supplied
-    sales data, so compared products always share the same month sequence.
+    sales data, so compared products always share the same bucket sequence.
     """
-    months = [month for series in series_group for month in series]
+    buckets = [bucket for series in series_group for bucket in series]
     if date_from is not None:
-        start = _month_start(date_from)
-    elif months:
-        start = min(months)
+        start = date_from if granularity == "day" else _month_start(date_from)
+    elif buckets:
+        start = min(buckets)
     elif date_to is not None:
-        start = _month_start(date_to)
+        start = date_to if granularity == "day" else _month_start(date_to)
     else:
-        start = _month_start(date.today())
+        start = (
+            _day_of(date.today())
+            if granularity == "day"
+            else _month_start(date.today())
+        )
     if date_to is not None:
-        end = _month_start(date_to)
-    elif months:
-        end = max(months)
+        end = date_to if granularity == "day" else _month_start(date_to)
+    elif buckets:
+        end = max(buckets)
     else:
         end = start
     return start, max(end, start)
 
 
 def _fill_between(
-    series: dict[date, tuple[int, int, Decimal]], start: date, end: date
+    series: dict[date, tuple[int, int, Decimal]],
+    start: date,
+    end: date,
+    granularity: Granularity,
 ) -> list[MonthlyPointOut]:
-    """Zero-fill `series` over the given inclusive month interval."""
+    """Zero-fill `series` over the given inclusive bucket interval."""
     empty = (0, 0, Decimal("0.00"))
     return [
         MonthlyPointOut(
-            month=month,
-            orders_count=series.get(month, empty)[0],
-            units_count=series.get(month, empty)[1],
-            amount=series.get(month, empty)[2],
+            month=bucket,
+            orders_count=series.get(bucket, empty)[0],
+            units_count=series.get(bucket, empty)[1],
+            amount=series.get(bucket, empty)[2],
         )
-        for month in _month_sequence(start, end)
+        for bucket in _bucket_sequence(start, end, granularity)
     ]
 
 
-def _fill_months(
+def _fill_buckets(
     series: dict[date, tuple[int, int, Decimal]],
     date_from: date | None,
     date_to: date | None,
+    granularity: Granularity,
 ) -> list[MonthlyPointOut]:
-    start, end = _month_bounds([series], date_from, date_to)
-    return _fill_between(series, start, end)
+    start, end = _bucket_bounds([series], date_from, date_to, granularity)
+    return _fill_between(series, start, end, granularity)
 
 
 def _top_selling(
@@ -264,14 +337,18 @@ def overview(
             *_review_filters(date_from, date_to)
         )
     ).one()
-    monthly = _fill_months(
-        _monthly_rows(db, [*_ledger_filters(date_from, date_to)]),
+    ledger_filters = _ledger_filters(date_from, date_to)
+    granularity = _granularity_for(_sales_span(db, ledger_filters), date_from, date_to)
+    monthly = _fill_buckets(
+        _bucket_rows(db, ledger_filters, granularity),
         date_from,
         date_to,
+        granularity,
     )
     return AdminOverviewOut(
         date_from=date_from,
         date_to=date_to,
+        granularity=granularity,
         completed_orders=int(totals[0] or 0),
         sold_units=int(totals[1] or 0),
         revenue=money(totals[2]),
@@ -485,18 +562,21 @@ def product_stats_detail(
     if date_from and date_to and date_to < date_from:
         raise InvalidInputError("date_to must not be earlier than date_from")
     product = _single_product_stat(db, product_id, date_from, date_to)
+    sales_filters = [
+        *_sales_filters(date_from, date_to),
+        SaleLineFact.product_id == product_id,
+    ]
+    granularity = _granularity_for(_sales_span(db, sales_filters), date_from, date_to)
     return AdminProductStatsDetailOut(
         product=product,
         date_from=date_from,
         date_to=date_to,
-        monthly=_fill_months(
-            _monthly_rows(
-                db,
-                [*_sales_filters(date_from, date_to)],
-                product_id=product_id,
-            ),
+        granularity=granularity,
+        monthly=_fill_buckets(
+            _bucket_rows(db, sales_filters, granularity, product_id=product_id),
             date_from,
             date_to,
+            granularity,
         ),
         rating_distribution=_rating_distribution(db, product_id, date_from, date_to),
     )
@@ -526,47 +606,58 @@ def comparison_timeline(
     if missing:
         raise NotFoundError(f"Unknown product ids: {missing}")
 
-    month = func.date_trunc("month", SaleLineFact.ordered_at).label("month")
+    comparison_filters = [
+        SaleLineFact.kind == "product",
+        SaleLineFact.product_id.in_(selected),
+        *_range_clauses(SaleLineFact.ordered_at, date_from, date_to),
+    ]
+    # One granularity for the whole request, decided by all compared records, so
+    # sparse products are aligned on the same axis as dense ones.
+    granularity = _granularity_for(
+        _sales_span(db, comparison_filters), date_from, date_to
+    )
+    bucket = func.date_trunc(granularity, SaleLineFact.ordered_at).label("bucket")
     rows = db.execute(
         select(
             SaleLineFact.product_id,
-            month,
+            bucket,
             func.count(distinct(SaleLineFact.source_order_id)),
             func.coalesce(func.sum(SaleLineFact.quantity), 0),
             func.coalesce(func.sum(SaleLineFact.line_total), 0),
         )
-        .where(
-            SaleLineFact.kind == "product",
-            SaleLineFact.product_id.in_(selected),
-            *_range_clauses(SaleLineFact.ordered_at, date_from, date_to),
-        )
-        .group_by(SaleLineFact.product_id, month)
-        .order_by(SaleLineFact.product_id, month)
+        .where(*comparison_filters)
+        .group_by(SaleLineFact.product_id, bucket)
+        .order_by(SaleLineFact.product_id, bucket)
     ).all()
 
     series_by_product: dict[int, dict[date, tuple[int, int, Decimal]]] = {
         product_id: {} for product_id in selected
     }
-    for product_id, month_value, orders, units, amount in rows:
-        series_by_product[int(product_id)][_month_first(month_value)] = (
+    for product_id, bucket_value, orders, units, amount in rows:
+        series_by_product[int(product_id)][_bucket_first(bucket_value, granularity)] = (
             int(orders or 0),
             int(units or 0),
             money(amount),
         )
 
-    # One shared interval for the whole request: every compared series returns
-    # exactly the same ordered month labels, zero-filled where a product had no
-    # sales. `_month_bounds` uses the explicit range when it was supplied.
-    start, end = _month_bounds(list(series_by_product.values()), date_from, date_to)
+    # Every compared series returns exactly the same ordered labels, zero-filled
+    # where a product had no sales. `_bucket_bounds` uses the explicit range when
+    # it was supplied.
+    start, end = _bucket_bounds(
+        list(series_by_product.values()), date_from, date_to, granularity
+    )
     return AdminComparisonTimelineOut(
         date_from=date_from,
         date_to=date_to,
+        granularity=granularity,
         series=[
             AdminProductTimelineOut(
                 product_id=product_id,
                 name=found[product_id].name,
                 sku=found[product_id].sku,
-                monthly=_fill_between(series_by_product[product_id], start, end),
+                monthly=_fill_between(
+                    series_by_product[product_id], start, end, granularity
+                ),
             )
             for product_id in selected
         ],

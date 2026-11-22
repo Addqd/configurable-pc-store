@@ -128,7 +128,7 @@ describe('admin event journal', () => {
     fireEvent.change(screen.getByLabelText('Категория'), { target: { value: 'auth' } })
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('category=auth'))).toBe(true))
 
-    fireEvent.change(screen.getByLabelText('С даты'), { target: { value: '2026-11-01' } })
+    fireEvent.change(screen.getByLabelText('С даты'), { target: { value: '01112026' } })
     await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => String(url).includes('date_from=2026-11-01'))).toBe(true))
 
     fireEvent.click(screen.getByRole('button', { name: 'Страница 2' }))
@@ -140,11 +140,11 @@ describe('admin event journal', () => {
     await screen.findByText('Создал сборку #28')
 
     // A half-filled range is a legitimate request.
-    fireEvent.change(screen.getByLabelText('С даты'), { target: { value: '2026-12-01' } })
+    fireEvent.change(screen.getByLabelText('С даты'), { target: { value: '01122026' } })
     await waitFor(() => expect(eventRequests(fetchMock).some((params) => params.get('date_from') === '2026-12-01')).toBe(true))
     const callsBeforeInvalidRange = eventRequests(fetchMock).length
 
-    fireEvent.change(screen.getByLabelText('По дату'), { target: { value: '2026-11-01' } })
+    fireEvent.change(screen.getByLabelText('По дату'), { target: { value: '01112026' } })
     expect(await screen.findByText('Проверьте заполнение полей.')).toBeTruthy()
     await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_to=2026-11-01'))
 
@@ -175,6 +175,116 @@ describe('admin event journal', () => {
     await screen.findByText('Создал сборку #28')
     fireEvent.click(screen.getByRole('button', { name: 'Закрыть журнал' }))
     expect(await screen.findByText('USERS PAGE')).toBeTruthy()
+  })
+})
+
+describe('admin event journal date fields', () => {
+  const dateFromInput = () => screen.getByLabelText('С даты') as HTMLInputElement
+  const dateToInput = () => screen.getByLabelText('По дату') as HTMLInputElement
+
+  it('inserts the date separators while the admin types', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+
+    const steps: [string, string][] = [
+      ['0', '0'],
+      ['01', '01'],
+      ['011', '01.1'],
+      ['0111', '01.11'],
+      ['01112', '01.11.2'],
+      ['011120', '01.11.20'],
+      ['0111202', '01.11.202'],
+      ['01112026', '01.11.2026'],
+    ]
+    for (const [typed, expected] of steps) {
+      fireEvent.change(input, { target: { value: typed } })
+      expect(input.value).toBe(expected)
+    }
+
+    // Only the complete day reaches the URL and the API, as an ISO date.
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_from=2026-11-01'))
+    expect(eventRequests(fetchMock).every((params) => (params.get('date_from') ?? '2026-11-01') === '2026-11-01')).toBe(true)
+  })
+
+  it('never sends an impossible day to the API', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+    const callsBeforeTyping = eventRequests(fetchMock).length
+
+    fireEvent.change(input, { target: { value: '31022026' } })
+    expect(input.value).toBe('31.02.2026')
+    fireEvent.focusOut(input)
+
+    expect(await screen.findByText('Проверьте заполнение полей.')).toBeTruthy()
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(screen.getByTestId('location').textContent).not.toContain('date_from')
+    expect(eventRequests(fetchMock)).toHaveLength(callsBeforeTyping)
+
+    // Correcting the day clears the message and applies the filter.
+    fireEvent.change(input, { target: { value: '28022026' } })
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_from=2026-02-28'))
+    expect(screen.queryByText('Проверьте заполнение полей.')).toBeNull()
+    expect(eventRequests(fetchMock).at(-1)?.get('date_from')).toBe('2026-02-28')
+  })
+
+  it('does not report an error while a date is still being typed', async () => {
+    setup()
+    await screen.findByText('Создал сборку #28')
+    fireEvent.change(dateFromInput(), { target: { value: '0111' } })
+    expect(screen.queryByText('Проверьте заполнение полей.')).toBeNull()
+  })
+
+  it('writes the picked calendar day into the text field and the filter', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+
+    // The value in the URL decides which month the calendar opens on.
+    fireEvent.change(input, { target: { value: '01112026' } })
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_from=2026-11-01'))
+    fireEvent.click(input)
+
+    const secondDay = await waitFor(() => {
+      const days = [...document.querySelectorAll('.react-datepicker__day--002')]
+        .filter((day) => !day.classList.contains('react-datepicker__day--outside-month'))
+      expect(days.length).toBeGreaterThan(0)
+      return days[0]
+    })
+    fireEvent.click(secondDay)
+
+    await waitFor(() => expect(input.value).toBe('02.11.2026'))
+    await waitFor(() => expect(eventRequests(fetchMock).at(-1)?.get('date_from')).toBe('2026-11-02'))
+  })
+
+  it('resets both text fields together with the date filters', async () => {
+    setup()
+    await screen.findByText('Создал сборку #28')
+    fireEvent.change(dateFromInput(), { target: { value: '01112026' } })
+    fireEvent.change(dateToInput(), { target: { value: '30112026' } })
+    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_to=2026-11-30'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
+
+    await waitFor(() => expect(dateFromInput().value).toBe(''))
+    expect(dateToInput().value).toBe('')
+    const location = screen.getByTestId('location').textContent ?? ''
+    expect(location).not.toContain('date_from')
+    expect(location).not.toContain('date_to')
+  })
+
+  it('keeps the text fields in step with the URL-driven state', async () => {
+    setup()
+    await screen.findByText('Создал сборку #28')
+    fireEvent.change(dateFromInput(), { target: { value: '01112026' } })
+    await waitFor(() => expect(dateFromInput().value).toBe('01.11.2026'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
+    await waitFor(() => expect(dateFromInput().value).toBe(''))
+    fireEvent.change(dateFromInput(), { target: { value: '05052026' } })
+    await waitFor(() => expect(dateFromInput().value).toBe('05.05.2026'))
+    expect(screen.getByTestId('location').textContent).toContain('date_from=2026-05-05')
   })
 })
 

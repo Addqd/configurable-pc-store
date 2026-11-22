@@ -4,7 +4,7 @@
     "catalog_description": "Thousands of components, prebuilt PCs, peripherals and accessories from leading brands. Find everything you need for your PC in one place.",
     "catalog_button": "Go to catalog",
     "builder_cta": "Build your PC",
-    "builder_description": "The 2D configurator helps you pick compatible components and calculate the build cost.",
+    "builder_description": "The PC Configurator helps you pick compatible components and calculate the build cost.",
     "builder_button": "Go to configurator",
     "why_choose_us": "Why choose us",
     "categories": {
@@ -37,6 +37,7 @@
     "search_empty": "Nothing found",
     "nav": {
       "home": "Home",
+      "builder": "PC Configurator",
       "prebuilt": "Prebuilt PCs",
       "components": "Components",
       "peripheral": "Peripherals",

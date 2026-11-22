@@ -11,6 +11,7 @@ export const adminProductStatsDetailOutProductRevenueDefault = `0.00`;
 export const adminProductStatsDetailOutProductOrdersCountDefault = 0;
 export const adminProductStatsDetailOutProductReviewCountDefault = 0;
 export const adminProductStatsDetailOutProductAverageRatingDefault = 0;
+export const adminProductStatsDetailOutGranularityDefault = `month`;
 export const adminProductStatsDetailOutMonthlyDefault = [];
 export const adminProductStatsDetailOutRatingDistributionDefault = [];
 export const AdminProductStatsDetailOut = zod.object({
@@ -30,12 +31,13 @@ export const AdminProductStatsDetailOut = zod.object({
 }),
   "date_from": zod.union([zod.iso.date(),zod.null()]).optional(),
   "date_to": zod.union([zod.iso.date(),zod.null()]).optional(),
+  "granularity": zod.enum(['day', 'month']).default(adminProductStatsDetailOutGranularityDefault),
   "monthly": zod.array(zod.object({
   "month": zod.iso.date(),
   "orders_count": zod.int(),
   "units_count": zod.int(),
   "amount": zod.string()
-})).default(adminProductStatsDetailOutMonthlyDefault),
+}).describe('One time bucket; `month` is the bucket start (a day or a month start).')).default(adminProductStatsDetailOutMonthlyDefault),
   "rating_distribution": zod.array(zod.object({
   "rating": zod.int(),
   "count": zod.int()

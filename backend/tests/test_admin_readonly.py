@@ -9,10 +9,11 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+import pytest
+from sqlalchemy import func, select
 
 from app.db.session import SessionLocal
-from app.models import Product
+from app.models import Product, SaleLineFact
 from app.services import (
     analytics_service,
     event_service,
@@ -42,7 +43,9 @@ def test_analytics_queries_execute_read_only():
         today = date.today()
         today_overview = analytics_service.overview(db, date_from=today, date_to=today)
         assert len(today_overview.monthly) == 1
-        assert today_overview.monthly[0].month == today.replace(day=1)
+        # A single requested day is one daily bucket, never a month start.
+        assert today_overview.granularity == "day"
+        assert today_overview.monthly[0].month == today
 
         table = analytics_service.product_stats(db, page=1, page_size=5)
         assert table.total >= len(table.items)
@@ -76,6 +79,47 @@ def test_analytics_queries_execute_read_only():
         )
         assert set(outcomes) <= set(event_service.EVENT_OUTCOMES)
         assert all(isinstance(name, str) for name in event_types)
+
+
+def test_daily_buckets_match_the_recorded_sales_read_only():
+    """The day bucket runs on the real ledger: one row set, one honest point."""
+    with SessionLocal() as db:
+        first_timestamp = db.scalar(select(func.min(SaleLineFact.ordered_at)))
+        if first_timestamp is None:
+            pytest.skip("the ledger has no sales rows")
+        day = first_timestamp.date()
+
+        overview = analytics_service.overview(db, date_from=day, date_to=day)
+        assert overview.granularity == "day"
+        assert [point.month for point in overview.monthly] == [day]
+        point = overview.monthly[0]
+        # A single requested day carries exactly the totals of that day.
+        assert point.units_count == overview.sold_units
+        assert point.orders_count == overview.completed_orders
+        assert point.amount == overview.revenue
+        assert point.units_count >= 1
+
+
+def test_time_buckets_never_lose_sales_read_only():
+    """Every ledger row lands in exactly one bucket of the reported axis."""
+    with SessionLocal() as db:
+        overview = analytics_service.overview(db)
+        if not overview.monthly:
+            pytest.skip("the ledger has no sales rows")
+
+        labels = [point.month for point in overview.monthly]
+        assert labels == sorted(labels)
+        assert len(set(labels)) == len(labels)
+        if overview.granularity == "day":
+            # Daily points exist only inside a single calendar month.
+            assert len({(label.year, label.month) for label in labels}) == 1
+        else:
+            assert all(label.day == 1 for label in labels)
+
+        assert (
+            sum(point.units_count for point in overview.monthly) == overview.sold_units
+        )
+        assert sum(point.amount for point in overview.monthly) == overview.revenue
 
 
 def test_admin_query_services_execute_read_only():

@@ -23,8 +23,14 @@ AdminProductStatsSort = Literal[
     "id_desc",
 ]
 
+#: Time-axis resolution of a timeline. `day` is used when the sales records of a
+#: request cover a single calendar month, `month` otherwise.
+AdminStatsGranularity = Literal["day", "month"]
+
 
 class MonthlyPointOut(BaseModel):
+    """One time bucket; `month` is the bucket start (a day or a month start)."""
+
     month: date
     orders_count: int
     units_count: int
@@ -50,6 +56,7 @@ class TopReviewedProductOut(BaseModel):
 class AdminOverviewOut(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
+    granularity: AdminStatsGranularity = "month"
     completed_orders: int
     sold_units: int
     revenue: Decimal
@@ -92,6 +99,7 @@ class AdminProductStatsDetailOut(BaseModel):
     product: AdminProductStatOut
     date_from: date | None = None
     date_to: date | None = None
+    granularity: AdminStatsGranularity = "month"
     monthly: list[MonthlyPointOut] = []
     rating_distribution: list[RatingBucketOut] = []
 
@@ -106,4 +114,5 @@ class AdminProductTimelineOut(BaseModel):
 class AdminComparisonTimelineOut(BaseModel):
     date_from: date | None = None
     date_to: date | None = None
+    granularity: AdminStatsGranularity = "month"
     series: list[AdminProductTimelineOut] = []

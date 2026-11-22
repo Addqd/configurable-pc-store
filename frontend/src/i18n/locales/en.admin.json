@@ -306,6 +306,7 @@
       "compare_empty": "Select at least one product",
       "compare_limit": "You can compare at most 5 products",
       "grouped": "Data is grouped by month.",
+      "grouped_day": "Data is grouped by day.",
       "period_line": "Period: {{period}}",
       "all_time": "All time",
       "top_sales": "Sales leaders",

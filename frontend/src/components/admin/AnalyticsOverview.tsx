@@ -6,7 +6,7 @@ import {
   useGetOverviewApiV1AdminStatsOverviewGet,
   useGetProductStatsApiV1AdminStatsProductsGet,
 } from '../../api/generated/client'
-import { adminErrorText, daysAgo, formatCompactNumber, formatDecimal, formatMoney, formatNumber, formatRating, isoDate, MAX_SEARCH_LENGTH, monthLabel, monthsAgoStart, niceAxisMax, periodRangeLabel, spansMultipleYears } from '../../admin/params'
+import { adminErrorText, bucketLabel, daysAgo, formatCompactNumber, formatDecimal, formatMoney, formatNumber, formatRating, isoDate, MAX_SEARCH_LENGTH, monthsAgoStart, niceAxisMax, periodRangeLabel, spansMultipleYears } from '../../admin/params'
 import { useDebouncedValue } from '../../utils/useDebouncedValue'
 import { AdminError } from '../../components/admin/AdminFeedback'
 import { AnalyticsOverviewSkeleton, ChartSkeleton, CompareProductsSkeleton } from '../../components/skeletons/AdminSkeletons'
@@ -90,23 +90,28 @@ export function AnalyticsOverview() {
 
   const data = overview.data
   const monthly = data.monthly ?? []
+  // The API reports the resolution of the series; `month` is the contract default.
+  const granularity = data.granularity ?? 'month'
   const allMonthsWithYear = spansMultipleYears(monthly.map((point) => point.month))
   const allSeries = [{
     name: t('admin.analytics.mode_all'),
     color: SERIES_COLORS[0],
     points: monthly.map((point) => ({
-      label: monthLabel(point.month, { withYear: allMonthsWithYear }),
+      label: bucketLabel(point.month, granularity, { withYear: allMonthsWithYear }),
       value: metric === 'amount' ? Number(point.amount) : point.units_count,
     })),
   }]
   const timelineSeries = timeline.data?.series ?? []
+  // One granularity for the whole comparison: the API decides it from all
+  // compared records, so every series shares the same axis.
+  const compareGranularity = timeline.data?.granularity ?? 'month'
   const compareMonths = timelineSeries.flatMap((series) => (series.monthly ?? []).map((point) => point.month))
   const compareMonthsWithYear = spansMultipleYears(compareMonths)
   const compareSeries = timelineSeries.map((series, index) => ({
     name: series.name,
     color: SERIES_COLORS[index % SERIES_COLORS.length],
     points: (series.monthly ?? []).map((point) => ({
-      label: monthLabel(point.month, { withYear: compareMonthsWithYear }),
+      label: bucketLabel(point.month, compareGranularity, { withYear: compareMonthsWithYear }),
       value: metric === 'amount' ? Number(point.amount) : point.units_count,
     })),
   }))
@@ -294,7 +299,11 @@ export function AnalyticsOverview() {
         </div>
 
         <div className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-text-muted">
-          <span>{t('admin.analytics.grouped')}</span>
+          <span>
+            {granularity === 'day'
+              ? t('admin.analytics.grouped_day')
+              : t('admin.analytics.grouped')}
+          </span>
           <span>{t('admin.analytics.period_line', { period: periodLabel })}</span>
         </div>
       </section>
