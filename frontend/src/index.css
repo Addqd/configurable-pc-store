@@ -205,6 +205,52 @@
   }
 }
 
+/* ==========================================================================
+   Skeleton shimmer
+   --------------------------------------------------------------------------
+   One shared loading surface for every placeholder. The element keeps a toned
+   surface derived from the theme tokens, and a soft band sweeps across it.
+   The sweep is a transform, so the browser composites it instead of repainting
+   the layout; no extra DOM node and no JS timer per placeholder.
+   ========================================================================== */
+@keyframes pc-skeleton-shimmer {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.pc-skeleton {
+  position: relative;
+  overflow: hidden;
+  background-color: color-mix(in srgb, var(--color-text-primary) 6%, var(--color-surface-3));
+  /* A placeholder is not a target: it never captures clicks or hovers. */
+  pointer-events: none;
+}
+
+.pc-skeleton::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--color-text-primary) 5%, transparent) 45%,
+    color-mix(in srgb, var(--color-text-primary) 11%, transparent) 55%,
+    transparent 100%
+  );
+  animation: pc-skeleton-shimmer 1.6s ease-in-out infinite;
+}
+
+/* Reduced motion keeps the placeholder tone but removes the moving highlight. */
+@media (prefers-reduced-motion: reduce) {
+  .pc-skeleton::after {
+    display: none;
+  }
+}
+
 /* Мягкие полупрозрачные кнопки — светлая тема */
 html:not(.dark) .bg-primary {
   background-color: rgba(0, 89, 253, 0.65);

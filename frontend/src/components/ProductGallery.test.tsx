@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ProductGallery } from './ProductGallery'
 import placeholder from '../assets/placeholder.jpg'
 import type { EnrichedProduct, GalleryImage } from '../data/productDetails'
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 const product = (gallery: GalleryImage[]): EnrichedProduct => ({
   id: 1, name: 'Видеокарта X', category: 'Видеокарты', type: 'Дискретные',
@@ -57,5 +57,36 @@ describe('ProductGallery', () => {
     fireEvent.error(main)
     expect(main.getAttribute('src')).toBe(placeholder)
     expect(main.getAttribute('alt')).toBe('Битое изображение')
+  })
+
+  it('covers the main picture with a placeholder until it paints', () => {
+    render(<ProductGallery product={product([{ url: '/images/1.jpg', alt: 'Вид' }])} />)
+    const main = mainImage()
+    const frame = main.parentElement as HTMLElement
+    expect(frame.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(1)
+
+    fireEvent.load(main)
+
+    expect(frame.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0)
+  })
+
+  it('removes the placeholder after a failed picture request', () => {
+    render(<ProductGallery product={product([{ url: '/images/broken.jpg', alt: 'Битое изображение' }])} />)
+    const main = mainImage()
+    const frame = main.parentElement as HTMLElement
+    expect(frame.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(1)
+
+    fireEvent.error(main)
+
+    expect(frame.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0)
+  })
+
+  it('shows no placeholder for an image that is already complete in the cache', () => {
+    vi.spyOn(HTMLImageElement.prototype, 'complete', 'get').mockReturnValue(true)
+    vi.spyOn(HTMLImageElement.prototype, 'naturalWidth', 'get').mockReturnValue(800)
+
+    const { container } = render(<ProductGallery product={product([{ url: '/images/cached.jpg', alt: 'Из кеша' }])} />)
+
+    expect(container.querySelectorAll('[data-slot="skeleton"]')).toHaveLength(0)
   })
 })

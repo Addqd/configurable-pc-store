@@ -9,7 +9,8 @@ import {
   adminErrorText, formatMoney, formatNumber, formatRating, isoDate, monthsAgoStart, type AdminProductStatsSort,
 } from '../../admin/params'
 import { useDebouncedValue } from '../../utils/useDebouncedValue'
-import { AdminEmpty, AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
+import { AdminEmpty, AdminError } from '../../components/admin/AdminFeedback'
+import { AdminInlineValueSkeleton, AdminTableSkeleton } from '../../components/skeletons/AdminSkeletons'
 import { AdminPagination } from '../../components/admin/AdminPagination'
 import { ProductStatsDialog } from './ProductStatsDialog'
 import {
@@ -181,7 +182,7 @@ export function AnalyticsProducts() {
           <svg className="h-4 w-4 text-primary" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
             <path d="M22 3H2l8 9.46V19l4 2v-8.54L22 3z" />
           </svg>
-          {t('admin.analytics.found', { count: total })}
+          {stats.isLoading ? <AdminInlineValueSkeleton className="h-4 w-28" /> : t('admin.analytics.found', { count: total })}
         </span>
         <button
           type="button"
@@ -193,11 +194,20 @@ export function AnalyticsProducts() {
         </button>
       </div>
 
-      <div className="mt-3" aria-busy={stats.isFetching}>
+      <div className="mt-3">
         {stats.isError ? (
           <AdminError message={adminErrorText(stats.error)} onRetry={() => void stats.refetch()} compact />
         ) : stats.isLoading ? (
-          <AdminLoading />
+          <AdminTableSkeleton
+            columns={[
+              { widthClass: 'w-[34%]', contentClass: 'h-4 w-2/3' },
+              { widthClass: 'w-[14%]', contentClass: 'h-4 w-12' },
+              { widthClass: 'w-[17%]', contentClass: 'h-4 w-20' },
+              { widthClass: 'w-[16%]', contentClass: 'h-4 w-14' },
+              { contentClass: 'h-4 w-12' },
+            ]}
+            rows={6}
+          />
         ) : total === 0 ? (
           <AdminEmpty title={t('admin.analytics.empty_title')} description={t('admin.analytics.empty_desc')} />
         ) : (

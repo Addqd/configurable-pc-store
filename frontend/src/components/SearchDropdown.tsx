@@ -5,6 +5,7 @@ import { useListProductsApiV1ProductsGet, useSearchSuggestionsApiV1ProductsSearc
 import { useDebouncedValue } from '../utils/useDebouncedValue'
 import { HiMiniChevronRight } from 'react-icons/hi2'
 import { formatPrice } from '../utils/formatPrice'
+import { SearchResultsSkeleton } from './skeletons/StoreSkeletons'
 
 /** Typing must not issue a request per keystroke. */
 const SEARCH_DEBOUNCE_MS = 250
@@ -43,7 +44,7 @@ export function SearchDropdown() {
             <span className="text-sm font-semibold text-text-primary shrink-0">{formatPrice(Number(product.price))}</span>
           </a>
         ))}
-        {isSettling || suggestions.isLoading ? <div role="status" className="px-4 py-6 text-center text-text-muted text-sm">{t('common.loading')}</div> : suggestions.isError ? <div role="alert" className="px-4 py-6 text-center text-text-muted text-sm">{t('common.load_error')}</div> : results.length === 0 && <div className="px-4 py-6 text-center text-text-muted text-sm">{t('header.search_empty')}</div>}
+        {isSettling || suggestions.isLoading ? <SearchResultsSkeleton /> : suggestions.isError ? <div role="alert" className="px-4 py-6 text-center text-text-muted text-sm">{t('common.load_error')}</div> : results.length === 0 && <div className="px-4 py-6 text-center text-text-muted text-sm">{t('header.search_empty')}</div>}
       </div>
     </div>
   )

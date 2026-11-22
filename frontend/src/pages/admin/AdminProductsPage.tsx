@@ -12,7 +12,8 @@ import type { AdminProductSummaryOut } from '../../api/generated/model'
 import { AdminLayout } from '../../components/admin/AdminLayout'
 import { AdminTabs, type AdminTab } from '../../components/admin/AdminTabs'
 import { AdminPagination } from '../../components/admin/AdminPagination'
-import { AdminEmpty, AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
+import { AdminEmpty, AdminError } from '../../components/admin/AdminFeedback'
+import { AdminInlineValueSkeleton, AdminTableSkeleton } from '../../components/skeletons/AdminSkeletons'
 import { DeleteConfirmationModal } from '../../components/admin/DeleteConfirmationModal'
 import {
   adminCard, adminControl, adminDangerOutlineButton, adminPrimaryButton,
@@ -118,10 +119,10 @@ export function AdminProductsPage() {
         <div className="mt-6 flex flex-wrap items-baseline gap-x-5 gap-y-1">
           <h2 className="text-xl font-semibold text-text-primary">{t('admin.products.title')}</h2>
           <p className="text-sm text-text-secondary">
-            {t('admin.products.total')}: <span className="font-medium text-text-primary">{list.data?.total ?? '—'}</span>
+            {t('admin.products.total')}: <span className="font-medium text-text-primary">{list.isLoading ? <AdminInlineValueSkeleton /> : list.data?.total ?? '—'}</span>
           </p>
           <p className="text-sm text-text-secondary">
-            {t('admin.products.active_total')}: <span className="font-medium text-text-primary">{activeCount.data?.total ?? '—'}</span>
+            {t('admin.products.active_total')}: <span className="font-medium text-text-primary">{list.isLoading || activeCount.isLoading ? <AdminInlineValueSkeleton /> : activeCount.data?.total ?? '—'}</span>
           </p>
         </div>
 
@@ -196,11 +197,18 @@ export function AdminProductsPage() {
           </div>
         </div>
 
-        <div className="mt-5" aria-busy={list.isFetching}>
+        <div className="mt-5">
           {list.isError ? (
             <AdminError message={adminErrorText(list.error)} onRetry={() => void list.refetch()} compact />
           ) : list.isLoading ? (
-            <AdminLoading />
+            <AdminTableSkeleton
+              columns={[
+                { widthClass: 'w-[42%]', contentClass: 'h-4 w-3/4' },
+                { widthClass: 'w-[18%]', contentClass: 'h-4 w-20' },
+                { widthClass: 'w-[16%]', contentClass: 'h-4 w-16' },
+                { contentClass: 'h-10 w-52' },
+              ]}
+            />
           ) : total === 0 ? (
             <AdminEmpty
               title={t('admin.products.empty_title')}

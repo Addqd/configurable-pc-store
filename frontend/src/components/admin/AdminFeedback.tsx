@@ -1,16 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { FiAlertCircle, FiInbox } from 'react-icons/fi'
 
-export function AdminLoading({ label }: { label?: string }) {
-  const { t } = useTranslation()
-  return (
-    <div role="status" className="flex items-center justify-center gap-3 py-16 text-sm text-text-muted">
-      <span className="h-5 w-5 animate-spin rounded-full border-2 border-border border-t-primary" aria-hidden="true" />
-      {label ?? t('admin.common.loading')}
-    </div>
-  )
-}
-
 export function AdminError({
   message,
   onRetry,

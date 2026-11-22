@@ -14,6 +14,8 @@ import { useUIStore } from '../stores/uiStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiChevronDown, FiChevronUp, FiBox, FiCheckCircle, FiShoppingCart } from 'react-icons/fi'
+import { SkeletonText } from '../components/ui/skeleton'
+import { OrdersSkeleton } from '../components/skeletons/StoreSkeletons'
 
 function SnapshotImage({ src, alt, className }: { src?: string; alt: string; className: string }) {
   return <img src={src || placeholder} alt={alt} loading="lazy"
@@ -142,9 +144,9 @@ function OrdersContent() {
         <BackButton className="mb-5" />
         <div className="flex flex-wrap items-center gap-4 mb-6">
           <h1 className="text-3xl font-bold text-text-primary">{t('orders.title')}</h1>
-          <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm text-text-muted">{t('orders.total', { count: accountOrders.length })}</span>
+          <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm text-text-muted">{orders.isLoading ? <SkeletonText className="h-[21px] w-24 align-middle" /> : t('orders.total', { count: accountOrders.length })}</span>
         </div>
-        {orders.isLoading ? <p role="status">{t('common.loading')}</p> : orders.isError ? <p role="alert">{t('common.load_error')}</p> : accountOrders.length === 0 ? (
+        {orders.isLoading ? <OrdersSkeleton /> : orders.isError ? <p role="alert">{t('common.load_error')}</p> : accountOrders.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface px-6 py-12 text-center">
             <FiShoppingCart className="w-14 h-14 text-text-muted mx-auto mb-4" />
             <h2 className="text-xl font-bold text-text-primary mb-2">{t('orders.empty_title')}</h2>

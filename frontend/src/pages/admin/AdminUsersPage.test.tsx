@@ -84,6 +84,8 @@ describe('admin users page', () => {
 
     const userRow = screen.getByText('Иван').closest('tr') as HTMLElement
     expect(within(userRow).getByRole('button', { name: 'Удалить' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
   })
 
   it('validates the blocking reason and updates the user', async () => {

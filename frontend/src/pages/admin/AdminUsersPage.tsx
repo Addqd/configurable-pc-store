@@ -18,7 +18,8 @@ import { useSyncedDraft } from '../../utils/useSyncedDraft'
 import { AdminLayout } from '../../components/admin/AdminLayout'
 import { AdminTabs, type AdminTab } from '../../components/admin/AdminTabs'
 import { AdminPagination } from '../../components/admin/AdminPagination'
-import { AdminEmpty, AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
+import { AdminEmpty, AdminError } from '../../components/admin/AdminFeedback'
+import { AdminInlineValueSkeleton, AdminTableSkeleton } from '../../components/skeletons/AdminSkeletons'
 import { AdminDialog, AdminDialogClose } from '../../components/admin/AdminDialog'
 import { useDialogTitleId } from '../../components/admin/useDialogTitleId'
 import { DeleteConfirmationModal } from '../../components/admin/DeleteConfirmationModal'
@@ -194,15 +195,15 @@ export function AdminUsersPage() {
           <h2 className="text-xl font-semibold text-text-primary">{t('admin.users.title')}</h2>
           <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <p className="text-sm text-text-secondary">
-            {t('admin.users.total')}: <span className="font-medium text-text-primary">{users.data?.total ?? '—'}</span>
+            {t('admin.users.total')}: <span className="font-medium text-text-primary">{users.isLoading ? <AdminInlineValueSkeleton /> : users.data?.total ?? '—'}</span>
           </p>
           <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <p className="text-sm text-text-secondary">
-            {t('admin.users.active_total')}: <span className="font-medium text-text-primary">{activeUsers.data?.total ?? '—'}</span>
+            {t('admin.users.active_total')}: <span className="font-medium text-text-primary">{users.isLoading || activeUsers.isLoading ? <AdminInlineValueSkeleton /> : activeUsers.data?.total ?? '—'}</span>
           </p>
           <span className="hidden h-5 w-px bg-border sm:block" aria-hidden="true" />
           <p className="text-sm text-text-secondary">
-            {t('admin.users.blocked_total')}: <span className="font-medium text-text-primary">{blockedUsers.data?.total ?? '—'}</span>
+            {t('admin.users.blocked_total')}: <span className="font-medium text-text-primary">{users.isLoading || blockedUsers.isLoading ? <AdminInlineValueSkeleton /> : blockedUsers.data?.total ?? '—'}</span>
           </p>
         </div>
 
@@ -248,11 +249,19 @@ export function AdminUsersPage() {
           </label>
         </div>
 
-        <div className="mt-5" aria-busy={users.isFetching}>
+        <div className="mt-5">
           {users.isError ? (
             <AdminError message={adminErrorText(users.error)} onRetry={() => void users.refetch()} compact />
           ) : users.isLoading ? (
-            <AdminLoading />
+            <AdminTableSkeleton
+              headUppercase
+              columns={[
+                { widthClass: 'w-[40%]', contentClass: 'h-4 w-2/3' },
+                { widthClass: 'w-[18%]', contentClass: 'h-4 w-16' },
+                { widthClass: 'w-[17%]', contentClass: 'h-4 w-16' },
+                { contentClass: 'h-10 w-48' },
+              ]}
+            />
           ) : total === 0 ? (
             <AdminEmpty
               title={t('admin.users.empty_title')}

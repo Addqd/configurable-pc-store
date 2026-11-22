@@ -69,6 +69,9 @@ describe('admin products page', () => {
     expect(screen.getByText('Активных:')).toBeTruthy()
     expect(screen.getByRole('link', { name: 'Добавить товар' }).getAttribute('href')).toBe('/admin/products/new')
     expect(screen.getByRole('link', { name: 'Статистика продаж' }).getAttribute('href')).toBe('/admin/analytics')
+    // The shared admin chrome owns the only back control on every admin page.
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
     // Products/Users are separate routes: real links, not ARIA tabs.
     expect(screen.getByRole('link', { name: 'Пользователи' }).getAttribute('href')).toBe('/admin/users')
     expect(screen.queryByRole('tab')).toBeNull()

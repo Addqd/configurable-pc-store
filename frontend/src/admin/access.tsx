@@ -8,7 +8,8 @@ import { selectActiveAccount, useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { AdminSessionContext, type AdminSession } from './adminSession'
 import { AdminLayout } from '../components/admin/AdminLayout'
-import { AdminError, AdminLoading } from '../components/admin/AdminFeedback'
+import { AdminError } from '../components/admin/AdminFeedback'
+import { AdminPageSkeleton } from '../components/skeletons/AdminSkeletons'
 import { adminCard, adminPrimaryButton, adminSecondaryButton } from '../components/admin/adminStyles'
 
 function AccessPanel({
@@ -66,7 +67,7 @@ export function AdminGate() {
   })
 
   if (!restored || (account && access.isPending)) {
-    return <AdminLayout><AdminLoading /></AdminLayout>
+    return <AdminLayout><AdminPageSkeleton /></AdminLayout>
   }
 
   if (!account) {
@@ -114,7 +115,7 @@ export function AdminGate() {
   }
 
   if (!access.data) {
-    if (access.isPending) return <AdminLayout><AdminLoading /></AdminLayout>
+    if (access.isPending) return <AdminLayout><AdminPageSkeleton /></AdminLayout>
     // A session without a resolvable account id cannot be an administrator.
     return <Navigate to="/" replace />
   }

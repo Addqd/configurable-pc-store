@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Header } from '../Header'
+import { BackButton } from '../BackButton'
 
 interface AdminLayoutProps {
   children: ReactNode
@@ -10,7 +11,8 @@ interface AdminLayoutProps {
 
 /**
  * Shared administration chrome. The storefront Header stays the single global
- * header; admin pages only add a page container and a small admin footer.
+ * header; admin pages only add a page container, the single shared BackButton
+ * and a small admin footer.
  */
 export function AdminLayout({ children, footer = true }: AdminLayoutProps) {
   const { t } = useTranslation()
@@ -19,6 +21,9 @@ export function AdminLayout({ children, footer = true }: AdminLayoutProps) {
       <Header />
       <main className="w-full flex-1 pt-16">
         <div className="mx-auto w-full max-w-[1240px] px-4 pb-8 pt-6 sm:px-6">
+          <div className="mb-3">
+            <BackButton />
+          </div>
           {children}
         </div>
       </main>

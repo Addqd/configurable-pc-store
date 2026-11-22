@@ -81,9 +81,16 @@ describe('admin product creation', () => {
   it('uses the shared BackButton and exposes no manual SKU field', async () => {
     setup()
     expect(await screen.findByRole('heading', { name: 'Добавление товара' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /Назад/ })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
     expect(screen.queryByLabelText(/SKU/)).toBeNull()
     expect(screen.getByText('0 / 10 изображений')).toBeTruthy()
+  })
+
+  it('keeps a single back control while the form skeleton is rendered', () => {
+    setup()
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
   })
 
   it('validates required fields before calling the API', async () => {
@@ -227,6 +234,13 @@ function setupEdit(price = '64990.00', extra?: (url: URL, init: RequestInit) => 
 }
 
 describe('admin product editing', () => {
+  it('renders exactly one shared BackButton', async () => {
+    setupEdit()
+    expect(await screen.findByRole('heading', { name: 'Редактирование товара' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
+  })
+
   it('saves an unchanged grouped price as a numeric API value', async () => {
     const fetchMock = setupEdit()
     expect(await screen.findByRole('heading', { name: 'Редактирование товара' })).toBeTruthy()

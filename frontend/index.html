@@ -5,8 +5,100 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PC Builder — Комплектующие, сборки, конфигуратор</title>
+    <script>
+      /*
+        Apply the saved theme before anything becomes visible. The splash below and
+        the application itself must never flash the light palette at a visitor who
+        chose the dark one. Keep this rule in sync with `readStoredThemeIsDark()`
+        in `src/stores/themeStore.ts`.
+      */
+      (function () {
+        try {
+          var saved = JSON.parse(localStorage.getItem('pc-builder-theme') || 'null');
+          if (saved && saved.state && saved.state.isDark === true) {
+            document.documentElement.classList.add('dark');
+          }
+        } catch {
+          /* Missing, blocked or malformed preferences keep the light default. */
+        }
+      })();
+    </script>
+    <style>
+      /*
+        Critical theme values for the splash frame: the application stylesheet is
+        loaded later, so the dark tokens have to exist before the first paint.
+        Values are the approved palette from `src/index.css`.
+      */
+      html.dark {
+        --color-primary: #67c9ff;
+        --color-primary-hover: #4db8f0;
+        --color-surface-2: #08090c;
+        --color-surface-3: #14171d;
+      }
+
+      /*
+        First-paint placeholder. It only covers the window and shows the brand
+        mark plus a progress track; it does not reproduce the application shell.
+        Colours come from the theme variables with light-theme fallbacks, so the
+        placeholder follows the active theme without a second theme resolver.
+      */
+      #boot-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 100;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 18px;
+        background-color: var(--color-surface-2, #f8fafc);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      #boot-splash .boot-mark {
+        width: 44px;
+        height: 44px;
+        border-radius: 12px;
+        background-image: linear-gradient(135deg, var(--color-primary, #0059fd), var(--color-primary-hover, #004ce0));
+      }
+
+      #boot-splash .boot-track {
+        position: relative;
+        overflow: hidden;
+        width: 120px;
+        height: 4px;
+        border-radius: 999px;
+        background-color: var(--color-surface-3, #f1f5f9);
+      }
+
+      #boot-splash .boot-track::after {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background-image: linear-gradient(90deg, transparent, var(--color-primary, #0059fd), transparent);
+        transform: translateX(-100%);
+        animation: boot-splash-shimmer 1.4s ease-in-out infinite;
+      }
+
+      @keyframes boot-splash-shimmer {
+        from { transform: translateX(-100%); }
+        to { transform: translateX(100%); }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #boot-splash .boot-track::after {
+          animation: none;
+          transform: none;
+          opacity: 0.45;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-splash" role="status" aria-live="polite" aria-label="Загрузка...">
+      <span class="boot-mark"></span>
+      <span class="boot-track"></span>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

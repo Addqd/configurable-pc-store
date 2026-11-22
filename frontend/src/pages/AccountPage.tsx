@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Header } from '../components/Header'
 import { Footer } from '../components/Footer'
@@ -9,6 +9,7 @@ import { useUIStore } from '../stores/uiStore'
 import placeholder from '../assets/placeholder.jpg'
 import { FiCamera, FiCheck, FiAlertCircle, FiTrash2, FiShoppingCart, FiMessageSquare, FiEye, FiEyeOff } from 'react-icons/fi'
 import { Link } from 'react-router'
+import { AccountSkeleton, AccountStatValueSkeleton } from '../components/skeletons/StoreSkeletons'
 
 function PasswordField({ id, labelKey, value, onChange }: {
   id: string; labelKey: string; value: string; onChange: (value: string) => void
@@ -185,12 +186,16 @@ function AccountContent() {
               <Link to="/account/orders" className="min-w-0 lg:w-[160px] rounded-xl border border-border bg-surface-2 p-5 hover:border-primary transition-colors">
                 <span className="flex items-center justify-center w-14 h-14 mb-3 rounded-full bg-primary/10 text-primary"><FiShoppingCart className="w-6 h-6" /></span>
                 <span className="block text-sm text-text-muted mb-1">{t('account.purchases')}</span>
-                <strong className="block text-3xl text-text-primary">{purchaseCount}</strong>
+                {orders.isLoading
+                  ? <AccountStatValueSkeleton />
+                  : <strong className="block text-3xl text-text-primary">{purchaseCount}</strong>}
               </Link>
               <div className="min-w-0 lg:w-[160px] rounded-xl border border-border bg-surface-2 p-5">
                 <span className="flex items-center justify-center w-14 h-14 mb-3 rounded-full bg-primary/10 text-primary"><FiMessageSquare className="w-6 h-6" /></span>
                 <span className="block text-sm text-text-muted mb-1">{t('account.reviews')}</span>
-                <strong className="block text-3xl text-text-primary">{reviewCount}</strong>
+                {profileStats.isLoading
+                  ? <AccountStatValueSkeleton />
+                  : <strong className="block text-3xl text-text-primary">{reviewCount}</strong>}
               </div>
             </div>
           </div>
@@ -260,6 +265,44 @@ function AccountContent() {
 }
 
 export function AccountPage() {
+  const { t } = useTranslation()
   const accountId = useAccountStore((state) => state.activeAccountId)
-  return <div className="min-h-screen bg-surface-2"><Header /><AccountContent key={accountId ?? 'guest'} /><Footer /></div>
+  // The session lives in an HTTP-only refresh cookie, so the first paint cannot
+  // know whether a visitor is signed in. Until that answer arrives the profile is
+  // a placeholder instead of a guest panel that a reload would flash at a member.
+  const [session, setSession] = useState<'checking' | 'ready' | 'unavailable'>(
+    () => (accountId ? 'ready' : 'checking'),
+  )
+  const check = useCallback(() => {
+    // An authenticated session is already known: asking the server again on mount
+    // would replace a working session for no reason.
+    if (useAccountStore.getState().activeAccountId) return () => {}
+    let active = true
+    void useAccountStore.getState().restore().then((outcome) => {
+      if (active) setSession(outcome === 'unavailable' ? 'unavailable' : 'ready')
+    })
+    return () => { active = false }
+  }, [])
+  useEffect(() => check(), [check])
+  // A verified account always wins over a previous check result (login after a
+  // failed restore, or a session restored while this page was open).
+  if (accountId !== null && session !== 'ready') setSession('ready')
+  const waitingForSession = session === 'checking' && accountId === null
+  const sessionUnavailable = session === 'unavailable' && accountId === null
+  return <div className="min-h-screen bg-surface-2"><Header />
+    {waitingForSession
+      ? <main className="min-h-screen bg-surface-2 px-4 pt-24 pb-12"><AccountSkeleton /></main>
+      : sessionUnavailable
+        ? <main className="min-h-screen bg-surface-2 px-4 pt-24">
+          <div className="mx-auto w-full max-w-[1120px]">
+            <BackButton className="mb-5" />
+            <div className="mx-auto h-fit w-full max-w-md rounded-2xl border border-border bg-surface p-8 text-center shadow-[0_5px_24px_var(--color-shadow)]">
+              <p role="alert" className="mb-6 text-text-muted">{t('common.load_error')}</p>
+              <button type="button" onClick={() => { setSession('checking'); check() }}
+                className="rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('common.retry')}</button>
+            </div>
+          </div>
+        </main>
+        : <AccountContent key={accountId ?? 'guest'} />}
+    <Footer /></div>
 }

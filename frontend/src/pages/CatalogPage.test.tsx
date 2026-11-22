@@ -9,6 +9,11 @@ vi.mock('../components/Header', () => ({ Header: () => <div /> }))
 vi.mock('../components/Footer', () => ({ Footer: () => <div /> }))
 vi.mock('../components/CatalogProductCard', () => ({ CatalogProductCard: ({ product }: { product: { name: string; category: string; shortSpecs?: string[] } }) => <article>{product.category}: {product.name}<span>{product.shortSpecs?.[0]}</span></article> }))
 const setup = (path = '/catalog') => render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/catalog" element={<CatalogPage />} /></Routes></MemoryRouter>)
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => { resolve = done })
+  return { promise, resolve }
+}
 /** Stands in for a header/hamburger link changing the catalogue URL while the drawer is open. */
 function Navigator() {
   const navigate = useNavigate()
@@ -142,6 +147,98 @@ describe('catalog filter drawer and URL synchronization', () => {
     await waitFor(() => expect(within(screen.getByTestId('catalog-grid')).getAllByRole('article')
       .every(card => card.textContent?.includes('Процессоры'))).toBe(true))
     expect(screen.queryByRole('dialog', { name: 'Фильтры' })).toBeNull()
+  })
+})
+
+describe('catalog filter metadata states', () => {
+  const drawerCheckbox = (dialog: HTMLElement) => within(dialog).getByRole('checkbox', { name: 'Видеокарты' }) as HTMLInputElement
+
+  it('shows the filter skeleton while the metadata request is pending', async () => {
+    const base = mockCatalogFetch()
+    const filters = deferred<Response>()
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => (
+      new URL(String(input), 'http://localhost').pathname === '/api/v1/products/filters' ? filters.promise : base(input)
+    )))
+
+    setup('/catalog?category=gpu')
+    await screen.findByTestId('catalog-grid')
+    fireEvent.click(screen.getByRole('button', { name: 'Фильтры' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Фильтры' })
+    expect(within(dialog).getByTestId('filter-options-skeleton')).toBeTruthy()
+
+    filters.resolve(new Response(JSON.stringify({
+      categories: [{ id: 1, slug: 'gpu', name: 'Видеокарты', sort_order: 0 }],
+      types: [], colors: [], manufacturers: [],
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+
+    await waitFor(() => expect(within(dialog).queryByTestId('filter-options-skeleton')).toBeNull())
+    expect(drawerCheckbox(dialog).checked).toBe(true)
+  })
+
+  it('stops the skeleton after a failed request and keeps the applied filters selectable', async () => {
+    const base = mockCatalogFetch()
+    const failing = vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      return url.pathname === '/api/v1/products/filters'
+        ? new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+        : base(input)
+    })
+    vi.stubGlobal('fetch', failing)
+
+    setup('/catalog?category=gpu')
+    await screen.findByTestId('catalog-grid')
+    fireEvent.click(screen.getByRole('button', { name: 'Фильтры' }))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Фильтры' })
+    // The placeholder must not survive the settled failure.
+    await waitFor(() => expect(within(dialog).queryByTestId('filter-options-skeleton')).toBeNull())
+    expect(drawerCheckbox(dialog).checked).toBe(true)
+    expect(within(dialog).getByRole('alert').textContent).toContain('Фильтры недоступны')
+    // Retry is reachable without closing the modal.
+    expect(within(dialog).getByRole('button', { name: 'Повторить' })).toBeTruthy()
+  })
+
+  it('recovers the option groups after a retry', async () => {
+    const base = mockCatalogFetch()
+    let failing = true
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname !== '/api/v1/products/filters' || !failing) return base(input)
+      return new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+    }))
+
+    setup('/catalog?category=gpu')
+    await screen.findByTestId('catalog-grid')
+    fireEvent.click(screen.getByRole('button', { name: 'Фильтры' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Фильтры' })
+    await waitFor(() => expect(within(dialog).queryByTestId('filter-options-skeleton')).toBeNull())
+
+    failing = false
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Повторить' }))
+
+    expect(await within(dialog).findByRole('checkbox', { name: 'Процессоры' })).toBeTruthy()
+    expect(within(dialog).queryByRole('alert')).toBeNull()
+    expect(within(dialog).queryByTestId('filter-options-skeleton')).toBeNull()
+  })
+
+  it('reuses cached metadata and does not show the skeleton again while it refreshes', async () => {
+    const base = mockCatalogFetch()
+    let filtersPending = false
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/v1/products/filters' && filtersPending) return new Promise<Response>(() => {})
+      return base(input)
+    }))
+
+    setup('/catalog?category=gpu')
+    await screen.findByTestId('catalog-grid')
+    filtersPending = true
+
+    fireEvent.click(screen.getByRole('button', { name: 'Фильтры' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Фильтры' })
+    expect(within(dialog).queryByTestId('filter-options-skeleton')).toBeNull()
+    expect(within(dialog).getByRole('checkbox', { name: 'Процессоры' })).toBeTruthy()
   })
 })
 

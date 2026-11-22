@@ -8,7 +8,9 @@
     "delete_named": "Удалить {{label}}",
     "select_missing": "Выберите комплектующие: {{components}}.",
     "unknown_checks": "Не удалось проверить: {{count}}",
-    "selected": "Выбрано"
+    "selected": "Выбрано",
+    "saved_build_missing": "Сохранённая сборка не найдена. Возможно, она была удалена.",
+    "saved_build_forbidden": "Нет доступа к этой сохранённой сборке. Войдите в аккаунт её владельца."
   },
   "common": {
     "items_one": "{{count}} товар",

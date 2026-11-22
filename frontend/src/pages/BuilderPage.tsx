@@ -17,6 +17,8 @@ import {
 import { createBuildApiV1BuildsPost, updateBuildApiV1BuildsBuildIdPut, addBuildApiV1CartBuildsPost, useGetBuildApiV1BuildsBuildIdGet, checkCurrentCompatibilityApiV1BuildsCompatibilityPost } from '../api/generated/client'
 import { FiCheckCircle } from 'react-icons/fi'
 import { checkTouchesComponent, compatibilityMessage } from '../data/compatibilityMessages'
+import { ApiError } from '../api/transport'
+import { BuilderCompatibilitySkeleton } from '../components/skeletons/BuilderSkeletons'
 
 export function BuilderPage() {
   const { t } = useTranslation()
@@ -44,8 +46,23 @@ export function BuilderPage() {
   const items = BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
   const compatibility = useQuery({ queryKey: ['current-compatibility', items], enabled: count > 0, retry: false,
     queryFn: ({ signal }) => checkCurrentCompatibilityApiV1BuildsCompatibilityPost({ items }, { signal }) })
-  const status = compatibility.isSuccess && !compatibility.isFetching ? compatibility.data.overall_status : 'unknown'
-  const diagnostics = compatibility.isSuccess && !compatibility.isFetching ? compatibility.data.items.filter(item => item.status !== 'compatible') : []
+  // The query key contains the selected items, so cached data always belongs to the
+  // current configuration. `isFetching` alone is not a loading state: a background
+  // refetch of the same selection must keep its verdict instead of hiding it.
+  // A failed background refetch also keeps the cached verdict (TanStack Query keeps
+  // `data` in an error state), so the verdict follows data availability, not success.
+  const verdict = compatibility.data
+  const status = verdict ? verdict.overall_status : 'unknown'
+  const diagnostics = verdict ? verdict.items.filter(item => item.status !== 'compatible') : []
+  const compatibilityPending = count > 0 && compatibility.isPending
+  // Only a check without any result for the current configuration may show an error.
+  const compatibilityFailed = compatibility.isError && verdict === undefined
+  // A saved build is being loaded into the configurator: its name and its match with
+  // the current selection are still unknown, so actions must wait for that answer.
+  const savedPending = editingBuildId !== null && !!activeAccountId && saved.isPending
+  const savedStatus = saved.error instanceof ApiError ? saved.error.status : 0
+  const savedMissing = saved.isError && savedStatus === 404
+  const savedForbidden = saved.isError && (savedStatus === 401 || savedStatus === 403)
   const relevant = diagnostics.filter(item => status === 'incompatible' ? item.status === 'incompatible' : item.status === 'unknown')
   const messages = [...new Set(relevant.map(item => compatibilityMessage(item, t)))]
   const canCreate = count > 0
@@ -150,10 +167,26 @@ export function BuilderPage() {
                   onSave={requestSave}
                   hasSelections={count > 0 || editingBuildId !== null}
                   canCreate={status === 'compatible'}
-                  canSave={canCreate}
+                  canSave={canCreate && !savedPending}
                   validationMessage={validationMessage}
                 />
               </div>
+              {savedPending && (
+                <div className="mt-3 flex items-center gap-2 rounded-xl border border-border bg-surface-2 p-3">
+                  <BuilderCompatibilitySkeleton testId="builder-saved-build-skeleton" />
+                </div>
+              )}
+              {editingBuildId !== null && saved.isError && (
+                <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-surface-2 p-3 text-sm text-text-primary">
+                  <span>{savedMissing
+                    ? t('builder.saved_build_missing')
+                    : savedForbidden ? t('builder.saved_build_forbidden') : t('common.load_error')}</span>
+                  {!savedMissing && !savedForbidden && (
+                    <button type="button" onClick={() => void saved.refetch()}
+                      className="rounded-md border border-border bg-surface px-3 py-1 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button>
+                  )}
+                </div>
+              )}
               {saveNotice && (
                 <div role="status" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-primary">
                   <FiCheckCircle className="text-emerald-500" />{saveNotice}
@@ -172,7 +205,7 @@ export function BuilderPage() {
                 </div>
               )}
             </section>
-            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={compatibility.isSuccess} loading={compatibility.isFetching} error={compatibility.isError} messages={messages} />
+            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={verdict !== undefined} loading={compatibilityPending} error={compatibilityFailed} messages={messages} savedPending={savedPending} />
           </div>
         </div>
       </main>

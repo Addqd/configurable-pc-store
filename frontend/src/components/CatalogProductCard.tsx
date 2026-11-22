@@ -5,19 +5,23 @@ import { useServerCart } from '../api/useServerCart'
 import { formatPrice } from '../utils/formatPrice'
 import { FiShoppingCart } from 'react-icons/fi'
 import { Link } from 'react-router'
+import { Skeleton } from './ui/skeleton'
+import { useImageLoadState } from './ui/useImageLoadState'
 
 export function CatalogProductCard({ product }: { product: Product }) {
   const { t } = useTranslation()
   const { addProduct, add } = useServerCart()
   const rating = product.rating
   const reviewCount = product.reviewCount
+  const { state: imageState, imgRef, onLoad, onError } = useImageLoadState()
   const handleAdd = () => addProduct(product.id)
   return (
     <article className="group relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-surface transition-colors hover:border-border-hover hover:shadow-md">
       {/* One accessible stretched link makes the entire card a details target; the cart button stays above it. */}
       <Link to={`/products/${product.slug}`} className="absolute inset-0 z-10 rounded-lg" aria-label={t('product.details_label', { name: catalogDisplay(product.name) })} />
-      <div className="flex aspect-[4/3] items-center justify-center overflow-hidden bg-surface-3">
-        <img src={product.image} alt={product.name} loading="lazy" className="h-full w-full object-contain p-2" />
+      <div className="relative flex aspect-[4/3] items-center justify-center overflow-hidden bg-surface-3">
+        {imageState === 'loading' && <Skeleton className="absolute inset-0 rounded-none" />}
+        <img ref={imgRef} src={product.image} alt={product.name} loading="lazy" onLoad={onLoad} onError={onError} className="h-full w-full object-contain p-2" />
       </div>
       <div className="flex flex-1 flex-col p-2.5">
         <p className="mb-0.5 truncate text-[11px] text-text-muted" title={catalogDisplay(product.category)}>{catalogDisplay(product.category)}</p>

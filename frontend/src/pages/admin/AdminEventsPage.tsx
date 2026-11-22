@@ -9,7 +9,8 @@ import {
 import { adminErrorText, MAX_SEARCH_LENGTH, readEnum, readPageSize, readPositiveInt, readSearchQuery, readText, withParams } from '../../admin/params'
 import { useSyncedDraft } from '../../utils/useSyncedDraft'
 import { AdminLayout } from '../../components/admin/AdminLayout'
-import { AdminEmpty, AdminError, AdminLoading } from '../../components/admin/AdminFeedback'
+import { AdminEmpty, AdminError } from '../../components/admin/AdminFeedback'
+import { AdminTableSkeleton } from '../../components/skeletons/AdminSkeletons'
 import { AdminPagination } from '../../components/admin/AdminPagination'
 import {
   adminCard, adminControl, adminSelect, adminTableHead, adminTableHeadCell, adminTableCell,
@@ -190,11 +191,21 @@ export function AdminEventsPage() {
           )}
         </div>
 
-        <div className="mt-5" aria-busy={events.isFetching}>
+        <div className="mt-5">
           {events.isError ? (
             <AdminError message={adminErrorText(events.error)} onRetry={() => void events.refetch()} compact />
           ) : events.isLoading ? (
-            <AdminLoading />
+            <AdminTableSkeleton
+              headUppercase
+              minWidthClass="min-w-[900px]"
+              columns={[
+                { widthClass: 'w-[12%]', contentClass: 'h-4 w-16' },
+                { widthClass: 'w-[20%]', contentClass: 'h-4 w-32' },
+                { widthClass: 'w-[15%]', contentClass: 'h-4 w-10' },
+                { contentClass: 'h-4 w-2/3' },
+                { widthClass: 'w-[12%]', contentClass: 'h-4 w-16' },
+              ]}
+            />
           ) : total === 0 ? (
             <AdminEmpty
               title={t('admin.events.empty_title')}

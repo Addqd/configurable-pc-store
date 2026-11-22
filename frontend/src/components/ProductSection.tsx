@@ -4,6 +4,7 @@ import { ProductCard } from './ProductCard'
 import { HiMiniArrowRight } from 'react-icons/hi2'
 import { Link } from 'react-router'
 import type { IconType } from 'react-icons'
+import { ProductSectionSkeleton } from './skeletons/StoreSkeletons'
 
 interface ProductSectionProps {
   titleKey: string
@@ -32,7 +33,7 @@ export function ProductSection({ titleKey, icon: Icon, products, catalogUrl, isL
           {onRetry && <button type="button" onClick={onRetry} className="rounded-md border border-border bg-surface-3 px-3 py-1 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button>}
         </div>
       : state === 'loading'
-        ? <div role="status" className="rounded-lg border border-border bg-surface px-4 py-6 text-center text-sm text-text-muted">{t('common.loading')}</div>
+        ? <ProductSectionSkeleton />
         : state === 'empty'
           ? <div role="status" className="rounded-lg border border-border bg-surface px-4 py-6 text-center text-sm text-text-muted">{t('catalog.filter.no_products')}</div>
           : <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

@@ -5,7 +5,8 @@ import { useGetProductStatsDetailApiV1AdminStatsProductsProductIdGet } from '../
 import { formatMoney, formatNumber, formatRating, monthLabel, periodRangeLabel, spansMultipleYears } from '../../admin/params'
 import { AdminDialog, AdminDialogClose } from './AdminDialog'
 import { useDialogTitleId } from './useDialogTitleId'
-import { AdminError, AdminLoading } from './AdminFeedback'
+import { AdminError } from './AdminFeedback'
+import { ProductStatsSkeleton } from '../skeletons/AdminSkeletons'
 import { LineChart } from './LineChart'
 import { RatingDistributionChart } from './RatingDistribution'
 import { StarsDisplay } from './Stars'
@@ -72,7 +73,7 @@ export function ProductStatsDialog({ productId, dateFrom, dateTo, onClose }: Pro
         {detail.isError ? (
           <AdminError message={t('admin.analytics.detail_load_error')} onRetry={() => void detail.refetch()} />
         ) : detail.isLoading || !data ? (
-          <AdminLoading />
+          <ProductStatsSkeleton />
         ) : (
           <>
             <div className="grid gap-3 sm:grid-cols-3">
