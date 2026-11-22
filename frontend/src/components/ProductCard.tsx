@@ -6,6 +6,8 @@ import { formatPrice } from '../utils/formatPrice'
 import { FiShoppingCart } from 'react-icons/fi'
 import { Link } from 'react-router'
 import type { ReactNode } from 'react'
+import { Skeleton } from './ui/skeleton'
+import { useImageLoadState } from './ui/useImageLoadState'
 
 interface ProductCardProps {
   product: Product
@@ -23,6 +25,7 @@ export function ProductCard({ product }: ProductCardProps) {
   const handleCartClick = () => {
     addProduct(product.id)
   }
+  const { state: imageState, imgRef, onLoad, onError } = useImageLoadState()
 
   return (
     <div className="rounded-lg border border-border bg-surface transition-all hover:border-border-hover hover:shadow-md">
@@ -31,11 +34,17 @@ export function ProductCard({ product }: ProductCardProps) {
           to={`/products/${product.slug}`}
           className="group flex min-w-0 flex-1 items-center gap-3"
         >
-          <img
-            src={product.image}
-            alt={catalogDisplay(product.name)}
-            className="h-16 w-16 shrink-0 rounded-md bg-surface-3 object-contain"
-          />
+          <span className="relative block h-16 w-16 shrink-0 overflow-hidden rounded-md bg-surface-3">
+            {imageState === 'loading' && <Skeleton className="absolute inset-0 rounded-none" />}
+            <img
+              ref={imgRef}
+              src={product.image}
+              alt={catalogDisplay(product.name)}
+              onLoad={onLoad}
+              onError={onError}
+              className="h-16 w-16 shrink-0 rounded-md bg-surface-3 object-contain"
+            />
+          </span>
           <div className="min-w-0 flex-1">
             <FadeOverflowLine>
               <h3 className="text-sm font-medium text-text-primary transition-colors group-hover:text-primary">

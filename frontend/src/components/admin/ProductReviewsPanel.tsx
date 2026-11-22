@@ -161,7 +161,7 @@ export function ProductReviewsPanel({ productId }: { productId: number }) {
         />
       )}
 
-      <div className="mt-5" aria-busy={reviews.isFetching}>
+      <div className="mt-5">
         {reviews.isError ? (
           <AdminError message={adminErrorText(reviews.error)} onRetry={() => void reviews.refetch()} compact />
         ) : reviews.isLoading ? (

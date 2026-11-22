@@ -17,11 +17,18 @@ export interface Account {
   createdAt: number
 }
 export type AccountResult = { success: true } | { success: false; error: string }
+/**
+ * Result of a session restore attempt:
+ * `authenticated` — a session is (or already was) in place;
+ * `guest` — the visitor provably has no session;
+ * `unavailable` — the server could not answer (network/5xx), so nothing is known.
+ */
+export type RestoreOutcome = 'authenticated' | 'guest' | 'unavailable'
 type AccountRecord = { account: Account; password?: { salt: string; hash: string } }
 type AccountState = {
   accounts: Record<string, AccountRecord>
   activeAccountId: string | null
-  restore: () => Promise<void>
+  restore: () => Promise<RestoreOutcome>
   register: (email: string, username: string, displayName: string, password: string) => Promise<AccountResult>
   login: (identifier: string, password: string) => Promise<AccountResult>
   logout: () => Promise<void>
@@ -42,7 +49,7 @@ const errorMessage = (error: unknown) => error instanceof ApiError && error.stat
     ? 'Неверный email/имя пользователя или пароль'
     : 'Не удалось выполнить запрос. Попробуйте ещё раз.'
 let epoch = 0
-let restorePromise: Promise<void> | null = null
+let restorePromise: Promise<RestoreOutcome> | null = null
 let logoutPromise: Promise<void> | null = null
 let authQueue: Promise<void> = Promise.resolve()
 
@@ -79,17 +86,30 @@ export const useAccountStore = create<AccountState>()((_set, get) => ({
   accounts: {}, activeAccountId: null,
   restore: async () => {
     if (restorePromise) return restorePromise
+    // A verified account is already in memory: the cookie was exchanged for its
+    // access token, so asking again would put a working session at risk for nothing.
+    if (selectActiveAccount(get())) return 'authenticated'
     const version = epoch
-    const pending = (async () => {
-      // `null` means the visitor simply has no session cookie: stay a guest and
-      // leave public queries alone instead of treating it as an expired session.
-      const restored = await refreshSession()
-      if (restored === null) return
-      const user = await getMeApiV1AuthMeGet()
-      if (version === epoch) acceptUser(user)
-    })().catch(() => { if (version === epoch) clearSession() })
+    const pending = (async (): Promise<RestoreOutcome> => {
+      try {
+        // `null` means the visitor simply has no session cookie: stay a guest and
+        // leave public queries alone instead of treating it as an expired session.
+        const restored = await refreshSession()
+        if (restored === null) return 'guest'
+        const user = await getMeApiV1AuthMeGet()
+        if (version !== epoch) return selectActiveAccount(get()) ? 'authenticated' : 'guest'
+        acceptUser(user)
+        return 'authenticated'
+      } catch (error) {
+        // Only a confirmed rejection ends the session. A network failure or a 5xx
+        // says nothing about the credential, so the session must survive it.
+        const rejected = error instanceof ApiError && (error.status === 401 || error.status === 403)
+        if (version === epoch && rejected) clearSession()
+        return rejected ? 'guest' : 'unavailable'
+      }
+    })()
     restorePromise = pending
-    try { await pending } finally { if (restorePromise === pending) restorePromise = null }
+    try { return await pending } finally { if (restorePromise === pending) restorePromise = null }
   },
   register: async (email, username, displayName, password) => {
     const version = epoch

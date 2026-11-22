@@ -194,7 +194,7 @@ export function AnalyticsProducts() {
         </button>
       </div>
 
-      <div className="mt-3" aria-busy={stats.isFetching}>
+      <div className="mt-3">
         {stats.isError ? (
           <AdminError message={adminErrorText(stats.error)} onRetry={() => void stats.refetch()} compact />
         ) : stats.isLoading ? (

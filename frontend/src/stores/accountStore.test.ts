@@ -131,7 +131,7 @@ describe('server account session', () => {
     queryClient.setQueryData(['/api/v1/products'], { items: [1] })
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
-    await useAccountStore.getState().restore()
+    await expect(useAccountStore.getState().restore()).resolves.toBe('guest')
     expect(fetchMock).not.toHaveBeenCalled()
     expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
     expect(queryClient.getQueryData(['/api/v1/products'])).toEqual({ items: [1] })
@@ -140,12 +140,70 @@ describe('server account session', () => {
   it('drops only private cached data when a stale session is rejected', async () => {
     document.cookie = 'csrf_token=stale; path=/'
     useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
+    setAccessToken('expired')
     queryClient.setQueryData(['/api/v1/cart'], { items: ['private'] })
     queryClient.setQueryData(['/api/v1/products'], { items: [1] })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ detail: 'expired' }, 401)))
-    await useAccountStore.getState().restore()
+    await expect(apiFetch('/api/v1/cart', {})).rejects.toBeTruthy()
     expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
     expect(queryClient.getQueryData(['/api/v1/cart'])).toBeUndefined()
     expect(queryClient.getQueryData(['/api/v1/products'])).toEqual({ items: [1] })
+  })
+
+  it('does not refresh an existing session when a page requests a restore', async () => {
+    document.cookie = 'csrf_token=valid; path=/'
+    useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
+    setAccessToken('valid-access')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(useAccountStore.getState().restore()).resolves.toBe('authenticated')
+
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(selectActiveAccount(useAccountStore.getState())?.id).toBe('12')
+  })
+
+  it.each([
+    ['a 503 answer', () => vi.fn().mockResolvedValue(json({ detail: 'unavailable' }, 503))],
+    ['a network failure', () => vi.fn().mockRejectedValue(new TypeError('network disconnected'))],
+  ])('keeps the session and private cache on %s during a restore', async (_name, makeMock) => {
+    document.cookie = 'csrf_token=valid; path=/'
+    useAccountStore.setState({ accounts: { '12': { account: { id: '12', email: user.email, username: user.username, displayName: 'Person', avatar: '', createdAt: 0 } } }, activeAccountId: '12' })
+    setAccessToken('valid-access')
+    queryClient.setQueryData(['/api/v1/cart'], { items: ['private'] })
+    vi.stubGlobal('fetch', makeMock())
+
+    await expect(useAccountStore.getState().restore()).resolves.toBe('authenticated')
+
+    expect(selectActiveAccount(useAccountStore.getState())?.id).toBe('12')
+    expect(queryClient.getQueryData(['/api/v1/cart'])).toEqual({ items: ['private'] })
+  })
+
+  it.each([
+    ['a 503 answer', 503],
+    ['a network failure', 0],
+  ])('reports an initial restore as unavailable after %s without clearing public data', async (_name, status) => {
+    document.cookie = 'csrf_token=valid; path=/'
+    setAccessToken(null)
+    queryClient.setQueryData(['/api/v1/products'], { items: [1] })
+    const fetchMock = status === 0
+      ? vi.fn().mockRejectedValue(new TypeError('network disconnected'))
+      : vi.fn().mockResolvedValue(json({ detail: 'unavailable' }, status))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(useAccountStore.getState().restore()).resolves.toBe('unavailable')
+
+    expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
+    expect(queryClient.getQueryData(['/api/v1/products'])).toEqual({ items: [1] })
+  })
+
+  it.each([401, 403])('treats a %s refresh rejection as a guest session', async (status) => {
+    document.cookie = 'csrf_token=stale; path=/'
+    setAccessToken(null)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ detail: 'rejected' }, status)))
+
+    await expect(useAccountStore.getState().restore()).resolves.toBe('guest')
+
+    expect(selectActiveAccount(useAccountStore.getState())).toBeNull()
   })
 })

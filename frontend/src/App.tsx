@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClient } from './api/queryClient'
 import { useTranslation } from 'react-i18next'
-import { useThemeStore } from './stores/themeStore'
+import { useThemeStore, applyStoredTheme } from './stores/themeStore'
 import { useAccountStore } from './stores/accountStore'
 import { useBuilderStore } from './stores/builderStore'
 import { useUIStore } from './stores/uiStore'
@@ -69,13 +69,9 @@ function AuthModalHost() {
   return <AuthModal isOpen={true} onClose={close} defaultMode={mode} />
 }
 
-// Preserve the existing first-paint theme behavior.
-if (typeof window !== 'undefined') {
-  try {
-    const saved = JSON.parse(localStorage.getItem('pc-builder-theme') || 'null')
-    if (saved?.state?.isDark) document.documentElement.classList.add('dark')
-  } catch { /* Invalid old theme data is ignored. */ }
-}
+// Preserve the existing first-paint theme behavior: the saved theme is applied
+// before React renders, the same way `index.html` does it before the splash paints.
+if (typeof window !== 'undefined') applyStoredTheme()
 
 export default function App() {
   return (

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
-import { render } from '../test-utils'
+import { render, createTestQueryClient } from '../test-utils'
 import { mockCatalogFetch } from '../test-api'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
@@ -122,8 +122,7 @@ describe('server product page', () => {
     expect(screen.queryByText('My review text', { selector: 'p' })).toBeNull()
     expect(mock.mock.calls.some(([url, init]) => url.endsWith('/reviews') && init.method === 'POST')).toBe(true)
   })
-  it('updates the favorite state only after the server confirms it', async () => {
-    useAccountStore.setState({ activeAccountId: '7', accounts: { '7': { account: { id: '7', username: 'test', email: 'test@example.com', displayName: 'Test', avatar: '', createdAt: 0 } } } })
+  it('updates the favorite state only after the server confirms it', async () => {    useAccountStore.setState({ activeAccountId: '7', accounts: { '7': { account: { id: '7', username: 'test', email: 'test@example.com', displayName: 'Test', avatar: '', createdAt: 0 } } } })
     const catalogFetch = vi.mocked(fetch)
     let favorited = false
     const mock = vi.fn(async (url: string, init: RequestInit) => {
@@ -143,5 +142,64 @@ describe('server product page', () => {
     fireEvent.click(button)
     await waitFor(() => expect(favorited).toBe(true))
     expect(await screen.findByRole('button', { name: 'Убрать из избранного' })).toBeTruthy()
+  })
+})
+
+describe('product reviews request states', () => {
+  const reviewItem = {
+    id: 501, product_id: 13, product_slug: 'cpu-ryzen-5-7600', product_name: 'AMD Ryzen 5 7600',
+    user_id: 101, source: 'user', author_name: null, reviewer_name: 'Клиент 1', rating: 5,
+    body: 'Проверенный отзыв', is_published: true, store_reply: null,
+    displayed_at: '2026-11-17T14:30:00Z', created_at: '2026-11-17T14:30:00Z', updated_at: '2026-11-17T14:30:00Z',
+  }
+  const reviewsPage = (items: unknown[]) => ({ items, total: items.length, page: 1, page_size: 50, total_pages: 1, average_rating: items.length ? 5 : 0 })
+
+  it('does not claim an empty review list when the request fails, and recovers on retry', async () => {
+    const catalogFetch = vi.mocked(fetch)
+    let failing = true
+    const mock = vi.fn(async (url: string, init: RequestInit) => {
+      if (/\/reviews$/.test(new URL(url, 'http://localhost').pathname)) {
+        return failing
+          ? new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+          : new Response(JSON.stringify(reviewsPage([reviewItem])), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return catalogFetch(url, init)
+    })
+    vi.stubGlobal('fetch', mock)
+    setup()
+
+    const retry = await screen.findByRole('button', { name: 'Повторить' })
+    expect(screen.queryByText('Отзывов пока нет. Вы можете оставить первый.')).toBeNull()
+    expect(screen.queryByText('Проверенный отзыв')).toBeNull()
+
+    failing = false
+    fireEvent.click(retry)
+
+    expect(await screen.findByText('Проверенный отзыв')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Повторить' })).toBeNull()
+  })
+
+  it('keeps a cached review list visible during a background refetch', async () => {
+    const catalogFetch = vi.mocked(fetch)
+    const client = createTestQueryClient()
+    let pending = false
+    const mock = vi.fn(async (url: string, init: RequestInit) => {
+      const isReviews = /\/reviews$/.test(new URL(url, 'http://localhost').pathname)
+      if (isReviews && pending) return new Promise<Response>(() => {})
+      if (isReviews) {
+        return new Response(JSON.stringify(reviewsPage([reviewItem])), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return catalogFetch(url, init)
+    })
+    vi.stubGlobal('fetch', mock)
+    render(<MemoryRouter initialEntries={['/products/cpu-ryzen-5-7600']}><Routes><Route path="/products/:slug" element={<ProductPage />} /></Routes></MemoryRouter>, { client })
+
+    expect(await screen.findByText('Проверенный отзыв')).toBeTruthy()
+    pending = true
+    await act(async () => { void client.refetchQueries({ queryKey: ['product-reviews', 13] }) })
+
+    expect(screen.getByText('Проверенный отзыв')).toBeTruthy()
+    expect(screen.queryByTestId('product-reviews-skeleton')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Повторить' })).toBeNull()
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Header } from '../components/Header'
 import { Footer } from '../components/Footer'
@@ -265,20 +265,44 @@ function AccountContent() {
 }
 
 export function AccountPage() {
+  const { t } = useTranslation()
   const accountId = useAccountStore((state) => state.activeAccountId)
   // The session lives in an HTTP-only refresh cookie, so the first paint cannot
   // know whether a visitor is signed in. Until that answer arrives the profile is
   // a placeholder instead of a guest panel that a reload would flash at a member.
-  const [restored, setRestored] = useState(false)
-  useEffect(() => {
+  const [session, setSession] = useState<'checking' | 'ready' | 'unavailable'>(
+    () => (accountId ? 'ready' : 'checking'),
+  )
+  const check = useCallback(() => {
+    // An authenticated session is already known: asking the server again on mount
+    // would replace a working session for no reason.
+    if (useAccountStore.getState().activeAccountId) return () => {}
     let active = true
-    void useAccountStore.getState().restore().finally(() => { if (active) setRestored(true) })
+    void useAccountStore.getState().restore().then((outcome) => {
+      if (active) setSession(outcome === 'unavailable' ? 'unavailable' : 'ready')
+    })
     return () => { active = false }
   }, [])
-  const waitingForSession = !restored && accountId === null
+  useEffect(() => check(), [check])
+  // A verified account always wins over a previous check result (login after a
+  // failed restore, or a session restored while this page was open).
+  if (accountId !== null && session !== 'ready') setSession('ready')
+  const waitingForSession = session === 'checking' && accountId === null
+  const sessionUnavailable = session === 'unavailable' && accountId === null
   return <div className="min-h-screen bg-surface-2"><Header />
     {waitingForSession
       ? <main className="min-h-screen bg-surface-2 px-4 pt-24 pb-12"><AccountSkeleton /></main>
-      : <AccountContent key={accountId ?? 'guest'} />}
+      : sessionUnavailable
+        ? <main className="min-h-screen bg-surface-2 px-4 pt-24">
+          <div className="mx-auto w-full max-w-[1120px]">
+            <BackButton className="mb-5" />
+            <div className="mx-auto h-fit w-full max-w-md rounded-2xl border border-border bg-surface p-8 text-center shadow-[0_5px_24px_var(--color-shadow)]">
+              <p role="alert" className="mb-6 text-text-muted">{t('common.load_error')}</p>
+              <button type="button" onClick={() => { setSession('checking'); check() }}
+                className="rounded-lg bg-primary px-6 py-2.5 text-sm font-semibold text-white hover:bg-primary-hover dark:text-[#08090C]">{t('common.retry')}</button>
+            </div>
+          </div>
+        </main>
+        : <AccountContent key={accountId ?? 'guest'} />}
     <Footer /></div>
 }

@@ -17,13 +17,16 @@ interface Props {
   options: FilterOptionsOut | undefined
   /** No filter metadata at all yet: the option groups render as placeholders. */
   optionsLoading?: boolean
+  /** The metadata request settled without an answer: offer a retry instead of a placeholder. */
+  optionsError?: boolean
+  onRetryOptions?: () => void
 }
 type Section = 'sort' | 'categories' | 'types' | 'colors' | 'manufacturers'
 const sectionKeys: Record<Section,string> = {
   sort:'catalog.filter.sort', categories:'catalog.filter.categories', types:'catalog.filter.types', colors:'catalog.filter.colors', manufacturers:'catalog.filter.manufacturers',
 }
 const dotColors: Record<string,string> = { 'Чёрный':'#1a1a2e', 'Белый':'#fff', 'Серебристый':'#a0a8b4', 'Серый':'#6b7280' }
-export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose, options: data, optionsLoading = false }: Props) {
+export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose, options: data, optionsLoading = false, optionsError = false, onRetryOptions }: Props) {
   const { t } = useTranslation()
   const [collapsed, setCollapsed] = useState<Section[]>([])
   const panelRef = useRef<HTMLDivElement>(null)
@@ -96,6 +99,10 @@ export function FilterDrawer({ open, filters, onFiltersChange, onApply, onClose,
           <p className="mt-1 text-xs text-text-muted">{t('catalog.filter.sale_hint')}</p>
         </div>}
         {optionsLoading ? <FilterOptionsSkeleton /> : <>
+          {optionsError && <div role="alert" className="flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface-3 px-3 py-2 text-sm text-text-muted">
+            <span>{t('catalog.filter.load_error')}</span>
+            {onRetryOptions && <button type="button" onClick={onRetryOptions} className="rounded-md border border-border bg-surface px-2.5 py-1 text-xs font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button>}
+          </div>}
           {section('categories',options.categories.map(cat=><div key={cat}>
             {checkbox('categories',cat)}
             {options.unavailableCategories.includes(cat) && <span className="ml-7 text-xs text-text-muted">{t('catalog.category_empty')}</span>}

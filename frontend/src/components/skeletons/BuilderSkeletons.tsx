@@ -28,9 +28,9 @@ export function BuilderSelectorSkeleton({ rows = 6 }: { rows?: number }) {
  * Only the verdict line is a placeholder: the selected components, their prices,
  * the total and the configuration itself stay visible and editable.
  */
-export function BuilderCompatibilitySkeleton() {
+export function BuilderCompatibilitySkeleton({ testId = 'builder-compatibility-skeleton' }: { testId?: string } = {}) {
   return (
-    <SkeletonRegion className="inline-flex items-center" testId="builder-compatibility-skeleton">
+    <SkeletonRegion className="inline-flex items-center" testId={testId}>
       <Skeleton className="h-4 w-24" />
     </SkeletonRegion>
   )

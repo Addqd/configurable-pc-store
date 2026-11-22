@@ -191,7 +191,7 @@ export function AdminEventsPage() {
           )}
         </div>
 
-        <div className="mt-5" aria-busy={events.isFetching}>
+        <div className="mt-5">
           {events.isError ? (
             <AdminError message={adminErrorText(events.error)} onRetry={() => void events.refetch()} compact />
           ) : events.isLoading ? (

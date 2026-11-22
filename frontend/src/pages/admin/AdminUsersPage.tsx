@@ -249,7 +249,7 @@ export function AdminUsersPage() {
           </label>
         </div>
 
-        <div className="mt-5" aria-busy={users.isFetching}>
+        <div className="mt-5">
           {users.isError ? (
             <AdminError message={adminErrorText(users.error)} onRetry={() => void users.refetch()} compact />
           ) : users.isLoading ? (

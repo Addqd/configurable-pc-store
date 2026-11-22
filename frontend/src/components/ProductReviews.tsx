@@ -21,9 +21,12 @@ interface ProductReviewsProps {
   reviewDisabled?: boolean
   /** The review list is its own request: the rest of the page is already loaded. */
   loading?: boolean
+  /** The review request settled with an error: an empty list would be a false statement. */
+  error?: boolean
+  onRetry?: () => void
 }
 
-export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview, ownReview, onDeleteReview, accountName, reviewDisabled, loading = false }: ProductReviewsProps) {
+export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChange, onAddReview, ownReview, onDeleteReview, accountName, reviewDisabled, loading = false, error = false, onRetry }: ProductReviewsProps) {
   const { t } = useTranslation()
   const [openForm, setOpenForm] = useState(false)
   const sorted = [...reviews].sort((a, b) => {
@@ -68,28 +71,42 @@ export function ProductReviews({ reviews, rating, reviewCount, sort, onSortChang
 
       {loading ? (
         <ProductReviewsSkeleton />
-      ) : sorted.length === 0 ? (
-        <p className="py-5 text-sm text-text-muted">{t('product.reviews.empty')}</p>
       ) : (
-        <div className="space-y-4">
-          {sorted.map((review) => (
-            <article key={review.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-sm font-semibold text-primary">
-                  {initials(review.author)}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-semibold text-text-primary">{review.author}</p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <StarRating rating={review.rating} />
-                  <span className="hidden text-xs text-text-muted sm:block">{review.date}</span>
-                </div>
-              </div>
-              <p className="mt-3 text-sm leading-relaxed text-text-secondary">{demoReviewDisplay(review.text)}</p>
-            </article>
-          ))}
-        </div>
+        <>
+          {error && (
+            <p role="alert" className="flex flex-wrap items-center gap-3 py-2 text-sm text-red-500">
+              {t('common.load_error')}
+              {onRetry && (
+                <button type="button" onClick={onRetry}
+                  className="rounded-md border border-border bg-surface px-3 py-1 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button>
+              )}
+            </p>
+          )}
+          {sorted.length === 0 ? (
+            // "No reviews yet" is only true after a successful empty response.
+            !error && <p className="py-5 text-sm text-text-muted">{t('product.reviews.empty')}</p>
+          ) : (
+            <div className={error ? 'mt-4 space-y-4' : 'space-y-4'}>
+              {sorted.map((review) => (
+                <article key={review.id} className="border-b border-border pb-4 last:border-0 last:pb-0">
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-sm font-semibold text-primary">
+                      {initials(review.author)}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-text-primary">{review.author}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <StarRating rating={review.rating} />
+                      <span className="hidden text-xs text-text-muted sm:block">{review.date}</span>
+                    </div>
+                  </div>
+                  <p className="mt-3 text-sm leading-relaxed text-text-secondary">{demoReviewDisplay(review.text)}</p>
+                </article>
+              ))}
+            </div>
+          )}
+        </>
       )}
       {openForm && <ReviewForm onSubmit={onAddReview} onClose={() => setOpenForm(false)} initialReview={ownReview ? { author: ownReview.author, rating: ownReview.rating, text: ownReview.text } : accountName ? { author: accountName, rating: 5, text: '' } : undefined} />}
     </section>

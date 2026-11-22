@@ -197,7 +197,7 @@ export function AdminProductsPage() {
           </div>
         </div>
 
-        <div className="mt-5" aria-busy={list.isFetching}>
+        <div className="mt-5">
           {list.isError ? (
             <AdminError message={adminErrorText(list.error)} onRetry={() => void list.refetch()} compact />
           ) : list.isLoading ? (

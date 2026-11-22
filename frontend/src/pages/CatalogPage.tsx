@@ -55,6 +55,17 @@ export function CatalogPage() {
   const currentPage = Math.min(requestedPage, totalPages)
   const pageProducts = products.data?.items.map(productFromSummary) ?? []
   const pagination=getPageNumbers(currentPage,totalPages)
+  const filterOptions = filteredOptions.data ?? allOptions.data
+  // The drawer placeholder follows the request status, not the missing object: a
+  // failed metadata request must stop the skeleton instead of hiding the filters.
+  const optionsLoading = filterOptions === undefined && (
+    allOptions.isPending || (filtersOpen && !!draftParams && filteredOptions.isPending)
+  )
+  const optionsFailed = filterOptions === undefined && (allOptions.isError || filteredOptions.isError)
+  const retryOptions = () => {
+    void allOptions.refetch()
+    if (filtersOpen && draftParams) void filteredOptions.refetch()
+  }
 
   // Header/hamburger links may change the catalogue URL while the drawer is open.
   // The URL key above closes it and rehydrates the draft from the new destination.
@@ -105,6 +116,6 @@ export function CatalogPage() {
       </div>
     </main>
     <Footer />
-    <FilterDrawer open={filtersOpen} filters={draft} onFiltersChange={changeDraft} onApply={apply} onClose={close} options={filteredOptions.data ?? allOptions.data} optionsLoading={!filteredOptions.data && !allOptions.data} />
+    <FilterDrawer open={filtersOpen} filters={draft} onFiltersChange={changeDraft} onApply={apply} onClose={close} options={filterOptions} optionsLoading={optionsLoading} optionsError={optionsFailed} onRetryOptions={retryOptions} />
   </div>
 }

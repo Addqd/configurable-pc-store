@@ -6,7 +6,7 @@ import { cartFixture, jsonResponse, ownerFixture, stubAdminFetch } from './test-
 import { Skeleton, SkeletonText } from './components/ui/skeleton'
 import { SkeletonRegion } from './components/skeletons/SkeletonRegion'
 import { CatalogGridSkeleton, ProductSectionSkeleton } from './components/skeletons/StoreSkeletons'
-import { AdminTableSkeleton } from './components/skeletons/AdminSkeletons'
+import { AdminTableSkeleton, AnalyticsOverviewSkeleton, AdminPageSkeleton, BarListSkeleton, ChartSkeleton, ProductStatsSkeleton } from './components/skeletons/AdminSkeletons'
 import { HomePage } from './pages/HomePage'
 import { CatalogPage } from './pages/CatalogPage'
 import { CartPage } from './pages/CartPage'
@@ -54,8 +54,12 @@ type Route = (url: URL) => Response | Promise<Response> | undefined
 function stubFetch(route: Route) {
   const mock = vi.fn(async (input: RequestInfo | URL) => {
     const url = new URL(String(input), 'http://localhost')
+    // The test's own route wins, including a deliberately pending promise: the
+    // default cart fixture must never replace a request a test holds open.
+    const custom = await route(url)
+    if (custom !== undefined) return custom
     if (url.pathname === '/api/v1/cart') return jsonResponse(cartFixture)
-    return (await route(url)) ?? jsonResponse({ detail: 'Not found' }, 404)
+    return jsonResponse({ detail: 'Not found' }, 404)
   })
   vi.stubGlobal('fetch', mock)
   return mock
@@ -89,12 +93,49 @@ describe('skeleton primitives', () => {
   })
 
   it('announces a loading region once and keeps the placeholders out of the a11y tree', () => {
-    render(<SkeletonRegion testId="region"><Skeleton className="h-4 w-10" /></SkeletonRegion>)
+    render(<SkeletonRegion testId="region"><Skeleton className="h-4 w-10" /><SkeletonText className="h-3 w-6" /></SkeletonRegion>)
     const region = screen.getByTestId('region')
     expect(region.getAttribute('role')).toBe('status')
-    expect(region.getAttribute('aria-busy')).toBe('true')
+    expect(region.getAttribute('aria-live')).toBe('polite')
+    // A live region that stays `aria-busy` for its whole life postpones its own
+    // announcement until it is already unmounted, so the region must not be busy.
+    expect(region.hasAttribute('aria-busy')).toBe(false)
     expect(region.textContent).toBe('Загрузка...')
     expect(within(region).getByText('Загрузка...')).toBeTruthy()
+    const placeholders = region.querySelectorAll('[data-slot="skeleton"]')
+    expect(placeholders).toHaveLength(2)
+    placeholders.forEach((placeholder) => expect(placeholder.getAttribute('aria-hidden')).toBe('true'))
+  })
+
+  it('announces a nested skeleton through its outer region only', () => {
+    const page = render(<AdminPageSkeleton />)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    // The nested table keeps its own marker without opening a second live region.
+    expect(page.getByTestId('admin-table-skeleton')).toBeTruthy()
+    page.unmount()
+
+    const overview = render(<AnalyticsOverviewSkeleton />)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    // Chart and ranking placeholders are still rendered, just not announced twice.
+    expect(overview.getAllByTestId('chart-skeleton')).toHaveLength(1)
+    expect(overview.getAllByTestId('bar-list-skeleton')).toHaveLength(2)
+    overview.unmount()
+
+    const stats = render(<ProductStatsSkeleton />)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(stats.getByTestId('chart-skeleton')).toBeTruthy()
+    stats.unmount()
+  })
+
+  it.each([
+    ['chart', <ChartSkeleton key="chart" />],
+    ['table', <AdminTableSkeleton key="table" columns={[{ widthClass: 'w-[40%]' }]} rows={2} />],
+    ['ranking', <BarListSkeleton key="ranking" />],
+  ])('keeps one announcement for a standalone %s placeholder', (_name, element) => {
+    const { unmount } = render(element)
+    expect(screen.getAllByRole('status')).toHaveLength(1)
+    expect(screen.getByRole('status').getAttribute('aria-busy')).toBeNull()
+    unmount()
   })
 
   it('accepts a region-specific label', () => {
@@ -183,16 +224,23 @@ describe('storefront loading states', () => {
     expect(screen.queryByTestId('catalog-grid')).toBeNull()
   })
 
-  it('shows the cart skeleton during the first cart request', async () => {
+  it('shows the cart skeleton while the cart request is genuinely pending, then the settled cart', async () => {
     useAccountStore.setState({ accounts: { '66': { account } }, activeAccountId: '66' })
-    stubFetch((url) => {
-      if (url.pathname === '/api/v1/cart') return never()
+    const cart = deferred<Response>()
+    // The fixture must not answer before this handler: the request has to stay open.
+    const mock = stubFetch((url) => {
+      if (url.pathname === '/api/v1/cart') return cart.promise
       return undefined
     })
     render(<MemoryRouter initialEntries={['/cart']}><CartPage /></MemoryRouter>)
 
     expect(await screen.findByTestId('cart-skeleton')).toBeTruthy()
+    expect(mock.mock.calls.some(([url]) => new URL(String(url), 'http://localhost').pathname === '/api/v1/cart')).toBe(true)
     expect(screen.queryByText('Корзина пуста')).toBeNull()
+
+    cart.resolve(jsonResponse({ id: 1, items: [], subtotal: '0.00', item_count: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }))
+    await waitFor(() => expect(screen.queryByTestId('cart-skeleton')).toBeNull())
+    expect(screen.getByText('Корзина пуста')).toBeTruthy()
   })
 
   it('shows the product page skeleton, then the page with a review-list skeleton', async () => {
@@ -276,6 +324,8 @@ describe('administration loading boundaries', () => {
 
     expect(await screen.findByTestId('admin-page-skeleton')).toBeTruthy()
     expect(screen.queryByText('Доступ запрещён')).toBeNull()
+    // The gate, its table and the counters are one loading operation: one announcement.
+    expect(screen.getAllByRole('status')).toHaveLength(1)
   })
 
   it('never keeps the panel skeleton after access is denied', async () => {
@@ -304,5 +354,6 @@ describe('administration loading boundaries', () => {
 
     expect(await screen.findByTestId('admin-table-skeleton')).toBeTruthy()
     expect(screen.queryByText('Товары не найдены')).toBeNull()
+    expect(screen.getAllByRole('status')).toHaveLength(1)
   })
 })
