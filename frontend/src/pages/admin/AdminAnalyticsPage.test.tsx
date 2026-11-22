@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { act } from 'react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, Route, Routes } from 'react-router'
 import { render } from '../../test-utils'
 import i18n from '../../i18n'
 import { AdminAnalyticsPage } from './AdminAnalyticsPage'
@@ -18,8 +18,8 @@ const multiYearMonthly = [
   { month: '2026-02-01', orders_count: 12, units_count: 18, amount: '130000' },
 ]
 
-function setup(options: { monthly?: typeof overviewFixture.monthly; emptyCompareSearch?: boolean } = {}) {
-  const handler = (url: URL, init: RequestInit) => {
+function analyticsHandler(options: { monthly?: typeof overviewFixture.monthly; emptyCompareSearch?: boolean } = {}) {
+  return (url: URL, init: RequestInit) => {
     const method = init.method ?? 'GET'
     if (url.pathname === '/api/v1/admin/stats/overview') {
       return jsonResponse({ ...overviewFixture, monthly: options.monthly ?? overviewFixture.monthly })
@@ -40,7 +40,10 @@ function setup(options: { monthly?: typeof overviewFixture.monthly; emptyCompare
     }
     return undefined
   }
-  const fetchMock = stubAdminFetch({ handler })
+}
+
+function setup(options: { monthly?: typeof overviewFixture.monthly; emptyCompareSearch?: boolean } = {}) {
+  const fetchMock = stubAdminFetch({ handler: analyticsHandler(options) })
   render(<MemoryRouter initialEntries={['/admin/analytics']}><AdminAnalyticsPage /></MemoryRouter>)
   return fetchMock
 }
@@ -67,7 +70,25 @@ describe('admin analytics', () => {
     // Both horizontal rankings keep their card legends below the bars.
     expect(screen.getAllByText('Товаров в заказах').length).toBeGreaterThan(1)
     expect(screen.getAllByText('Средняя оценка').length).toBeGreaterThan(0)
-    expect(screen.getByRole('link', { name: 'В магазин' }).getAttribute('href')).toBe('/')
+    // The shared admin layout owns the only back control: no duplicate, no fixed storefront link.
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
+  })
+
+  it('returns to the admin products page it was opened from', async () => {
+    stubAdminFetch({ handler: analyticsHandler() })
+    render(
+      <MemoryRouter initialEntries={['/admin/products', '/admin/analytics']} initialIndex={1}>
+        <Routes>
+          <Route path="/admin/products" element={<p>Список товаров</p>} />
+          <Route path="/admin/analytics" element={<AdminAnalyticsPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByText('391')
+    fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
+    expect(await screen.findByText('Список товаров')).toBeTruthy()
+    expect(screen.queryByText('Статистика продаж')).toBeNull()
   })
 
   it('localizes chart units and compact numbers when the language is English', async () => {

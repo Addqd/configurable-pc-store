@@ -31,7 +31,6 @@ import { ProductReviewsPanel } from '../../components/admin/ProductReviewsPanel'
 import {
   FloatingControl, SelectField, TextField, TextareaField, floatingInputClass,
 } from '../../components/admin/AdminFields'
-import { BackButton } from '../../components/BackButton'
 import {
   adminCard, adminControl, adminPrimaryButton, adminSecondaryButton,
 } from '../../components/admin/adminStyles'
@@ -768,7 +767,6 @@ export function AdminProductFormPage() {
     { key: 'reviews', label: t('admin.form.tab_reviews'), icon: FiMessageCircle, to: '' },
   ]
 
-  const back = <div className="mb-3"><BackButton /></div>
   // Tab semantics only exist when the tab strip above is actually rendered.
   const panelProps: HTMLAttributes<HTMLDivElement> = isEdit
     ? { id: adminTabPanelId(TABS_ID, tab), role: 'tabpanel', 'aria-labelledby': adminTabId(TABS_ID, tab) }
@@ -777,7 +775,6 @@ export function AdminProductFormPage() {
   if (isEdit && !validId) {
     return (
       <AdminLayout footer={false}>
-        {back}
         <section className={`${adminCard} p-6`}>
           <AdminError message={t('admin.form.not_found')} onRetry={() => navigate('/admin/products')} />
         </section>
@@ -789,7 +786,6 @@ export function AdminProductFormPage() {
     const status = detail.error instanceof ApiError ? detail.error.status : 0
     return (
       <AdminLayout footer={false}>
-        {back}
         <section className={`${adminCard} p-6`}>
           {status === 404 ? (
             <div role="alert" className="py-10 text-center">
@@ -809,7 +805,6 @@ export function AdminProductFormPage() {
   if (loadedKey !== formKey || options.isLoading) {
     return (
       <AdminLayout footer={false}>
-        {back}
         <AdminProductFormSkeleton withTabs={isEdit} />
       </AdminLayout>
     )
@@ -818,7 +813,6 @@ export function AdminProductFormPage() {
   if (options.isError) {
     return (
       <AdminLayout footer={false}>
-        {back}
         <section className={`${adminCard} p-6`}>
           <AdminError message={adminErrorText(options.error)} onRetry={() => void options.refetch()} />
         </section>
@@ -847,7 +841,6 @@ export function AdminProductFormPage() {
 
   return (
     <AdminLayout footer={false}>
-      {back}
       <section className={`${adminCard} px-5 py-6 sm:px-8 sm:py-8`}>
         <h1 className="text-2xl font-semibold tracking-tight text-text-primary sm:text-3xl">
           {isEdit ? t('admin.form.edit_title') : t('admin.form.create_title')}

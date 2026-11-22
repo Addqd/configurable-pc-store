@@ -6,7 +6,6 @@ import { AdminTabs, type AdminTab } from '../../components/admin/AdminTabs'
 import { adminTabId, adminTabPanelId } from '../../components/admin/adminTabIds'
 import { AnalyticsOverview } from '../../components/admin/AnalyticsOverview'
 import { AnalyticsProducts } from '../../components/admin/AnalyticsProducts'
-import { BackButton } from '../../components/BackButton'
 import { adminCard } from '../../components/admin/adminStyles'
 import { readEnum } from '../../admin/params'
 
@@ -25,7 +24,6 @@ export function AdminAnalyticsPage() {
 
   return (
     <AdminLayout>
-      <div className="mb-3"><BackButton /></div>
       <section className={`${adminCard} px-5 py-6 sm:px-8 sm:py-8`}>
         <h1 className="text-2xl font-semibold tracking-tight text-text-primary sm:text-3xl">
           {t('admin.analytics.title')}

@@ -78,7 +78,8 @@ describe('admin event journal', () => {
     expect(screen.getAllByText('Успешно').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Ошибка').length).toBeGreaterThan(0)
     expect(screen.getByText('Показано 1–10 из 247')).toBeTruthy()
-    expect(screen.getByRole('link', { name: 'В магазин' }).getAttribute('href')).toBe('/')
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
   })
 
   it('shows the year in event timestamps so equal day/month values stay distinguishable', async () => {

@@ -18,33 +18,45 @@ function renderAdmin(path = '/admin/products') {
   )
 }
 
-describe('admin return control', () => {
-  it('links to the storefront while the shared header, content and footer stay in place', () => {
+describe('admin back control', () => {
+  it('provides the single shared BackButton while the header, content and footer stay in place', () => {
     renderAdmin()
-    const link = screen.getByRole('link', { name: 'В магазин' })
-    expect(link.getAttribute('href')).toBe('/')
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
     expect(screen.getByTestId('storefront-header')).toBeTruthy()
     expect(screen.getByText('Список товаров')).toBeTruthy()
     expect(screen.getByText('© PC Builder Панель администратора')).toBeTruthy()
   })
 
-  it('is reachable with the keyboard', () => {
+  it('does not render the fixed storefront link', () => {
     renderAdmin()
-    const link = screen.getByRole('link', { name: 'В магазин' })
-    link.focus()
-    expect(document.activeElement).toBe(link)
+    expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
+    expect(document.querySelector('a[href="/"]')).toBeNull()
   })
 
-  it('navigates to the storefront through the router instead of reloading the document', () => {
+  it('is reachable with the keyboard', () => {
     renderAdmin()
-    fireEvent.click(screen.getByRole('link', { name: 'В магазин' }))
+    const button = screen.getByRole('button', { name: 'Назад' })
+    button.focus()
+    expect(document.activeElement).toBe(button)
+  })
+
+  it('returns to the previous history entry instead of navigating to a fixed path', () => {
+    render(
+      <MemoryRouter initialEntries={['/', '/admin/products']} initialIndex={1}>
+        <Routes>
+          <Route path="/" element={<p>Витрина магазина</p>} />
+          <Route path="/admin/products" element={<AdminLayout><p>Список товаров</p></AdminLayout>} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Назад' }))
     expect(screen.getByText('Витрина магазина')).toBeTruthy()
     expect(screen.queryByText('Список товаров')).toBeNull()
   })
 
   it('stays available on a layout that renders its own footer', () => {
     renderAdmin('/admin/events')
-    expect(screen.getByRole('link', { name: 'В магазин' })).toBeTruthy()
+    expect(screen.getAllByRole('button', { name: 'Назад' })).toHaveLength(1)
     expect(screen.queryByText('© PC Builder Панель администратора')).toBeNull()
   })
 })
