@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   CartesianGrid,
@@ -7,6 +8,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  type DotItemDotProps,
 } from 'recharts'
 import { niceAxisMax } from '../../admin/params'
 import { estimateTextWidth, useElementWidth } from '../../admin/useElementWidth'
@@ -55,6 +57,31 @@ const Y_AXIS_MAX_SHARE = 0.45
 
 /** Data-point key of a series; names are arbitrary product names, so indexes are safer. */
 const dataKeyOf = (index: number) => `series${index}`
+
+/**
+ * Permanent marker of one series value.
+ *
+ * Only a bucket that actually holds something is marked. Daily buckets make a
+ * three-month period about 90 points, and marking every zero drew a dense row of
+ * dots along the baseline. The line still runs through every point and every
+ * bucket — zeros included — stays in the chart data, so the tooltip keeps
+ * reporting a zero date; the hover marker is drawn by `activeDot`.
+ */
+function seriesDot(color: string, radius: number) {
+  return function SeriesDot({ cx, cy, value }: DotItemDotProps): ReactNode {
+    if (!value || cx == null || cy == null) return null
+    return (
+      <circle
+        className="recharts-line-dot"
+        cx={cx}
+        cy={cy}
+        r={radius}
+        fill={color}
+        strokeWidth={0}
+      />
+    )
+  }
+}
 
 /** Small dependency-free legend, rendered through the Recharts `Legend` slot. */
 function ChartLegend({ series }: { series: ChartSeries[] }) {
@@ -165,7 +192,7 @@ export function LineChart({
               strokeWidth={2.5 * scale}
               strokeLinecap="round"
               strokeLinejoin="round"
-              dot={{ r: 3.5 * scale, fill: item.color, strokeWidth: 0 }}
+              dot={seriesDot(item.color, 3.5 * scale)}
               activeDot={{ r: 5.5 * scale, fill: item.color, strokeWidth: 0 }}
               isAnimationActive={false}
             />

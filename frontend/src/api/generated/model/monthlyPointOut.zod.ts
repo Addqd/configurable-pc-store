@@ -11,7 +11,7 @@ export const MonthlyPointOut = zod.object({
   "orders_count": zod.int(),
   "units_count": zod.int(),
   "amount": zod.string()
-}).describe('One time bucket; `month` is the bucket start (a day or a month start).')
+}).describe('One time bucket, kept under its historical name for compatibility.\n\n`month` is the bucket start: the day itself for `day`, the first of the month\nfor `month`, and the first of January for `year`.')
 
 export type MonthlyPointOut = zod.input<typeof MonthlyPointOut>;
 export type MonthlyPointOutOutput = zod.output<typeof MonthlyPointOut>;

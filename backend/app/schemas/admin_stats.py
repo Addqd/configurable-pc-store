@@ -24,12 +24,18 @@ AdminProductStatsSort = Literal[
 ]
 
 #: Time-axis resolution of a timeline. `day` is used when the sales records of a
-#: request cover a single calendar month, `month` otherwise.
-AdminStatsGranularity = Literal["day", "month"]
+#: request cover a single calendar month, `month` when they cover several months
+#: and `year` when they span more than the monthly bucket cap, so no recorded sale
+#: is dropped from the axis.
+AdminStatsGranularity = Literal["day", "month", "year"]
 
 
 class MonthlyPointOut(BaseModel):
-    """One time bucket; `month` is the bucket start (a day or a month start)."""
+    """One time bucket, kept under its historical name for compatibility.
+
+    `month` is the bucket start: the day itself for `day`, the first of the month
+    for `month`, and the first of January for `year`.
+    """
 
     month: date
     orders_count: int

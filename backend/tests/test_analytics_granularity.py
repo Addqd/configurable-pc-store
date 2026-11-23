@@ -15,6 +15,7 @@ import pytest
 from app.services.analytics_service import (
     MAX_DAYS,
     MAX_MONTHS,
+    MAX_YEARS,
     _bucket_bounds,
     _bucket_first,
     _bucket_sequence,
@@ -22,6 +23,7 @@ from app.services.analytics_service import (
     _fill_between,
     _granularity_for,
 )
+from app.services.errors import InvalidInputError
 
 
 def test_records_inside_one_calendar_month_use_daily_buckets() -> None:
@@ -281,3 +283,115 @@ def test_daily_fill_zero_fills_only_missing_days() -> None:
     assert sum(point.orders_count for point in points) == 3
     assert sum(point.units_count for point in points) == 4
     assert sum(point.amount for point in points) == Decimal("190.00")
+
+
+def test_history_longer_than_the_monthly_cap_uses_yearly_buckets() -> None:
+    """A recorded history wider than MAX_MONTHS is grouped by year, not cut."""
+    # March 2015 -> November 2026 covers 141 calendar months.
+    assert _granularity_for((date(2015, 3, 4), date(2026, 11, 2)), None, None) == "year"
+    # December 2016 -> November 2026 covers exactly 120 months and stays monthly.
+    assert (
+        _granularity_for((date(2016, 12, 1), date(2026, 11, 1)), None, None) == "month"
+    )
+    # The requested period does not decide it: only the recorded sales do.
+    assert (
+        _granularity_for(
+            (date(2015, 3, 4), date(2026, 11, 2)), date(2015, 3, 4), date(2026, 11, 2)
+        )
+        == "year"
+    )
+
+
+def test_yearly_bucket_starts_at_the_beginning_of_the_calendar_year() -> None:
+    assert _bucket_first(datetime(2026, 11, 12, 23, 45), "year") == date(2026, 1, 1)
+    assert _bucket_sequence(date(2024, 5, 9), date(2026, 2, 1), "year") == [
+        date(2024, 1, 1),
+        date(2025, 1, 1),
+        date(2026, 1, 1),
+    ]
+
+
+def test_yearly_axis_keeps_every_recorded_year_and_matches_the_totals() -> None:
+    """The oldest recorded sale stays on the axis and the sums stay exact."""
+    series = {
+        date(2014, 1, 1): (2, 3, Decimal("300.00")),
+        date(2021, 1, 1): (1, 4, Decimal("900.00")),
+        date(2026, 1, 1): (3, 5, Decimal("1500.00")),
+    }
+    start, end = _bucket_bounds([series], date(2000, 1, 1), date(2026, 12, 31), "year")
+    # The requested 27 years are inside the yearly cap, so the whole interval stays.
+    assert (start, end) == (date(2000, 1, 1), date(2026, 1, 1))
+
+    points = _fill_between(series, start, end, "year")
+    assert [point.month for point in points] == [
+        date(year, 1, 1) for year in range(2000, 2027)
+    ]
+    assert sum(point.orders_count for point in points) == 6
+    assert sum(point.units_count for point in points) == 12
+    assert sum(point.amount for point in points) == Decimal("2700.00")
+    # Years without sales are zero-filled; no activity is invented.
+    recorded = {bucket.year for bucket in series}
+    assert all(
+        point.orders_count == 0
+        and point.units_count == 0
+        and point.amount == Decimal("0.00")
+        for point in points
+        if point.month.year not in recorded
+    )
+
+
+def test_yearly_axis_is_shared_and_zero_filled_for_comparison() -> None:
+    """Product and comparison timelines share one yearly axis."""
+    cpu = {date(2013, 1, 1): (1, 2, Decimal("200.00"))}
+    gpu = {date(2019, 1, 1): (1, 1, Decimal("800.00"))}
+    start, end = _bucket_bounds([cpu, gpu], None, None, "year")
+    assert (start, end) == (date(2013, 1, 1), date(2019, 1, 1))
+
+    cpu_points = _fill_between(cpu, start, end, "year")
+    gpu_points = _fill_between(gpu, start, end, "year")
+    assert [point.month for point in cpu_points] == [
+        point.month for point in gpu_points
+    ]
+    assert len(cpu_points) == 7
+    assert sum(point.units_count for point in cpu_points) == 2
+    assert sum(point.units_count for point in gpu_points) == 1
+    assert sum(point.amount for point in cpu_points) == Decimal("200.00")
+    assert sum(point.amount for point in gpu_points) == Decimal("800.00")
+
+
+def test_huge_requested_interval_is_narrowed_to_the_recorded_years() -> None:
+    series = {
+        date(2015, 1, 1): (1, 1, Decimal("10.00")),
+        date(2026, 1, 1): (1, 2, Decimal("60.00")),
+    }
+    start, end = _bucket_bounds([series], date(1200, 1, 1), date(2600, 12, 31), "year")
+    assert (start, end) == (date(2015, 1, 1), date(2026, 1, 1))
+    points = _fill_between(series, start, end, "year")
+    assert len(points) == 12
+    assert sum(point.units_count for point in points) == 3
+    assert sum(point.amount for point in points) == Decimal("70.00")
+
+
+def test_empty_huge_yearly_interval_stays_bounded() -> None:
+    start, end = _bucket_bounds([{}], date(1200, 1, 1), date(2600, 12, 31), "year")
+    assert _bucket_span(start, end, "year") == MAX_YEARS
+    assert end == date(2600, 1, 1)
+    assert len(_fill_between({}, start, end, "year")) == MAX_YEARS
+
+
+def test_recorded_span_beyond_the_yearly_cap_is_reported_not_truncated() -> None:
+    """The last resort is an explicit failure, never a silently shortened axis."""
+    series = {
+        date(100, 1, 1): (1, 1, Decimal("10.00")),
+        date(600, 1, 1): (1, 1, Decimal("10.00")),
+    }
+    with pytest.raises(InvalidInputError):
+        _bucket_bounds([series], date(50, 1, 1), date(900, 12, 31), "year")
+
+
+def test_daily_and_monthly_rules_are_unchanged_for_normal_histories() -> None:
+    """The coarse axis appears only where the monthly cap would have dropped sales."""
+    one_month = (date(2026, 11, 3), date(2026, 11, 9))
+    assert _granularity_for(one_month, None, None) == "day"
+    two_years = (date(2025, 1, 4), date(2026, 11, 2))
+    assert _granularity_for(two_years, None, None) == "month"

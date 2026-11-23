@@ -250,3 +250,39 @@ def test_admin_query_services_execute_read_only():
             assert review.product_id > 0
             assert review.reviewer_name
             assert 1 <= review.rating <= 5
+
+
+def test_yearly_buckets_aggregate_every_recorded_sale_read_only():
+    """The coarse axis runs on the real ledger and keeps every recorded row.
+
+    Yearly grouping is what a history wider than the monthly cap falls back to, so
+    the Postgres `date_trunc('year', ...)` aggregation and the resulting axis are
+    verified here even though the seeded history is short.
+    """
+    with SessionLocal() as db:
+        filters = analytics_service._ledger_filters(None, None)
+        yearly = analytics_service._bucket_rows(db, filters, "year")
+        if not yearly:
+            pytest.skip("the ledger has no sales rows")
+
+        # Year buckets are calendar-year starts, grouped by year on PostgreSQL.
+        assert all(bucket.month == 1 and bucket.day == 1 for bucket in yearly)
+        assert len(yearly) == len({bucket.year for bucket in yearly})
+
+        start, end = analytics_service._bucket_bounds([yearly], None, None, "year")
+        points = analytics_service._fill_between(yearly, start, end, "year")
+        assert [point.month for point in points] == sorted(
+            point.month for point in points
+        )
+        assert all(point.month.month == 1 and point.month.day == 1 for point in points)
+        assert start <= min(yearly) and max(yearly) <= end
+
+        units, amount = db.execute(
+            select(
+                func.coalesce(func.sum(SaleLineFact.quantity), 0),
+                func.coalesce(func.sum(SaleLineFact.line_total), 0),
+            ).where(*filters)
+        ).one()
+        # The yearly chart and the aggregates describe exactly the same rows.
+        assert sum(point.units_count for point in points) == int(units)
+        assert sum(point.amount for point in points) == amount

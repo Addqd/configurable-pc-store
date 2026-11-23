@@ -1,4 +1,4 @@
-import { useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react'
+import { useEffect, useState, type FocusEvent, type KeyboardEvent, type MouseEvent } from 'react'
 import DatePicker from 'react-datepicker'
 import { useTranslation } from 'react-i18next'
 import { enGB } from 'date-fns/locale/en-GB'
@@ -20,6 +20,16 @@ interface DateFilterFieldProps {
   value: string
   /** Called only with a complete `YYYY-MM-DD` date, or with `''` for "no date". */
   onChange: (iso: string) => void
+  /**
+   * Increment to drop the local draft, its messages and its calendar state. A
+   * reset cannot rely on `value`: an invalid draft may exist while the URL holds
+   * no date at all, so the applied value would never change.
+   */
+  resetToken?: number
+  /** Reports whether the field holds text that is not the applied filter. */
+  onDraftChange?: (hasDraft: boolean) => void
+  /** Layout of the field in its row; the journal narrows it, the default stretches. */
+  className?: string
 }
 
 type RawChangeEvent = MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>
@@ -35,8 +45,12 @@ type RawChangeEvent = MouseEvent<HTMLElement> | KeyboardEvent<HTMLElement>
  * The draft and the applied filter stay two separate things. A draft that cannot
  * be applied is never presented as the active filter: the field says that it was
  * not applied and, when a date is still filtering the journal, which date that is.
+ * `resetToken` is the only way to drop that local draft: the URL alone cannot,
+ * because an invalid draft can exist while it holds no date at all.
  */
-export function DateFilterField({ id, label, value, onChange }: DateFilterFieldProps) {
+export function DateFilterField({
+  id, label, value, onChange, resetToken = 0, onDraftChange, className = 'min-w-[140px] flex-1',
+}: DateFilterFieldProps) {
   const { i18n, t } = useTranslation()
   const [draft, setDraft] = useState(() => textFromIso(value))
   // An unfinished date is reported once the admin leaves the field, never while
@@ -46,14 +60,21 @@ export function DateFilterField({ id, label, value, onChange }: DateFilterFieldP
   // adjusted during render instead of in an effect, so the field never renders a
   // stale value for a frame.
   const [syncedValue, setSyncedValue] = useState(value)
-  if (value !== syncedValue) {
+  const [syncedReset, setSyncedReset] = useState(resetToken)
+  if (value !== syncedValue || resetToken !== syncedReset) {
     setSyncedValue(value)
+    setSyncedReset(resetToken)
     setDraft(textFromIso(value))
     setLeftField(false)
   }
   const noticeId = `${id}-notice`
 
   const appliedText = textFromIso(value)
+  // The parent needs to know that there is something to clear: an invalid draft
+  // can exist while the URL has no date filter at all.
+  useEffect(() => {
+    onDraftChange?.(draft !== '' && draft !== appliedText)
+  }, [draft, appliedText, onDraftChange])
   const draftIsComplete = isCompleteDateText(draft)
   const draftDate = dateFromText(draft)
   // A draft that differs from the applied filter: either a finished but
@@ -105,7 +126,7 @@ export function DateFilterField({ id, label, value, onChange }: DateFilterFieldP
   }
 
   return (
-    <div className="min-w-[140px] flex-1" onBlur={handleBlur}>
+    <div className={`pc-date-field ${className}`} onBlur={handleBlur}>
       {/* The status sits in the label row: the calendar popper opens right below
           the input, so a message under the field would be covered while typing. */}
       <div className="mb-1 flex items-baseline justify-between gap-2">

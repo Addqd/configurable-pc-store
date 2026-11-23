@@ -31,13 +31,13 @@ export const AdminProductStatsDetailOut = zod.object({
 }),
   "date_from": zod.union([zod.iso.date(),zod.null()]).optional(),
   "date_to": zod.union([zod.iso.date(),zod.null()]).optional(),
-  "granularity": zod.enum(['day', 'month']).default(adminProductStatsDetailOutGranularityDefault),
+  "granularity": zod.enum(['day', 'month', 'year']).default(adminProductStatsDetailOutGranularityDefault),
   "monthly": zod.array(zod.object({
   "month": zod.iso.date(),
   "orders_count": zod.int(),
   "units_count": zod.int(),
   "amount": zod.string()
-}).describe('One time bucket; `month` is the bucket start (a day or a month start).')).default(adminProductStatsDetailOutMonthlyDefault),
+}).describe('One time bucket, kept under its historical name for compatibility.\n\n`month` is the bucket start: the day itself for `day`, the first of the month\nfor `month`, and the first of January for `year`.')).default(adminProductStatsDetailOutMonthlyDefault),
   "rating_distribution": zod.array(zod.object({
   "rating": zod.int(),
   "count": zod.int()

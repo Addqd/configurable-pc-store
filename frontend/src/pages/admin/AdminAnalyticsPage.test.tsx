@@ -18,7 +18,7 @@ const multiYearMonthly = [
   { month: '2026-02-01', orders_count: 12, units_count: 18, amount: '130000' },
 ]
 
-type Granularity = 'day' | 'month'
+type Granularity = 'day' | 'month' | 'year'
 
 function analyticsHandler(options: {
   monthly?: typeof overviewFixture.monthly
@@ -218,6 +218,31 @@ describe('admin analytics', () => {
     await waitFor(() => expect(chartTexts()).toContain('2 нояб.'))
     expect(chartTexts()).toContain('6 нояб.')
     expect(dialog).toBeTruthy()
+  })
+
+  it('labels a long history by year and notes the yearly grouping', async () => {
+    setup({
+      granularity: 'year',
+      monthly: [
+        { month: '2012-01-01', orders_count: 1, units_count: 2, amount: '200' },
+        { month: '2019-01-01', orders_count: 1, units_count: 1, amount: '700' },
+        { month: '2026-01-01', orders_count: 3, units_count: 5, amount: '1500' },
+      ],
+    })
+    await screen.findByText('391')
+    // Yearly buckets are labelled with the calendar year on the axis.
+    await waitFor(() => expect(chartTexts()).toContain('2012'))
+    expect(chartTexts()).toContain('2019')
+    expect(chartTexts()).toContain('2026')
+    expect(screen.getByText('Данные сгруппированы по годам.')).toBeTruthy()
+    expect(screen.queryByText('Данные сгруппированы по месяцам.')).toBeNull()
+
+    // The metric switch keeps working on a yearly axis.
+    fireEvent.change(screen.getByLabelText('Динамика продаж'), { target: { value: 'amount' } })
+    await waitFor(() => expect(chartTexts().some((text) => text.includes('₽'))).toBe(true))
+
+    await act(async () => { await i18n.changeLanguage('en') })
+    expect(screen.getByText('Data is grouped by year.')).toBeTruthy()
   })
 
   it('keeps the selected comparison product name when the search results no longer contain it', async () => {

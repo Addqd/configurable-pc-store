@@ -302,7 +302,9 @@ export function AnalyticsOverview() {
           <span>
             {granularity === 'day'
               ? t('admin.analytics.grouped_day')
-              : t('admin.analytics.grouped')}
+              : granularity === 'year'
+                ? t('admin.analytics.grouped_year')
+                : t('admin.analytics.grouped')}
           </span>
           <span>{t('admin.analytics.period_line', { period: periodLabel })}</span>
         </div>

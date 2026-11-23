@@ -44,8 +44,12 @@ MAX_COMPARISON_PRODUCTS = 5
 MAX_MONTHS = 120
 # Maximum number of buckets a daily series may contain.
 MAX_DAYS = 400
+# Maximum number of buckets a yearly series may contain. It only applies to the
+# requested interval: an axis is narrowed to the recorded years first, and a
+# recorded history longer than this is reported instead of being truncated.
+MAX_YEARS = 400
 
-Granularity = Literal["day", "month"]
+Granularity = Literal["day", "month", "year"]
 
 
 def _sales_bounds(
@@ -112,13 +116,36 @@ def _month_first(month_value: datetime | date) -> date:
     return date(month_value.year, month_value.month, 1)
 
 
+def _year_first(value: datetime | date) -> date:
+    return date(value.year, 1, 1)
+
+
 def _day_of(value: datetime | date) -> date:
     return date(value.year, value.month, value.day)
 
 
 def _bucket_first(value: datetime | date, granularity: Granularity) -> date:
     """Start of the bucket a ledger timestamp belongs to."""
+    if granularity == "year":
+        return _year_first(value)
     return _month_first(value) if granularity == "month" else _day_of(value)
+
+
+def _bucket_floor(value: date, granularity: Granularity) -> date:
+    """Start of the bucket a requested range boundary belongs to."""
+    if granularity == "year":
+        return _year_first(value)
+    return _month_start(value) if granularity == "month" else value
+
+
+def _year_sequence(start: date, end: date) -> list[date]:
+    current = _year_first(start)
+    last = max(_year_first(end), current)
+    years: list[date] = []
+    while current <= last and len(years) < MAX_YEARS:
+        years.append(current)
+        current = date(current.year + 1, 1, 1)
+    return years
 
 
 def _month_sequence(start: date, end: date) -> list[date]:
@@ -133,11 +160,15 @@ def _month_sequence(start: date, end: date) -> list[date]:
 
 def _bucket_limit(granularity: Granularity) -> int:
     """Hard ceiling on the number of points one series may return."""
+    if granularity == "year":
+        return MAX_YEARS
     return MAX_DAYS if granularity == "day" else MAX_MONTHS
 
 
 def _bucket_span(start: date, end: date, granularity: Granularity) -> int:
     """Number of buckets an inclusive interval covers in `granularity`."""
+    if granularity == "year":
+        return end.year - start.year + 1
     if granularity == "month":
         return (end.year - start.year) * 12 + (end.month - start.month) + 1
     return (end - start).days + 1
@@ -146,6 +177,8 @@ def _bucket_span(start: date, end: date, granularity: Granularity) -> int:
 def _tail_window(start: date, end: date, granularity: Granularity) -> tuple[date, date]:
     """The last `_bucket_limit` buckets of an interval that cannot be shown whole."""
     limit = _bucket_limit(granularity)
+    if granularity == "year":
+        return max(start, date(end.year - (limit - 1), 1, 1)), end
     if granularity == "month":
         return max(start, _shift_months(end, -(limit - 1))), end
     return max(start, end - timedelta(days=limit - 1)), end
@@ -162,7 +195,8 @@ def _display_interval(
     The requested filtering interval stays the source of the totals; it can be far
     longer than a readable axis. A bounded axis must never drop a recorded sale, so
     an over-long request is narrowed to the interval that actually holds the
-    records. Only a window that still cannot be shown whole is cut from its tail.
+    records. Only a window that still cannot be shown whole is cut from its tail;
+    a yearly axis is never cut, because that would hide real recorded sales.
     """
     if _bucket_span(start, end, granularity) <= _bucket_limit(granularity):
         return start, end
@@ -177,6 +211,17 @@ def _display_interval(
         # is widened to the last recorded month, so no bucket can fall outside it.
         window_start = max(start, _month_start(first_recorded))
         window_end = min(end, _month_end(last_recorded))
+    elif granularity == "year":
+        # A yearly axis never needs a tail window: it is narrowed to the years that
+        # actually hold records, so no recorded sale can be cut off.
+        window_start = max(start, _year_first(first_recorded))
+        window_end = min(end, _year_first(last_recorded))
+        if _bucket_span(window_start, window_end, "year") > MAX_YEARS:
+            raise InvalidInputError(
+                "Recorded sales span more than "
+                f"{MAX_YEARS} years and cannot be drawn on one axis"
+            )
+        return window_start, window_end
     else:
         window_start = max(start, first_recorded)
         window_end = min(end, last_recorded)
@@ -189,6 +234,8 @@ def _display_interval(
 
 def _bucket_sequence(start: date, end: date, granularity: Granularity) -> list[date]:
     """Ordered bucket starts between `start` and `end`, both inclusive."""
+    if granularity == "year":
+        return _year_sequence(start, end)
     if granularity == "month":
         return _month_sequence(start, end)
     days: list[date] = []
@@ -247,10 +294,17 @@ def _granularity_for(
     The rule looks at the records, not at the requested period, so a 30-day,
     three-month or all-time selection over a single month of sales still becomes a
     readable daily line. Several calendar months keep the existing monthly
-    aggregation. With no sales at all the requested interval decides.
+    aggregation, and a recorded history longer than the monthly bucket cap is
+    grouped by calendar year instead of having its oldest months dropped. With no
+    sales at all the requested interval decides.
     """
     earliest, latest = span
     if earliest is not None and latest is not None:
+        months = (
+            (latest.year - earliest.year) * 12 + (latest.month - earliest.month) + 1
+        )
+        if months > MAX_MONTHS:
+            return "year"
         same_month = (earliest.year, earliest.month) == (latest.year, latest.month)
         return "day" if same_month else "month"
     start = date_from or date_to
@@ -278,19 +332,15 @@ def _bucket_bounds(
     """
     buckets = [bucket for series in series_group for bucket in series]
     if date_from is not None:
-        start = date_from if granularity == "day" else _month_start(date_from)
+        start = _bucket_floor(date_from, granularity)
     elif buckets:
         start = min(buckets)
     elif date_to is not None:
-        start = date_to if granularity == "day" else _month_start(date_to)
+        start = _bucket_floor(date_to, granularity)
     else:
-        start = (
-            _day_of(date.today())
-            if granularity == "day"
-            else _month_start(date.today())
-        )
+        start = _bucket_floor(date.today(), granularity)
     if date_to is not None:
-        end = date_to if granularity == "day" else _month_start(date_to)
+        end = _bucket_floor(date_to, granularity)
     elif buckets:
         end = max(buckets)
     else:

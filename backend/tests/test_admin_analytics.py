@@ -705,3 +705,131 @@ def test_account_deletion_does_not_change_historical_metrics(
     ).json()
     assert stats["total"] == 1
     assert stats["items"][0]["sold_units"] == 2
+
+
+def _ledger_row(
+    db: Session,
+    *,
+    product,
+    ordered_at: datetime,
+    quantity: int,
+    unit_price: str,
+    order_id: int,
+) -> None:
+    """Historical ledger row, so analytics can be probed over real years."""
+    price = Decimal(unit_price)
+    db.add(
+        SaleLineFact(
+            source_order_item_id=int(uuid4().int % 10**15),
+            source_order_id=order_id,
+            product_id=product.id,
+            kind="product",
+            sku_snapshot=product.sku,
+            name_snapshot=product.name,
+            unit_price=price,
+            quantity=quantity,
+            line_total=price * quantity,
+            ordered_at=ordered_at,
+        )
+    )
+    db.flush()
+
+
+def test_long_history_is_grouped_by_year_without_losing_sales(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """A history wider than the monthly bucket cap keeps every recorded sale."""
+    cpu = sample_products["cpu"]
+    gpu = sample_products["gpu"]
+    _ledger_row(
+        test_db_session,
+        product=cpu,
+        ordered_at=datetime(2012, 3, 4, 10, tzinfo=UTC),
+        quantity=2,
+        unit_price="100.00",
+        order_id=900001,
+    )
+    _ledger_row(
+        test_db_session,
+        product=cpu,
+        ordered_at=datetime(2026, 5, 6, 10, tzinfo=UTC),
+        quantity=3,
+        unit_price="150.00",
+        order_id=900002,
+    )
+    _ledger_row(
+        test_db_session,
+        product=gpu,
+        ordered_at=datetime(2019, 7, 8, 10, tzinfo=UTC),
+        quantity=1,
+        unit_price="700.00",
+        order_id=900003,
+    )
+
+    params = {"date_from": "2010-01-01", "date_to": "2027-12-31"}
+    overview = _overview(api_client, admin_user, **params)
+    assert overview["granularity"] == "year"
+    labels = [point["month"] for point in overview["monthly"]]
+    assert labels == [f"{year}-01-01" for year in range(2010, 2028)]
+    # The chart and the aggregates describe exactly the same sales.
+    assert (
+        sum(point["units_count"] for point in overview["monthly"])
+        == overview["sold_units"]
+    )
+    assert sum(Decimal(point["amount"]) for point in overview["monthly"]) == Decimal(
+        overview["revenue"]
+    )
+    by_year = {point["month"][:4]: point for point in overview["monthly"]}
+    # The oldest recorded sale is still on the axis.
+    assert by_year["2012"]["units_count"] >= 2
+    assert by_year["2019"]["units_count"] >= 1
+    assert by_year["2026"]["units_count"] >= 3
+    # Years without sales are zero-filled, never invented.
+    assert by_year["2015"]["units_count"] == 0
+
+    detail = api_client.get(
+        f"/api/v1/admin/stats/products/{cpu.id}",
+        headers=admin_user["headers"],
+        params=params,
+    )
+    assert detail.status_code == 200, detail.text
+    detail_body = detail.json()
+    assert detail_body["granularity"] == "year"
+    cpu_years = {point["month"]: point for point in detail_body["monthly"]}
+    assert cpu_years["2012-01-01"]["units_count"] == 2
+    assert Decimal(cpu_years["2012-01-01"]["amount"]) == Decimal("200.00")
+    assert cpu_years["2026-01-01"]["units_count"] == 3
+    assert Decimal(cpu_years["2026-01-01"]["amount"]) == Decimal("450.00")
+    assert (
+        sum(point["units_count"] for point in detail_body["monthly"])
+        == detail_body["product"]["sold_units"]
+    )
+    assert sum(Decimal(point["amount"]) for point in detail_body["monthly"]) == Decimal(
+        detail_body["product"]["revenue"]
+    )
+
+    timeline = api_client.get(
+        "/api/v1/admin/stats/timeline",
+        headers=admin_user["headers"],
+        params=[
+            ("product_ids", cpu.id),
+            ("product_ids", gpu.id),
+            ("date_from", "2010-01-01"),
+            ("date_to", "2027-12-31"),
+        ],
+    )
+    assert timeline.status_code == 200, timeline.text
+    timeline_body = timeline.json()
+    assert timeline_body["granularity"] == "year"
+    series = {item["product_id"]: item["monthly"] for item in timeline_body["series"]}
+    # One shared year axis for both compared products.
+    assert [point["month"] for point in series[cpu.id]] == labels
+    assert [point["month"] for point in series[gpu.id]] == labels
+    assert sum(point["units_count"] for point in series[cpu.id]) == 5
+    assert sum(point["units_count"] for point in series[gpu.id]) == 1
+    assert sum(Decimal(point["amount"]) for point in series[cpu.id]) == Decimal(
+        "650.00"
+    )

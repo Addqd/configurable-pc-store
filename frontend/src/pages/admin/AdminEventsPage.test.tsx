@@ -275,6 +275,61 @@ describe('admin event journal date fields', () => {
     expect(fieldNotice()).toBeNull()
   })
 
+  it('resets an impossible draft even though no date filter is applied', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+    const callsBeforeTyping = eventRequests(fetchMock).length
+
+    fireEvent.change(input, { target: { value: '31022026' } })
+    await waitFor(() => expect(fieldNotice()?.textContent).toBe('Дата не применена.'))
+    // Nothing is filtered by date, but the field holds something that must be cleared.
+    const reset = screen.getByRole('button', { name: 'Сбросить' }) as HTMLButtonElement
+    await waitFor(() => expect(reset.disabled).toBe(false))
+
+    fireEvent.click(reset)
+
+    await waitFor(() => expect(input.value).toBe(''))
+    expect(dateToInput().value).toBe('')
+    expect(fieldNotice()).toBeNull()
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+    expect(locationText()).not.toContain('date_from')
+    expect(locationText()).not.toContain('date_to')
+    // The impossible day never reached the API.
+    expect(eventRequests(fetchMock)).toHaveLength(callsBeforeTyping)
+    expect(eventRequests(fetchMock).every((params) => !params.get('date_from'))).toBe(true)
+  })
+
+  it('resets an unfinished draft and keeps the other filters intact', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Создал сборку #28')
+
+    fireEvent.change(screen.getAllByRole('combobox')[0], { target: { value: 'order' } })
+    await waitFor(() => expect(locationText()).toContain('category=order'))
+    const callsBeforeTyping = eventRequests(fetchMock).length
+
+    const input = dateFromInput()
+    fireEvent.change(input, { target: { value: '0211' } })
+    const reset = screen.getByRole('button', { name: 'Сбросить' }) as HTMLButtonElement
+    await waitFor(() => expect(reset.disabled).toBe(false))
+
+    fireEvent.click(reset)
+
+    await waitFor(() => expect(input.value).toBe(''))
+    expect(fieldNotice()).toBeNull()
+    // Only the dates are reset: the category filter and its data stay.
+    expect(locationText()).toContain('category=order')
+    expect(locationText()).not.toContain('date_from')
+    expect(eventRequests(fetchMock)).toHaveLength(callsBeforeTyping)
+  })
+
+  it('keeps the reset button disabled while both fields are empty', async () => {
+    setup()
+    await screen.findByText('Создал сборку #28')
+    const reset = screen.getByRole('button', { name: 'Сбросить' }) as HTMLButtonElement
+    expect(reset.disabled).toBe(true)
+  })
+
   it('does not report a date that is still being typed, but does once the field is left', async () => {
     setup()
     await screen.findByText('Создал сборку #28')

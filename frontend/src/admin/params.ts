@@ -184,7 +184,17 @@ export function dayLabel(value: string, options: { withYear?: boolean } = {}): s
 }
 
 /** Time-axis resolution reported by the analytics API. */
-export type ChartGranularity = 'day' | 'month'
+export type ChartGranularity = 'day' | 'month' | 'year'
+
+/**
+ * Year label for chart axes: `2025` in both languages. Yearly buckets exist for
+ * histories longer than the monthly bucket cap, so the year alone identifies them.
+ */
+export function yearLabel(value: string): string {
+  const date = new Date(`${value.slice(0, 10)}T00:00:00`)
+  if (Number.isNaN(date.getTime())) return value.slice(0, 4)
+  return String(date.getFullYear())
+}
 
 /** Axis label of one timeline point in the resolution the API returned. */
 export function bucketLabel(
@@ -192,6 +202,7 @@ export function bucketLabel(
   granularity: ChartGranularity,
   options: { withYear?: boolean } = {},
 ): string {
+  if (granularity === 'year') return yearLabel(value)
   return granularity === 'day' ? dayLabel(value, options) : monthLabel(value, options)
 }
 

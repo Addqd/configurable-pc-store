@@ -198,14 +198,17 @@
    A focused, disabled or invalid field keeps its own state: the guard below
    leaves the focus ring, the disabled surface and the danger border untouched,
    which is exactly what used to flash when a blanket opacity/outline rule was
-   stacked on top of them. The block is intentionally outside `@layer` so the
-   hover colours are not cancelled by the field's own `border-border` /
-   `bg-surface` utilities in the utilities layer.
+   stacked on top of them. `.pc-field` is a wrapper `div`, so it never matches
+   `:disabled` itself: the explicit `data-disabled` mirror of the nested control
+   and `:has(:disabled)` both keep a control that cannot be used inert on hover.
+   The block is intentionally outside `@layer` so the hover colours are not
+   cancelled by the field's own `border-border` / `bg-surface` utilities in the
+   utilities layer.
    ========================================================================== */
 @media (hover: hover) and (pointer: fine) {
   .pc-field:hover:not(:focus):not(:focus-within):not(:disabled):not(
       [aria-invalid="true"]
-    ) {
+    ):not([data-disabled="true"]):not(:has(:disabled)) {
     border-color: var(--color-border-hover);
     background-color: var(--color-surface-3);
   }
@@ -285,6 +288,16 @@ html:not(.dark) .hover\:bg-primary-hover:hover {
 .pc-datepicker-popper {
   /* Above the fixed header and the admin dialogs' scrim. */
   z-index: 60;
+}
+
+/*
+ * The picker wraps the text input in its own inline-block element, which would
+ * shrink the input to its content width and leave the field's right half empty.
+ * The date field owns the width instead, so both inputs of the journal line up
+ * with the row and stay next to each other.
+ */
+.pc-date-field .react-datepicker-wrapper {
+  width: 100%;
 }
 
 .pc-datepicker-popper .react-datepicker {

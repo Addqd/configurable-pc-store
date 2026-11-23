@@ -934,7 +934,7 @@ export function AdminProductFormPage() {
               </h2>
               <div className="mt-4 space-y-4">
                 {isEdit ? (
-                  <FloatingControl id="product-name" label={`${t('admin.form.name')} *`}>
+                  <FloatingControl id="product-name" label={`${t('admin.form.name')} *`} disabled={locked}>
                     <input
                       id="product-name"
                       value={form.name}
@@ -964,7 +964,7 @@ export function AdminProductFormPage() {
                   {isEdit ? (
                     <>
                       <div>
-                        <FloatingControl id="product-price" label={`${t('admin.form.price')} *`}>
+                        <FloatingControl id="product-price" label={`${t('admin.form.price')} *`} disabled={locked}>
                           <input
                             id="product-price" type="text" inputMode="decimal" placeholder={pricePlaceholder}
                             value={priceText} disabled={locked} aria-required
@@ -975,7 +975,7 @@ export function AdminProductFormPage() {
                         {fieldErrors.price && <p className="mt-1 text-xs text-danger" role="alert">{fieldErrors.price}</p>}
                       </div>
                       <div>
-                        <FloatingControl id="product-stock" label={`${t('admin.form.stock')} *`}>
+                        <FloatingControl id="product-stock" label={`${t('admin.form.stock')} *`} disabled={locked}>
                           <input
                             id="product-stock" type="number" min="0" step="1" inputMode="numeric"
                             value={form.stock} disabled={locked} aria-required
@@ -985,7 +985,7 @@ export function AdminProductFormPage() {
                         </FloatingControl>
                         {fieldErrors.stock && <p className="mt-1 text-xs text-danger" role="alert">{fieldErrors.stock}</p>}
                       </div>
-                      <FloatingControl id="product-status" label={t('admin.form.status')}>
+                      <FloatingControl id="product-status" label={t('admin.form.status')} disabled={locked}>
                         <select
                           id="product-status"
                           value={form.isActive ? 'active' : 'inactive'}
@@ -1049,7 +1049,7 @@ export function AdminProductFormPage() {
               </h2>
               <div className="mt-4">
                 {isEdit ? (
-                  <FloatingControl id="product-description" label={t('admin.form.description')}>
+                  <FloatingControl id="product-description" label={t('admin.form.description')} disabled={locked}>
                     <textarea
                       id="product-description"
                       value={form.description}

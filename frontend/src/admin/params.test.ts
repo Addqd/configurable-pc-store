@@ -3,7 +3,7 @@ import i18n from '../i18n'
 import {
   bucketLabel, dayLabel,
   daysAgo, formatCompactNumber, formatMoney, formatNumber, isoDate, MAX_SEARCH_LENGTH, monthLabel,
-  readSearchQuery, spansMultipleYears,
+  readSearchQuery, spansMultipleYears, yearLabel,
 } from './params'
 
 const setLanguage = async (language: 'ru' | 'en') => {
@@ -79,6 +79,19 @@ describe('admin chart day labels', () => {
     expect(bucketLabel('2026-11-02', 'day')).toBe('2 нояб.')
     expect(bucketLabel('2026-11-01', 'month')).toBe('Ноя')
     expect(bucketLabel('2026-11-02', 'day', { withYear: true })).toContain('2026')
+  })
+
+  it('labels a yearly point with its calendar year only', () => {
+    // Yearly buckets exist for histories wider than the monthly bucket cap.
+    expect(bucketLabel('2013-01-01', 'year')).toBe('2013')
+    expect(bucketLabel('2026-01-01', 'year', { withYear: true })).toBe('2026')
+    expect(yearLabel('2019-01-01')).toBe('2019')
+  })
+
+  it('keeps the yearly label language-independent', async () => {
+    expect(yearLabel('2013-01-01')).toBe('2013')
+    await setLanguage('en')
+    expect(bucketLabel('2013-01-01', 'year')).toBe('2013')
   })
 })
 

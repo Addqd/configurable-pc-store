@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { FiAlertCircle, FiCheckCircle, FiSearch, FiX } from 'react-icons/fi'
@@ -43,6 +43,24 @@ export function AdminEventsPage() {
   const pageSize = readPageSize(searchParams)
   const invalidRange = Boolean(dateFrom && dateTo && dateFrom > dateTo)
 
+  // The date fields keep their own unapplied draft, so the reset button has to
+  // know about more than the URL: an invalid date can be typed while no date
+  // filter is applied at all. The token is what actually clears those drafts.
+  const [dateDrafts, setDateDrafts] = useState({ from: false, to: false })
+  const [dateResetToken, setDateResetToken] = useState(0)
+  const reportDraftFrom = useCallback((hasDraft: boolean) => {
+    setDateDrafts((current) => (current.from === hasDraft ? current : { ...current, from: hasDraft }))
+  }, [])
+  const reportDraftTo = useCallback((hasDraft: boolean) => {
+    setDateDrafts((current) => (current.to === hasDraft ? current : { ...current, to: hasDraft }))
+  }, [])
+  const resetDates = () => {
+    setDateDrafts({ from: false, to: false })
+    setDateResetToken((token) => token + 1)
+    setSearchParams((current) => withParams(current, { date_from: '', date_to: '', page: 1 }))
+  }
+  const hasDateDraft = dateDrafts.from || dateDrafts.to
+
   const filterOptions = useGetFilterOptionsApiV1AdminEventsFiltersGet()
   const events = useListEventsApiV1AdminEventsGet(
     {
@@ -72,7 +90,7 @@ export function AdminEventsPage() {
 
   return (
     <AdminLayout footer={false}>
-      <section className={`${adminCard} px-5 py-6 sm:px-8 sm:py-7`}>
+      <section className={`${adminCard} mx-auto w-full max-w-[1040px] px-5 py-6 sm:px-8 sm:py-7`}>
         <div className="flex items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
             <span className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-light text-primary">
@@ -163,19 +181,25 @@ export function AdminEventsPage() {
                 id="events-date-from"
                 label={t('admin.events.date_from')}
                 value={dateFrom}
+                className="w-full sm:w-[230px]"
+                resetToken={dateResetToken}
+                onDraftChange={reportDraftFrom}
                 onChange={(next) => setSearchParams((current) => withParams(current, { date_from: next, page: 1 }))}
               />
               <DateFilterField
                 id="events-date-to"
                 label={t('admin.events.date_to')}
                 value={dateTo}
+                className="w-full sm:w-[230px]"
+                resetToken={dateResetToken}
+                onDraftChange={reportDraftTo}
                 onChange={(next) => setSearchParams((current) => withParams(current, { date_to: next, page: 1 }))}
               />
               <button
                 type="button"
-                onClick={() => setSearchParams((current) => withParams(current, { date_from: '', date_to: '', page: 1 }))}
-                disabled={!dateFrom && !dateTo}
-                className="h-9 rounded-lg border border-border bg-surface px-3 text-sm text-text-primary hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={resetDates}
+                disabled={!dateFrom && !dateTo && !hasDateDraft}
+                className="h-9 shrink-0 rounded-lg border border-border bg-surface px-3 text-sm text-text-primary hover:bg-surface-3 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {t('admin.events.reset')}
               </button>
