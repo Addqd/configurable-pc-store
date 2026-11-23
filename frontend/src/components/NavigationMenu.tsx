@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { FiHome, FiBox, FiCpu, FiMonitor, FiHeadphones, FiWind, FiServer, FiSettings, FiTag, FiHelpCircle, FiInfo } from 'react-icons/fi'
+import { FiHome, FiTool, FiBox, FiCpu, FiMonitor, FiHeadphones, FiWind, FiServer, FiSettings, FiTag, FiHelpCircle, FiInfo } from 'react-icons/fi'
 import { HiMiniChevronRight } from 'react-icons/hi2'
 import { Link } from 'react-router'
 import type { ComponentType } from 'react'
@@ -7,6 +7,7 @@ import type { ComponentType } from 'react'
 interface NavItem { labelKey: string; icon: ComponentType<{ className?: string }>; href: string }
 const MENU_ITEMS: NavItem[] = [
   { labelKey: 'header.nav.home', icon: FiHome, href: '/' },
+  { labelKey: 'header.nav.builder', icon: FiTool, href: '/builder' },
   { labelKey: 'header.nav.prebuilt', icon: FiBox, href: '/catalog?category=prebuilt' },
   { labelKey: 'header.nav.components', icon: FiCpu, href: '/catalog?category=components' },
   { labelKey: 'header.nav.peripheral', icon: FiMonitor, href: '/catalog?category=peripheral' },
@@ -18,7 +19,9 @@ const MENU_ITEMS: NavItem[] = [
   { labelKey: 'header.nav.help', icon: FiHelpCircle, href: '/account' },
   { labelKey: 'header.nav.about', icon: FiInfo, href: '/account' },
 ]
-const SEPARATOR_INDEX = 8
+/** Separator keeps its existing meaning: it splits the catalogue groups from «Акции».
+ *  The configurator entry sits above that split, directly after «Главная». */
+const SEPARATOR_INDEX = 9
 export function NavigationMenu({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   return <div className="w-[280px] max-w-[calc(100vw-16px)] bg-surface rounded-xl border border-border shadow-[0_8px_30px_var(--color-shadow-md)] py-2">

@@ -3,7 +3,7 @@ import { knownError } from '../i18n/format'
 import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { FiX, FiEye, FiEyeOff } from 'react-icons/fi'
 import { z } from 'zod'
-import { useAccountStore } from '../stores/accountStore'
+import { useAccountStore, reloadAfterAuthChange } from '../stores/accountStore'
 
 type Mode = 'login' | 'register'
 interface AuthModalProps { isOpen: boolean; onClose: () => void; defaultMode?: Mode }
@@ -131,6 +131,8 @@ function AuthModalContent({ onClose, defaultMode = 'login' }: Omit<AuthModalProp
       setLoginPassword('')
       setIdentifier('')
       onClose()
+      // Success boundary: the session is in place, so the page reloads once with it.
+      reloadAfterAuthChange()
     } catch { setLoginError(t('auth.login_error')) }
     finally { setLoading(false) }
   }
@@ -155,6 +157,8 @@ function AuthModalContent({ onClose, defaultMode = 'login' }: Omit<AuthModalProp
       if (!result.success) { setErrors({ form: knownError(result.error) }); return }
       setEmail(''); setUsername(''); setPassword(''); setConfirmPassword('')
       onClose()
+      // Registration already signed the account in, so it is a success boundary too.
+      reloadAfterAuthChange()
     } catch { setErrors({ form: t('auth.register_error') }) }
     finally { setLoading(false) }
   }

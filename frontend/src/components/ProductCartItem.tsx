@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { RegularCartItem } from '../stores/cartStore'
 import { formatPrice } from '../utils/formatPrice'
@@ -26,7 +27,13 @@ export function ProductCartItem({ item, onQuantityChange: updateQuantity, onRemo
             {item.name}
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-text-muted">
-            {item.specs.join(', ')}
+            {item.specs.map((spec, index) => (
+              <Fragment key={`${index}-${spec}`}>
+                {/* A filled bullet only between specifications: never leading or trailing. */}
+                {index > 0 && <span className="px-1.5">•</span>}
+                <span>{spec}</span>
+              </Fragment>
+            ))}
           </p>
         </div>
       </div>

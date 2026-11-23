@@ -12,6 +12,7 @@ import { useAccountStore } from '../stores/accountStore'
 import type { RegularCartItem, BuildCartItem, Order } from '../stores/cartStore'
 import { useState } from 'react'
 import { Link } from 'react-router'
+import { FiShoppingCart } from 'react-icons/fi'
 import { CartSkeleton } from '../components/skeletons/StoreSkeletons'
 
 interface DemoOrderMessage {
@@ -65,9 +66,8 @@ function CartContent() {
             </div>
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-center">
-              <svg className="w-20 h-20 text-text-muted mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
-                <path d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-1.8 7M17 13l1.8 7M13 5v8M13 13V5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
+              {/* Same cart glyph the header uses, scaled to the previous illustration size. */}
+              <FiShoppingCart className="w-20 h-20 text-text-muted mb-4" aria-hidden="true" />
               <h2 className="text-xl font-semibold text-text-primary mb-2">{t('cart.empty_title')}</h2>
               <p className="text-sm text-text-muted mb-4 max-w-sm">
                 {t('cart.empty_desc')}

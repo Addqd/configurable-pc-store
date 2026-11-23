@@ -51,7 +51,7 @@ const SMALL_TEXT_WIDTH = 640
 const NAME_KEY = 'name'
 const VALUE_KEY = 'value'
 
-/** Space kept free next to a value label that sits on top of its bar. */
+/** Space kept free next to a value label that sits inside its bar. */
 const INSIDE_LABEL_PADDING = 8
 
 interface ValueLabelEntry {
@@ -68,23 +68,33 @@ interface AxisTickEntry {
   payload?: { value?: unknown }
 }
 
-/** Numeric value of every bar, drawn on the bar or right beside its end. */
+/**
+ * Numeric value of every bar, drawn **inside** the blue bar.
+ *
+ * A ranking row with a very small positive value would otherwise produce a bar
+ * shorter than its own label, so `BarList` raises the *visual* length of such a
+ * bar to the label width with Recharts' `minPointSize` (see `minBarWidth`). The
+ * label itself therefore always uses one identical white style. A zero value
+ * stays a zero-length row: its `0` is drawn beside the empty track in the
+ * secondary text colour, so no bar pretends that something was sold.
+ */
 function BarValueLabel({ formatValue, ...props }: ValueLabelEntry & { formatValue: (value: number) => string }) {
   const x = Number(props.x ?? 0)
   const y = Number(props.y ?? 0)
   const width = Number(props.width ?? 0)
   const height = Number(props.height ?? 0)
-  const text = formatValue(Number(props.value ?? 0))
-  const fitsInside = width >= estimateTextWidth(text, VALUE_FONT_SIZE) + INSIDE_LABEL_PADDING * 2
+  const value = Number(props.value ?? 0)
+  const text = formatValue(value)
+  const insideBar = value > 0
   return (
     <text
-      x={fitsInside ? x + width - INSIDE_LABEL_PADDING : x + width + VALUE_GAP}
+      x={insideBar ? x + width - INSIDE_LABEL_PADDING : x + width + VALUE_GAP}
       y={y + height / 2}
-      textAnchor={fitsInside ? 'end' : 'start'}
+      textAnchor={insideBar ? 'end' : 'start'}
       dominantBaseline="central"
       fontSize={VALUE_FONT_SIZE}
       fontWeight={600}
-      fill={fitsInside ? '#ffffff' : 'var(--color-text-secondary)'}
+      fill={insideBar ? '#ffffff' : 'var(--color-text-secondary)'}
     >
       {text}
     </text>
@@ -127,6 +137,20 @@ export function BarList({ items, max, axisLabels, legend, formatValue = (value) 
     Math.round(LABEL_COLUMN_RATIO * containerWidth),
     Math.max(0, containerWidth - MIN_PLOT_WIDTH - COLUMN_GAP),
   )
+  /** Width of the plot area, i.e. the length of a full-length bar. */
+  const plotWidth = Math.max(0, containerWidth - nameWidth - COLUMN_GAP)
+  /**
+   * Smallest visual bar length that still holds its own formatted label.
+   *
+   * `minPointSize` receives the bar value, so the value keeps its real magnitude
+   * in the data, tooltip and axis: only the drawn length is raised to the label
+   * width, and never beyond the plot area.
+   */
+  const minBarWidth = (value: number) => {
+    if (!(value > 0)) return 0
+    const labelWidth = estimateTextWidth(formatValue(value), VALUE_FONT_SIZE) + INSIDE_LABEL_PADDING * 2
+    return Math.min(labelWidth, plotWidth)
+  }
   const data = items.map((item) => ({
     [NAME_KEY]: item.label,
     [VALUE_KEY]: item.barValue ?? item.value,
@@ -216,6 +240,7 @@ export function BarList({ items, max, axisLabels, legend, formatValue = (value) 
             barSize={BAR_HEIGHT}
             background={{ fill: 'var(--color-surface-3)', radius: BAR_RADIUS }}
             shape={<Rectangle radius={BAR_RADIUS} />}
+            minPointSize={(value) => minBarWidth(Number(value ?? 0))}
             isAnimationActive={false}
           >
             <LabelList

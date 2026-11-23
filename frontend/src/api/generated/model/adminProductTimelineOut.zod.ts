@@ -16,7 +16,7 @@ export const AdminProductTimelineOut = zod.object({
   "orders_count": zod.int(),
   "units_count": zod.int(),
   "amount": zod.string()
-})).default(adminProductTimelineOutMonthlyDefault)
+}).describe('One time bucket, kept under its historical name for compatibility.\n\n`month` is the bucket start: the day itself for `day`, the first of the month\nfor `month`, and the first of January for `year`.')).default(adminProductTimelineOutMonthlyDefault)
 })
 
 export type AdminProductTimelineOut = zod.input<typeof AdminProductTimelineOut>;

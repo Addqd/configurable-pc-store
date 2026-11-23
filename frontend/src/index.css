@@ -109,31 +109,10 @@
   }
 }
 
-/* Give all actionable controls feedback, while preserving their own hover colors.
-   The base layer cannot replace explicit Tailwind hover/opacity utilities. */
-@media (hover: hover) and (pointer: fine) {
-  @layer base {
-    :where(
-      button:not(:disabled):not([aria-disabled="true"]),
-      a[href]:not([aria-disabled="true"]),
-      select:not(:disabled),
-      summary,
-      [role="button"]:not([aria-disabled="true"])
-    ):hover {
-      opacity: 0.94;
-    }
-
-    /* A very light border cue on controls that receive text input. */
-    :where(
-      input:not(:disabled):not([readonly]):not([type="hidden"]),
-      textarea:not(:disabled):not([readonly]),
-      select:not(:disabled)
-    ):hover:not(:focus):not(:focus-visible) {
-      outline: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
-      outline-offset: 0;
-    }
-  }
-}
+/* The approved hover feedback lives in the components themselves: Tailwind
+   `hover:` utilities and the `pc-hover-*` recipes below. A global dimming or an
+   extra ring on every hovered control would stack on top of those and make the
+   element flash at each hover boundary, so no such blanket rule is applied. */
 
 /* Footer reference: vertical separators only, centered in existing 32px grid gaps. */
 @media (min-width: 64rem) {
@@ -206,6 +185,36 @@
 }
 
 /* ==========================================================================
+   Shared form fields
+   --------------------------------------------------------------------------
+   One local hover recipe for the shared admin input, select and textarea
+   classes (`adminControl` / `adminSelect` / `adminTextarea`) and for the
+   floating-label field of the edit form. The colours move exactly one design
+   token step — the border towards `--color-border-hover`, the surface towards
+   `--color-surface-3` — and the field's existing `transition-colors` animates
+   them, so the feedback is smooth and never changes geometry, border width or
+   opacity.
+
+   A focused, disabled or invalid field keeps its own state: the guard below
+   leaves the focus ring, the disabled surface and the danger border untouched,
+   which is exactly what used to flash when a blanket opacity/outline rule was
+   stacked on top of them. `.pc-field` is a wrapper `div`, so it never matches
+   `:disabled` itself: the explicit `data-disabled` mirror of the nested control
+   and `:has(:disabled)` both keep a control that cannot be used inert on hover.
+   The block is intentionally outside `@layer` so the hover colours are not
+   cancelled by the field's own `border-border` / `bg-surface` utilities in the
+   utilities layer.
+   ========================================================================== */
+@media (hover: hover) and (pointer: fine) {
+  .pc-field:hover:not(:focus):not(:focus-within):not(:disabled):not(
+      [aria-invalid="true"]
+    ):not([data-disabled="true"]):not(:has(:disabled)) {
+    border-color: var(--color-border-hover);
+    background-color: var(--color-surface-3);
+  }
+}
+
+/* ==========================================================================
    Skeleton shimmer
    --------------------------------------------------------------------------
    One shared loading surface for every placeholder. The element keeps a toned
@@ -267,4 +276,100 @@ html:not(.dark) .hover\:bg-primary-hover:hover {
 
 [data-testid="promotional-banner"]:has(a[href="/builder"]) p {
   font-size: clamp(12px, 0.85vw, 15px);
+}
+
+/* ==========================================================================
+   Calendar (react-datepicker)
+   --------------------------------------------------------------------------
+   The vendor stylesheet ships a light-only palette. These rules keep its
+   geometry and keyboard behaviour and map every surface, text and accent onto
+   the project tokens, so one calendar works in both themes.
+   ========================================================================== */
+.pc-datepicker-popper {
+  /* Above the fixed header and the admin dialogs' scrim. */
+  z-index: 60;
+}
+
+/*
+ * The picker wraps the text input in its own inline-block element, which would
+ * shrink the input to its content width and leave the field's right half empty.
+ * The date field owns the width instead, so both inputs of the journal line up
+ * with the row and stay next to each other.
+ */
+.pc-date-field .react-datepicker-wrapper {
+  width: 100%;
+}
+
+.pc-datepicker-popper .react-datepicker {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: 0 8px 30px var(--color-shadow-md);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+}
+
+.pc-datepicker-popper .react-datepicker__header {
+  background-color: var(--color-surface-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pc-datepicker-popper .react-datepicker__current-month,
+.pc-datepicker-popper .react-datepicker-time__header {
+  color: var(--color-text-primary);
+  font-size: 0.875rem;
+  font-weight: 600;
+}
+
+.pc-datepicker-popper .react-datepicker__day-name,
+.pc-datepicker-popper .react-datepicker__day--outside-month {
+  color: var(--color-text-muted);
+}
+
+.pc-datepicker-popper .react-datepicker__day,
+.pc-datepicker-popper .react-datepicker__month-text,
+.pc-datepicker-popper .react-datepicker__year-text {
+  color: var(--color-text-primary);
+  border-radius: var(--radius-sm);
+}
+
+.pc-datepicker-popper .react-datepicker__day:hover,
+.pc-datepicker-popper .react-datepicker__month-text:hover,
+.pc-datepicker-popper .react-datepicker__year-text:hover {
+  background-color: var(--color-surface-3);
+  color: var(--color-primary);
+}
+
+.pc-datepicker-popper .react-datepicker__day--selected,
+.pc-datepicker-popper .react-datepicker__day--keyboard-selected,
+.pc-datepicker-popper .react-datepicker__day--in-selecting-range,
+.pc-datepicker-popper .react-datepicker__day--in-range {
+  background-color: var(--color-primary);
+  color: #ffffff;
+  font-weight: 600;
+}
+
+.dark .pc-datepicker-popper .react-datepicker__day--selected,
+.dark .pc-datepicker-popper .react-datepicker__day--keyboard-selected {
+  color: #08090c;
+}
+
+.pc-datepicker-popper .react-datepicker__day--disabled {
+  color: var(--color-text-muted);
+  opacity: 0.45;
+}
+
+.pc-datepicker-popper .react-datepicker__navigation-icon::before {
+  border-color: var(--color-text-secondary);
+}
+
+.pc-datepicker-popper .react-datepicker__navigation:hover .react-datepicker__navigation-icon::before {
+  border-color: var(--color-primary);
+}
+
+.pc-datepicker-popper .react-datepicker__day:focus-visible,
+.pc-datepicker-popper .react-datepicker__navigation:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
 }

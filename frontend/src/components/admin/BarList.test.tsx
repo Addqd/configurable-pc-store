@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { BarList, type BarItem } from './BarList'
-import { truncateText } from '../../admin/useElementWidth'
+import { estimateTextWidth, truncateText } from '../../admin/useElementWidth'
 import { hoverChart, stubChartSizing } from '../../test-utils'
 
 const items: BarItem[] = [
@@ -24,6 +24,21 @@ const barWidths = (container: HTMLElement) =>
   })
 const valueLabels = (container: HTMLElement) =>
   [...container.querySelectorAll('.recharts-label-list text')].map((node) => node.textContent)
+/** Left/right edge of every drawn bar; a zero-length bar renders no path. */
+const barBoxes = (container: HTMLElement) =>
+  [...container.querySelectorAll('.recharts-bar-rectangle')].flatMap((group) => {
+    const path = group.querySelector('path')
+    if (!path) return []
+    const points = [...(path.getAttribute('d') ?? '').matchAll(/[ML]\s*(-?[\d.]+),(-?[\d.]+)/g)]
+    const xs = points.map((match) => Number(match[1]))
+    return [{
+      left: xs.length ? Math.min(...xs) : 0,
+      right: xs.length ? Math.max(...xs) : 0,
+      width: xs.length ? Math.max(...xs) - Math.min(...xs) : 0,
+    }]
+  })
+const labelNodes = (container: HTMLElement) =>
+  [...container.querySelectorAll('.recharts-label-list text')] as SVGTextElement[]
 const axisTickSlots = (container: HTMLElement, axis: 'xAxis' | 'yAxis') =>
   container.querySelectorAll(`.recharts-${axis} .recharts-cartesian-axis-tick`).length
 
@@ -96,6 +111,124 @@ describe('BarList (Recharts horizontal bar chart)', () => {
     // its track and its "0" label - the length is never inflated to fake a bar.
     expect(barPaths(container)).toHaveLength(1)
     expect(container.querySelectorAll('.recharts-bar-background-rectangle')).toHaveLength(2)
+  })
+
+  it('keeps a tiny positive value readable inside an inflated bar', () => {
+    stubChartSizing(503)
+    // 1 unit out of 160 would be a 2px sliver: the drawn bar grows to the label
+    // width while the value itself, the axis and the tooltip stay untouched.
+    const { container } = render(
+      <BarList
+        items={[{ key: 1, label: 'AMD Ryzen 5 7600', value: 1 }]}
+        max={160}
+        axisLabels={axisLabels}
+        legend="Товаров в заказах"
+        ariaLabel="Лидеры продаж"
+      />,
+    )
+    const needed = estimateTextWidth('1', 11) + 16
+    expect(barBoxes(container)[0].width).toBeGreaterThanOrEqual(needed)
+    expect(barWidths(container)[0]).toBeGreaterThanOrEqual(needed)
+
+    const label = labelNodes(container)[0]
+    const bar = barBoxes(container)[0]
+    expect(label.textContent).toBe('1')
+    // Inside: right-anchored at the bar end with the shared 8px padding.
+    expect(label.getAttribute('text-anchor')).toBe('end')
+    expect(Number(label.getAttribute('x'))).toBeCloseTo(bar.right - 8)
+    expect(Number(label.getAttribute('x'))).toBeGreaterThan(bar.left)
+    expect(container.querySelector('.sr-only')?.textContent).toContain('AMD Ryzen 5 7600: 1')
+  })
+
+  it('widens a bar enough for a long formatted label', () => {
+    stubChartSizing(503)
+    const { container } = render(
+      <BarList
+        items={[{ key: 1, label: 'AMD Ryzen 5 7600', value: 2 }]}
+        max={160}
+        axisLabels={['0 шт.', '80 шт.', '160 шт.']}
+        legend="Товаров в заказах"
+        formatValue={(value) => `${new Intl.NumberFormat('ru-RU').format(value)} шт.`}
+        ariaLabel="Лидеры продаж"
+      />,
+    )
+    const label = labelNodes(container)[0]
+    const text = label.textContent ?? ''
+    const needed = estimateTextWidth(text, 11) + 16
+    expect(text).toBe('2 шт.')
+    expect(barBoxes(container)[0].width).toBeGreaterThanOrEqual(needed)
+    // The label still ends inside the bar, not clipped at its edge.
+    expect(Number(label.getAttribute('x'))).toBeCloseTo(barBoxes(container)[0].right - 8)
+  })
+
+  it('draws every positive label with one identical white style', () => {
+    stubChartSizing(503)
+    const mixed: BarItem[] = [
+      { key: 1, label: 'AMD Ryzen 5 7600', value: 124 },
+      { key: 2, label: 'AMD Ryzen 7 5700X', value: 3 },
+      { key: 3, label: 'MSI RTX 4070 SUPER', value: 1 },
+    ]
+    const { container } = render(
+      <BarList items={mixed} max={160} axisLabels={axisLabels} legend="Товаров в заказах" ariaLabel="Лидеры продаж" />,
+    )
+    const labels = labelNodes(container)
+    expect(labels.map((node) => node.textContent)).toEqual(['124', '3', '1'])
+    for (const label of labels) {
+      expect(label.getAttribute('fill')).toBe('#ffffff')
+      expect(label.getAttribute('text-anchor')).toBe('end')
+      expect(label.getAttribute('font-weight')).toBe('600')
+      expect(label.getAttribute('font-size')).toBe('11')
+      expect(label.getAttribute('dominant-baseline')).toBe('central')
+    }
+    // A small value never falls back to the grey label outside the bar.
+    expect(labels.every((label) => label.getAttribute('fill') === '#ffffff')).toBe(true)
+  })
+
+  it('keeps a zero row honest: no bar and the label outside the track', () => {
+    stubChartSizing(503)
+    const { container } = render(
+      <BarList
+        items={[
+          { key: 1, label: 'AMD Ryzen 5 7600', value: 124 },
+          { key: 2, label: 'Intel Core i5-14600KF', value: 0 },
+        ]}
+        max={160}
+        axisLabels={axisLabels}
+        legend="Товаров в заказах"
+        ariaLabel="Лидеры продаж"
+      />,
+    )
+    const zeroLabel = labelNodes(container)[1]
+    expect(zeroLabel.textContent).toBe('0')
+    expect(zeroLabel.getAttribute('fill')).toBe('var(--color-text-secondary)')
+    expect(zeroLabel.getAttribute('text-anchor')).toBe('start')
+    // Recharts paints no rectangle for a zero-length bar: the track stays empty.
+    expect(barBoxes(container)).toHaveLength(1)
+    expect(container.querySelectorAll('.recharts-bar-background-rectangle')).toHaveLength(2)
+  })
+
+  it('keeps labels inside the bars at a narrow width', () => {
+    stubChartSizing(320)
+    const { container } = render(
+      <BarList
+        items={[
+          { key: 1, label: 'AMD Ryzen 5 7600', value: 1 },
+          { key: 2, label: 'AMD Ryzen 7 5700X', value: 160 },
+        ]}
+        max={160}
+        axisLabels={axisLabels}
+        legend="Товаров в заказах"
+        ariaLabel="Лидеры продаж"
+      />,
+    )
+    const boxes = barBoxes(container)
+    const labels = labelNodes(container)
+    for (const [index, label] of labels.entries()) {
+      const box = boxes[index]
+      const x = Number(label.getAttribute('x'))
+      expect(x).toBeLessThanOrEqual(box.right)
+      expect(x).toBeGreaterThanOrEqual(box.left)
+    }
   })
 
   it('keeps the reference axis scale and legend', () => {

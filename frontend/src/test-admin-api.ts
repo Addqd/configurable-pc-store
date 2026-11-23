@@ -113,6 +113,7 @@ export const reviewsPageFixture = (items = [reviewFixture, adminReviewFixture]) 
 
 export const overviewFixture = {
   date_from: '2026-06-01', date_to: '2026-11-20',
+  granularity: 'month' as const,
   completed_orders: 391, sold_units: 782, revenue: '22871420.00',
   review_count: 72, average_rating: 4.7,
   monthly: [
@@ -147,6 +148,7 @@ export const productStatsPageFixture = {
 export const productStatsDetailFixture = {
   product: productStatFixture,
   date_from: null, date_to: null,
+  granularity: 'month' as const,
   monthly: overviewFixture.monthly,
   rating_distribution: [
     { rating: 5, count: 54 }, { rating: 4, count: 7 }, { rating: 3, count: 6 },

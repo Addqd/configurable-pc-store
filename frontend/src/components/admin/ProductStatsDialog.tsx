@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FiMessageSquare, FiTrendingUp } from 'react-icons/fi'
 import { useGetProductStatsDetailApiV1AdminStatsProductsProductIdGet } from '../../api/generated/client'
-import { formatMoney, formatNumber, formatRating, monthLabel, periodRangeLabel, spansMultipleYears } from '../../admin/params'
+import { bucketLabel, formatMoney, formatNumber, formatRating, periodRangeLabel, spansMultipleYears } from '../../admin/params'
 import { AdminDialog, AdminDialogClose } from './AdminDialog'
 import { useDialogTitleId } from './useDialogTitleId'
 import { AdminError } from './AdminFeedback'
@@ -34,12 +34,13 @@ export function ProductStatsDialog({ productId, dateFrom, dateTo, onClose }: Pro
   const data = detail.data
   const distribution = data?.rating_distribution ?? []
   const monthly = data?.monthly ?? []
+  const granularity = data?.granularity ?? 'month'
   const monthlyWithYear = spansMultipleYears(monthly.map((point) => point.month))
   const series = [{
     name: metric === 'amount' ? t('admin.analytics.detail_metric_revenue') : t('admin.analytics.detail_metric_units'),
     color: '#2563eb',
     points: monthly.map((point) => ({
-      label: monthLabel(point.month, { withYear: monthlyWithYear }),
+      label: bucketLabel(point.month, granularity, { withYear: monthlyWithYear }),
       value: metric === 'amount' ? Number(point.amount) : point.units_count,
     })),
   }]

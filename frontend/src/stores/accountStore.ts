@@ -52,6 +52,23 @@ let epoch = 0
 let restorePromise: Promise<RestoreOutcome> | null = null
 let logoutPromise: Promise<void> | null = null
 let authQueue: Promise<void> = Promise.resolve()
+let authReloadRequested = false
+
+/**
+ * Reload the page once after a *successful* authentication change.
+ *
+ * Login, registration with its automatic login and logout all replace the
+ * session that every cached query and every mounted page were built from, so the
+ * page is reloaded once instead of patching each consumer. The flag is reset by
+ * the session changes themselves (`acceptUser` / `clearSession`), so a change
+ * that finished cannot queue a second reload and a reload cannot loop. Failed
+ * operations never reach this helper.
+ */
+export function reloadAfterAuthChange(): void {
+  if (authReloadRequested) return
+  authReloadRequested = true
+  window.location.reload()
+}
 
 function serializeAuth<T>(operation: () => Promise<T>): Promise<T> {
   const result = authQueue.then(operation, operation)
@@ -72,6 +89,7 @@ function convert(user: UserOut): Account {
  */
 function clearSession() {
   epoch += 1
+  authReloadRequested = false
   setAccessToken(null)
   clearPrivateQueryCache()
   useAccountStore.setState({ accounts: {}, activeAccountId: null })
@@ -79,6 +97,7 @@ function clearSession() {
 
 function acceptUser(user: UserOut) {
   const account = convert(user)
+  authReloadRequested = false
   useAccountStore.setState({ accounts: { [account.id]: { account } }, activeAccountId: account.id })
 }
 

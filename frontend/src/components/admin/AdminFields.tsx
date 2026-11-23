@@ -114,12 +114,19 @@ export function TextareaField({ id, label, required, hint, error, className = ''
 /**
  * Floating-label control used by the edit form, matching the reference where
  * the label sits inside the bordered field above its value.
+ *
+ * `disabled` mirrors the state of the nested input/select/textarea: the wrapper
+ * is a plain `div`, so it never receives `:disabled` itself and would otherwise
+ * keep its hover feedback while the control inside cannot be used.
  */
 export function FloatingControl({
-  id, label, children, className = '',
-}: { id: string; label: string; children: ReactNode; className?: string }) {
+  id, label, children, className = '', disabled = false,
+}: { id: string; label: string; children: ReactNode; className?: string; disabled?: boolean }) {
   return (
-    <div className={`rounded-lg border border-border bg-surface px-3.5 py-2 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${className}`}>
+    <div
+      data-disabled={disabled ? 'true' : undefined}
+      className={`pc-field rounded-lg border border-border bg-surface px-3.5 py-2 transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${className}`}
+    >
       <label htmlFor={id} className="block text-xs text-text-muted">{label}</label>
       {children}
     </div>

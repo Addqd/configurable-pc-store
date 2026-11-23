@@ -18,11 +18,23 @@ const multiYearMonthly = [
   { month: '2026-02-01', orders_count: 12, units_count: 18, amount: '130000' },
 ]
 
-function analyticsHandler(options: { monthly?: typeof overviewFixture.monthly; emptyCompareSearch?: boolean } = {}) {
+type Granularity = 'day' | 'month' | 'year'
+
+function analyticsHandler(options: {
+  monthly?: typeof overviewFixture.monthly
+  granularity?: Granularity
+  timelineMonthly?: { month: string; orders_count: number; units_count: number; amount: string }[]
+  timelineGranularity?: Granularity
+  emptyCompareSearch?: boolean
+} = {}) {
   return (url: URL, init: RequestInit) => {
     const method = init.method ?? 'GET'
     if (url.pathname === '/api/v1/admin/stats/overview') {
-      return jsonResponse({ ...overviewFixture, monthly: options.monthly ?? overviewFixture.monthly })
+      return jsonResponse({
+        ...overviewFixture,
+        granularity: options.granularity ?? overviewFixture.granularity,
+        monthly: options.monthly ?? overviewFixture.monthly,
+      })
     }
     if (url.pathname === '/api/v1/admin/stats/products' && method === 'GET') {
       if (options.emptyCompareSearch && url.searchParams.get('q')) {
@@ -30,19 +42,29 @@ function analyticsHandler(options: { monthly?: typeof overviewFixture.monthly; e
       }
       return jsonResponse(productStatsPageFixture)
     }
-    if (url.pathname === '/api/v1/admin/stats/products/13') return jsonResponse(productStatsDetailFixture)
+    if (url.pathname === '/api/v1/admin/stats/products/13') {
+      return jsonResponse({
+        ...productStatsDetailFixture,
+        granularity: options.granularity ?? productStatsDetailFixture.granularity,
+        monthly: options.monthly ?? productStatsDetailFixture.monthly,
+      })
+    }
     if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
     if (url.pathname === '/api/v1/admin/stats/timeline') {
       return jsonResponse({
         date_from: null, date_to: null,
-        series: [{ product_id: 13, name: 'AMD Ryzen 5 7600', sku: 'CPU-AMD-7600', monthly: overviewFixture.monthly }],
+        granularity: options.timelineGranularity ?? overviewFixture.granularity,
+        series: [{
+          product_id: 13, name: 'AMD Ryzen 5 7600', sku: 'CPU-AMD-7600',
+          monthly: options.timelineMonthly ?? overviewFixture.monthly,
+        }],
       })
     }
     return undefined
   }
 }
 
-function setup(options: { monthly?: typeof overviewFixture.monthly; emptyCompareSearch?: boolean } = {}) {
+function setup(options: Parameters<typeof analyticsHandler>[0] = {}) {
   const fetchMock = stubAdminFetch({ handler: analyticsHandler(options) })
   render(<MemoryRouter initialEntries={['/admin/analytics']}><AdminAnalyticsPage /></MemoryRouter>)
   return fetchMock
@@ -120,6 +142,107 @@ describe('admin analytics', () => {
     await screen.findByText('391')
     expect(screen.getByText('Июн')).toBeTruthy()
     expect(screen.queryByText('Июн 2026')).toBeNull()
+  })
+
+  it('labels a single-month sales period by day', async () => {
+    setup({
+      granularity: 'day',
+      monthly: [
+        { month: '2026-11-02', orders_count: 4, units_count: 6, amount: '120000' },
+        { month: '2026-11-03', orders_count: 0, units_count: 0, amount: '0' },
+        { month: '2026-11-04', orders_count: 3, units_count: 5, amount: '90000' },
+      ],
+    })
+    await screen.findByText('391')
+    // Day resolution reaches the axis and the grouping note, and no month name
+    // is reused for a day point.
+    await waitFor(() => expect(chartTexts()).toContain('2 нояб.'))
+    expect(chartTexts()).toContain('3 нояб.')
+    expect(chartTexts()).toContain('4 нояб.')
+    expect(chartTexts()).not.toContain('Ноя')
+    expect(screen.getByText('Данные сгруппированы по дням.')).toBeTruthy()
+    expect(screen.queryByText('Данные сгруппированы по месяцам.')).toBeNull()
+  })
+
+  it('localizes daily labels and keeps the monthly note for monthly data', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    setup({
+      granularity: 'day',
+      monthly: [
+        { month: '2026-11-02', orders_count: 4, units_count: 6, amount: '120000' },
+        { month: '2026-11-05', orders_count: 1, units_count: 1, amount: '30000' },
+      ],
+    })
+    await screen.findByText('391')
+    await waitFor(() => expect(chartTexts()).toContain('2 Nov'))
+    expect(chartTexts()).toContain('5 Nov')
+    expect(screen.getByText('Data is grouped by day.')).toBeTruthy()
+
+    await act(async () => { await i18n.changeLanguage('ru') })
+    cleanup()
+    setup()
+    await screen.findByText('391')
+    expect(screen.getByText('Данные сгруппированы по месяцам.')).toBeTruthy()
+    expect(screen.queryByText('Данные сгруппированы по дням.')).toBeNull()
+  })
+
+  it('labels a compared one-month period by day on the shared axis', async () => {
+    const dailyPoints = [
+      { month: '2026-11-02', orders_count: 1, units_count: 2, amount: '70000' },
+      { month: '2026-11-05', orders_count: 1, units_count: 1, amount: '35000' },
+    ]
+    const fetchMock = setup({ timelineGranularity: 'day', timelineMonthly: dailyPoints })
+    await screen.findByText('391')
+    fireEvent.click(screen.getByRole('button', { name: 'Сравнить товары' }))
+    const checkbox = await screen.findByRole('checkbox')
+    fireEvent.click(checkbox)
+    await waitFor(() => {
+      expect(fetchMock.mock.calls.some(([url]) => String(url).includes('/api/v1/admin/stats/timeline'))).toBe(true)
+    })
+    await waitFor(() => expect(chartTexts()).toContain('2 нояб.'))
+    expect(chartTexts()).toContain('5 нояб.')
+  })
+
+  it('labels the product statistics dialog by day when the product sold in one month', async () => {
+    setup({
+      granularity: 'day',
+      monthly: [
+        { month: '2026-11-02', orders_count: 2, units_count: 4, amount: '200000' },
+        { month: '2026-11-06', orders_count: 1, units_count: 1, amount: '50000' },
+      ],
+    })
+    await screen.findByText('391')
+    fireEvent.click(screen.getByRole('tab', { name: 'По товарам' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Открыть статистику товара AMD Ryzen 5 7600' }))
+    const dialog = await screen.findByRole('dialog')
+    await waitFor(() => expect(chartTexts()).toContain('2 нояб.'))
+    expect(chartTexts()).toContain('6 нояб.')
+    expect(dialog).toBeTruthy()
+  })
+
+  it('labels a long history by year and notes the yearly grouping', async () => {
+    setup({
+      granularity: 'year',
+      monthly: [
+        { month: '2012-01-01', orders_count: 1, units_count: 2, amount: '200' },
+        { month: '2019-01-01', orders_count: 1, units_count: 1, amount: '700' },
+        { month: '2026-01-01', orders_count: 3, units_count: 5, amount: '1500' },
+      ],
+    })
+    await screen.findByText('391')
+    // Yearly buckets are labelled with the calendar year on the axis.
+    await waitFor(() => expect(chartTexts()).toContain('2012'))
+    expect(chartTexts()).toContain('2019')
+    expect(chartTexts()).toContain('2026')
+    expect(screen.getByText('Данные сгруппированы по годам.')).toBeTruthy()
+    expect(screen.queryByText('Данные сгруппированы по месяцам.')).toBeNull()
+
+    // The metric switch keeps working on a yearly axis.
+    fireEvent.change(screen.getByLabelText('Динамика продаж'), { target: { value: 'amount' } })
+    await waitFor(() => expect(chartTexts().some((text) => text.includes('₽'))).toBe(true))
+
+    await act(async () => { await i18n.changeLanguage('en') })
+    expect(screen.getByText('Data is grouped by year.')).toBeTruthy()
   })
 
   it('keeps the selected comparison product name when the search results no longer contain it', async () => {

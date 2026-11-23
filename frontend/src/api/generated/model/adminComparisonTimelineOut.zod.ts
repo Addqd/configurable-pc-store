@@ -6,11 +6,13 @@
  */
 import * as zod from 'zod';
 
+export const adminComparisonTimelineOutGranularityDefault = `month`;
 export const adminComparisonTimelineOutSeriesItemMonthlyDefault = [];
 export const adminComparisonTimelineOutSeriesDefault = [];
 export const AdminComparisonTimelineOut = zod.object({
   "date_from": zod.union([zod.iso.date(),zod.null()]).optional(),
   "date_to": zod.union([zod.iso.date(),zod.null()]).optional(),
+  "granularity": zod.enum(['day', 'month', 'year']).default(adminComparisonTimelineOutGranularityDefault),
   "series": zod.array(zod.object({
   "product_id": zod.int(),
   "name": zod.string(),
@@ -20,7 +22,7 @@ export const AdminComparisonTimelineOut = zod.object({
   "orders_count": zod.int(),
   "units_count": zod.int(),
   "amount": zod.string()
-})).default(adminComparisonTimelineOutSeriesItemMonthlyDefault)
+}).describe('One time bucket, kept under its historical name for compatibility.\n\n`month` is the bucket start: the day itself for `day`, the first of the month\nfor `month`, and the first of January for `year`.')).default(adminComparisonTimelineOutSeriesItemMonthlyDefault)
 })).default(adminComparisonTimelineOutSeriesDefault)
 })
 
