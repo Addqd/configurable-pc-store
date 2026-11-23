@@ -1,18 +1,27 @@
-"""Read-only ORM integration checks against the existing seeded DB.
+"""ORM metadata checks plus isolated, database-backed integration checks.
 
-Requires the same POSTGRES_* configuration as the application. Do not place
-credentials in test source or modify the production development database.
+Two halves, deliberately separated:
+
+- **Metadata tests** inspect only Python ORM declarations (`Base.metadata` and
+  mapper configuration). They need no database and are never skipped.
+- **Integration tests** use the shared `test_engine` / `test_db_session` fixtures
+  from `tests/conftest.py`. Those require an explicit, isolated
+  `PC_BUILDER_TEST_DATABASE_URL` and refuse the application development
+  database, so without that variable the integration tests are skipped and this
+  module never opens a connection to the application database.
+
+`test_models_match_database_tables` compares the physical schema against
+`Base.metadata`, so it can only pass against an isolated database that has
+already been migrated. Alembic revisions are generated, reviewed and applied by
+the project owner; the test suite never creates or alters tables.
 """
 
-from collections.abc import Iterator
 from decimal import Decimal
 
-import pytest
-from sqlalchemy import CheckConstraint, inspect, select
+from sqlalchemy import CheckConstraint, Engine, inspect, select
 from sqlalchemy.orm import Session, configure_mappers
 
 from app.db.base import Base
-from app.db.session import SessionLocal, engine
 from app.models import (
     AuthSession,
     Cart,
@@ -63,10 +72,7 @@ EXPECTED_MODELS = (
 )
 
 
-@pytest.fixture()
-def db_session() -> Iterator[Session]:
-    with SessionLocal() as session:
-        yield session
+# ── Metadata-only tests (no database required) ───────────────────────────────
 
 
 def test_all_models_mapped() -> None:
@@ -74,103 +80,6 @@ def test_all_models_mapped() -> None:
     assert len(EXPECTED_MODELS) == 21
     expected_names = {model.__tablename__ for model in EXPECTED_MODELS}
     assert set(Base.metadata.tables) == expected_names
-
-
-def test_models_match_database_tables(db_session: Session) -> None:
-    inspector = inspect(engine)
-    actual_tables = set(inspector.get_table_names(schema="public")) - {
-        "alembic_version"
-    }
-    assert actual_tables == set(Base.metadata.tables)
-    for table in Base.metadata.sorted_tables:
-        actual_columns = {
-            column["name"]
-            for column in inspector.get_columns(table.name, schema="public")
-        }
-        assert actual_columns == set(table.columns.keys()), table.name
-        actual_pk = inspector.get_pk_constraint(table.name, schema="public")
-        assert set(actual_pk["constrained_columns"]) == {
-            column.name for column in table.primary_key.columns
-        }, table.name
-
-        # Indexes/check constraints already exist from the initial Alembic
-        # migration. Their omission from ORM metadata risks unsafe autogenerate.
-        existing_indexes = {
-            index["name"]
-            for index in inspector.get_indexes(table.name, schema="public")
-        }
-        expected_indexes = {index.name for index in table.indexes}
-        assert expected_indexes.issubset(existing_indexes), table.name
-
-        existing_checks = {
-            check["name"]
-            for check in inspector.get_check_constraints(table.name, schema="public")
-        }
-        expected_checks = {
-            constraint.name
-            for constraint in table.constraints
-            if isinstance(constraint, CheckConstraint)
-        }
-        assert expected_checks.issubset(existing_checks), table.name
-
-
-def test_seeded_catalog_products_exist(db_session: Session) -> None:
-    # Other products can be added without invalidating the demo seed test.
-    expected_slugs = {str(row["slug"]) for row in parse_catalog()}
-    assert expected_slugs
-    actual_slugs = set(
-        db_session.scalars(select(Product.slug).where(Product.slug.in_(expected_slugs)))
-    )
-    assert actual_slugs == expected_slugs
-
-
-def test_get_product_by_slug(db_session: Session) -> None:
-    product = db_session.scalar(
-        select(Product).where(Product.slug == "gpu-rtx-4070-super")
-    )
-    assert product is not None
-    assert product.name == "MSI GeForce RTX 4070 SUPER Gaming X Slim 12G"
-    assert product.price == Decimal("64990.00")
-    assert product.color == "Чёрный"
-    assert product.graphics_chip_brand == "NVIDIA"
-
-
-def test_product_relationships(db_session: Session) -> None:
-    product = db_session.scalar(
-        select(Product).where(Product.slug == "gpu-rtx-4070-super")
-    )
-    assert product is not None
-    assert product.product_type.category.slug == "gpu"
-    assert product.manufacturer.name == "MSI"
-    assert isinstance(product.spec_lines, list)
-    assert isinstance(product.short_specs, list)
-    assert isinstance(product.technical_specs, dict)
-    assert isinstance(product.display_specs, list)
-
-
-def test_seeded_products_have_customer_display_specs(db_session: Session) -> None:
-    """Every imported catalog product exposes readable label/value specifications."""
-    seeded = {str(row["slug"]) for row in parse_catalog()}
-    rows = db_session.execute(
-        select(Product.slug, Product.display_specs).where(Product.slug.in_(seeded))
-    ).all()
-    assert {slug for slug, _ in rows} == seeded
-    for slug, specs in rows:
-        assert isinstance(specs, list) and specs, slug
-        assert all(
-            isinstance(spec, dict)
-            and isinstance(spec.get("label"), str)
-            and spec["label"].strip()
-            and isinstance(spec.get("value"), str)
-            and spec["value"].strip()
-            for spec in specs
-        ), slug
-
-
-def test_category_has_product_types(db_session: Session) -> None:
-    category = db_session.scalar(select(Category).where(Category.slug == "gpu"))
-    assert category is not None
-    assert len(category.product_types) > 0
 
 
 def test_user_model_columns() -> None:
@@ -232,3 +141,109 @@ def test_important_constraints_and_indexes() -> None:
     )
     assert len(list(Base.metadata.tables["favorites"].primary_key.columns)) == 2
     assert len(list(Base.metadata.tables["saved_build_items"].primary_key.columns)) == 2
+
+
+# ── Integration tests (isolated database, skipped without configuration) ─────
+
+
+def test_models_match_database_tables(test_engine: Engine) -> None:
+    # Only meaningful against an isolated database migrated with the full
+    # revision chain, including the characteristics tables.
+    inspector = inspect(test_engine)
+    actual_tables = set(inspector.get_table_names(schema="public")) - {
+        "alembic_version"
+    }
+    assert actual_tables == set(Base.metadata.tables)
+    for table in Base.metadata.sorted_tables:
+        actual_columns = {
+            column["name"]
+            for column in inspector.get_columns(table.name, schema="public")
+        }
+        assert actual_columns == set(table.columns.keys()), table.name
+        actual_pk = inspector.get_pk_constraint(table.name, schema="public")
+        assert set(actual_pk["constrained_columns"]) == {
+            column.name for column in table.primary_key.columns
+        }, table.name
+
+        # Indexes/check constraints already exist from the initial Alembic
+        # migration. Their omission from ORM metadata risks unsafe autogenerate.
+        existing_indexes = {
+            index["name"]
+            for index in inspector.get_indexes(table.name, schema="public")
+        }
+        expected_indexes = {index.name for index in table.indexes}
+        assert expected_indexes.issubset(existing_indexes), table.name
+
+        existing_checks = {
+            check["name"]
+            for check in inspector.get_check_constraints(table.name, schema="public")
+        }
+        expected_checks = {
+            constraint.name
+            for constraint in table.constraints
+            if isinstance(constraint, CheckConstraint)
+        }
+        assert expected_checks.issubset(existing_checks), table.name
+
+
+def test_seeded_catalog_products_exist(test_db_session: Session) -> None:
+    # Other products can be added without invalidating the demo seed test.
+    expected_slugs = {str(row["slug"]) for row in parse_catalog()}
+    assert expected_slugs
+    actual_slugs = set(
+        test_db_session.scalars(
+            select(Product.slug).where(Product.slug.in_(expected_slugs))
+        )
+    )
+    assert actual_slugs == expected_slugs
+
+
+def test_get_product_by_slug(test_db_session: Session) -> None:
+    product = test_db_session.scalar(
+        select(Product).where(Product.slug == "gpu-rtx-4070-super")
+    )
+    assert product is not None
+    assert product.name == "MSI GeForce RTX 4070 SUPER Gaming X Slim 12G"
+    assert product.price == Decimal("64990.00")
+    assert product.color == "Чёрный"
+    assert product.graphics_chip_brand == "NVIDIA"
+
+
+def test_product_relationships(test_db_session: Session) -> None:
+    product = test_db_session.scalar(
+        select(Product).where(Product.slug == "gpu-rtx-4070-super")
+    )
+    assert product is not None
+    assert product.product_type.category.slug == "gpu"
+    assert product.manufacturer.name == "MSI"
+    assert isinstance(product.spec_lines, list)
+    assert isinstance(product.short_specs, list)
+    assert isinstance(product.technical_specs, dict)
+    assert isinstance(product.display_specs, list)
+
+
+def test_seeded_products_have_customer_display_specs(
+    test_db_session: Session,
+) -> None:
+    """Every imported catalog product exposes readable label/value specifications."""
+    seeded = {str(row["slug"]) for row in parse_catalog()}
+    rows = test_db_session.execute(
+        select(Product.slug, Product.display_specs).where(Product.slug.in_(seeded))
+    ).all()
+    assert {slug for slug, _ in rows} == seeded
+    for slug, specs in rows:
+        assert isinstance(specs, list) and specs, slug
+        assert all(
+            isinstance(spec, dict)
+            and isinstance(spec.get("label"), str)
+            and spec["label"].strip()
+            and isinstance(spec.get("value"), str)
+            and spec["value"].strip()
+            for spec in specs
+        ), slug
+
+
+def test_category_has_product_types(test_db_session: Session) -> None:
+    category = test_db_session.scalar(select(Category).where(Category.slug == "gpu"))
+    assert category is not None
+    assert len(category.product_types) > 0

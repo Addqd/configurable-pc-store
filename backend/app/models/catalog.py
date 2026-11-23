@@ -48,8 +48,11 @@ class Category(Base):
         back_populates="category", cascade="all, delete-orphan"
     )
     # Category-scoped definitions, shared by every product type of the category.
+    # characteristics.category_id is ON DELETE RESTRICT: no ORM delete cascade, and
+    # passive_deletes="all" so SQLAlchemy never tries to NULL the child FK itself.
     characteristics: Mapped[list[Characteristic]] = relationship(
-        back_populates="category"
+        back_populates="category",
+        passive_deletes="all",
     )
 
 

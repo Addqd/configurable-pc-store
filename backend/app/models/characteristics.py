@@ -96,9 +96,13 @@ class Characteristic(Base):
     )
 
     category: Mapped[Category] = relationship(back_populates="characteristics")
-    # RESTRICT on the FK keeps definitions that products already use.
+    # RESTRICT on the FK keeps definitions that products already use. No ORM
+    # delete cascade and passive_deletes="all": without it SQLAlchemy would
+    # null out product_characteristics.characteristic_id, which is part of that
+    # table's primary key. PostgreSQL must reject the deletion instead.
     values: Mapped[list[ProductCharacteristic]] = relationship(
-        back_populates="characteristic"
+        back_populates="characteristic",
+        passive_deletes="all",
     )
 
 

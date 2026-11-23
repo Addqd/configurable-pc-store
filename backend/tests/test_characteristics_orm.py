@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    inspect,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import configure_mappers
@@ -101,6 +102,23 @@ def test_new_models_are_configured_with_the_existing_base() -> None:
     assert ProductCharacteristic.__tablename__ == "product_characteristics"
     assert Characteristic.metadata is Base.metadata
     assert ProductCharacteristic.metadata is Base.metadata
+
+
+def test_all_related_mappers_configure_with_their_relationships() -> None:
+    configure_mappers()
+    assert set(inspect(Category).relationships.keys()) >= {
+        "product_types",
+        "characteristics",
+    }
+    assert set(inspect(Characteristic).relationships.keys()) == {
+        "category",
+        "values",
+    }
+    assert set(inspect(ProductCharacteristic).relationships.keys()) == {
+        "product",
+        "characteristic",
+    }
+    assert set(inspect(Product).relationships.keys()) >= {"characteristics"}
 
 
 # ── Columns / types / nullability ────────────────────────────────────────────
@@ -342,6 +360,37 @@ def test_product_characteristics_relationship_is_bidirectional() -> None:
     assert back.uselist is False
     assert back.mapper.class_ is Product
     assert back.back_populates == "characteristics"
+
+
+# ── Delete behavior for ON DELETE RESTRICT relationships ─────────────────────
+# Without passive_deletes="all" the ORM would NULL the child foreign key instead
+# of letting PostgreSQL reject the delete. That would break
+# product_characteristics, whose characteristic_id is part of its primary key.
+
+
+def test_category_characteristics_delegates_delete_to_database() -> None:
+    configure_mappers()
+    forward = Category.characteristics.property
+    assert forward.passive_deletes == "all"
+    assert forward.cascade.delete is False
+    assert forward.cascade.delete_orphan is False
+
+
+def test_characteristic_values_delegates_delete_to_database() -> None:
+    configure_mappers()
+    forward = Characteristic.values.property
+    assert forward.passive_deletes == "all"
+    assert forward.cascade.delete is False
+    assert forward.cascade.delete_orphan is False
+
+
+def test_product_characteristics_keeps_its_cascade_delete() -> None:
+    # products.id FK is ON DELETE CASCADE, so the product owns its values.
+    configure_mappers()
+    forward = Product.characteristics.property
+    assert forward.passive_deletes is True
+    assert forward.cascade.delete is True
+    assert forward.cascade.delete_orphan is True
 
 
 # ── Pre-existing schema preserved ───────────────────────────────────────────
