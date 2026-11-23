@@ -15,12 +15,13 @@ from app.models import (
     Order,
     OrderItem,
     Product,
+    ProductType,
     SavedBuild,
     SavedBuildItem,
     User,
 )
 from app.services import event_service
-from app.services.catalog import _images
+from app.services.catalog import _images, short_display_lines
 from app.services.compatibility import check_selections
 
 
@@ -41,6 +42,19 @@ def get_cart(db: Session, user: User) -> Cart | None:
     return db.scalar(
         select(Cart).where(Cart.user_id == user.id).options(selectinload(Cart.items))
     )
+
+
+def _products(db: Session, product_ids: list[int]) -> dict[int, Product]:
+    """Load the referenced products with their type and category in one query."""
+    wanted = list(dict.fromkeys(product_ids))
+    if not wanted:
+        return {}
+    rows = db.scalars(
+        select(Product)
+        .where(Product.id.in_(wanted))
+        .options(selectinload(Product.product_type).selectinload(ProductType.category))
+    ).all()
+    return {product.id: product for product in rows}
 
 
 def _product(db: Session, product_id: int, quantity: int = 1) -> Product:
@@ -247,6 +261,9 @@ def buy_product_demo(
         return previous
     product = _product(db, product_id, quantity)
     _, cover = _images(product)
+    # The snapshot is an immutable list of display strings: it records what was
+    # shown at purchase time and never re-reads the current characteristics.
+    specs_snapshot = short_display_lines(db, [product]).get(product.id, [])
     order = Order(
         user_id=user.id,
         status="completed_demo",
@@ -267,7 +284,7 @@ def buy_product_demo(
             image_url_snapshot=cover,
             unit_price=product.price,
             quantity=quantity,
-            specs_snapshot=list(product.spec_lines or []),
+            specs_snapshot=specs_snapshot,
             components_snapshot=None,
         )
     )
@@ -309,6 +326,16 @@ def checkout_demo(db: Session, user: User) -> Order:
     snapshots: list[dict] = []
     total = Decimal("0.00")
     item_count = 0
+    # One query for the products and two for their display characteristics.
+    cart_products = _products(
+        db,
+        [
+            item.product_id
+            for item in items
+            if item.kind == "product" and item.product_id is not None
+        ],
+    )
+    cart_spec_lines = short_display_lines(db, list(cart_products.values()))
     for item in items:
         if item.kind == "product" and item.product_id is not None:
             product = _product(db, item.product_id, item.quantity)
@@ -323,7 +350,7 @@ def checkout_demo(db: Session, user: User) -> Order:
                     "image_url_snapshot": cover,
                     "unit_price": product.price,
                     "quantity": item.quantity,
-                    "specs_snapshot": list(product.spec_lines or []),
+                    "specs_snapshot": cart_spec_lines.get(product.id, []),
                     "components_snapshot": None,
                 }
             )

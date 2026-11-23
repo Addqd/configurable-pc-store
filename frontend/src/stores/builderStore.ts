@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { Product } from '../data/product'
+import { characteristicNumber } from '../data/product'
 
 export const BUILDER_CATEGORIES = ['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling'] as const
 export type BuilderCategory = typeof BUILDER_CATEGORIES[number]
@@ -23,17 +24,14 @@ export function emptyBuilderSelections(): BuilderSelections {
 export const countSelected = (selections: BuilderSelections) => BUILDER_CATEGORIES.filter(slot => selections[slot] !== null).length
 export const calculateBuilderPrice = (selections: BuilderSelections) => BUILDER_CATEGORIES.reduce((sum, slot) => sum + (selections[slot]?.price ?? 0), 0)
 
-function electricalWatts(product: Product | null): number | null {
-  if (!product) return null
-  for (const spec of product.specs) {
-    const match = spec.match(/\b(?:TDP|TBP|TGP|потреблени[ея]|энергопотреблени[ея]|мощность\s+потреблени[яе])\b[^\d]{0,12}(\d{1,4})\s*(?:Вт|W)(?![A-Za-zА-Яа-я0-9])/i)
-      ?? spec.match(/\b(\d{1,4})\s*(?:Вт|W)\s*(?:TDP|TBP|TGP)\b/i)
-    if (match) { const watts = Number(match[1]); if (watts > 0 && watts <= 1500) return watts }
-  }
-  return null
+function electricalWatts(product: Product | null, code: string): number | null {
+  // Only a declared, finite, positive numeric characteristic counts as evidence.
+  const watts = characteristicNumber(product, code)
+  return watts !== null && watts > 0 && watts <= 1500 ? watts : null
 }
 export function estimateComponentPower(selections: BuilderSelections): number | null {
-  const cpu = electricalWatts(selections.cpu), gpu = electricalWatts(selections.gpu)
+  const cpu = electricalWatts(selections.cpu, 'thermal_design_power_w')
+  const gpu = electricalWatts(selections.gpu, 'max_power_draw_w')
   return cpu !== null && gpu !== null ? cpu + gpu : null
 }
 

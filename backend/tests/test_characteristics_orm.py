@@ -29,8 +29,6 @@ from app.models import (
     Characteristic,
     Product,
     ProductCharacteristic,
-    ProductSpecField,
-    ProductSpecOption,
 )
 
 NEW_TABLES = ("characteristics", "product_characteristics")
@@ -398,14 +396,8 @@ def test_product_characteristics_keeps_its_cascade_delete() -> None:
 
 def test_existing_catalog_columns_are_untouched() -> None:
     products = _table("products")
-    assert {
-        "spec_lines",
-        "short_specs",
-        "technical_specs",
-        "display_specs",
-        "color",
-        "graphics_chip_brand",
-    }.issubset(products.c.keys())
+    assert "color" in products.c
+    assert "graphics_chip_brand" in products.c
     assert set(_table("categories").c.keys()) == {"id", "slug", "name", "sort_order"}
     assert set(_table("product_types").c.keys()) == {
         "id",
@@ -416,21 +408,13 @@ def test_existing_catalog_columns_are_untouched() -> None:
     assert set(_table("manufacturers").c.keys()) == {"id", "slug", "name"}
 
 
-def test_legacy_spec_tables_are_still_registered() -> None:
-    # Removed only by a later, separately reviewed migration after data transfer.
-    assert _table("product_spec_fields") is ProductSpecField.__table__
-    assert _table("product_spec_options") is ProductSpecOption.__table__
-    assert set(_table("product_spec_fields").c.keys()) == {
-        "id",
-        "product_type_id",
-        "code",
-        "label",
-        "sort_order",
-        "is_required",
-    }
-    assert set(_table("product_spec_options").c.keys()) == {
-        "id",
-        "field_id",
-        "value",
-        "sort_order",
-    }
+def test_legacy_spec_columns_and_tables_are_gone() -> None:
+    # The legacy display/specification architecture was removed by the applied
+    # Alembic revision; nothing may reintroduce it in the ORM.
+    products = _table("products")
+    for legacy in ("spec_lines", "short_specs", "technical_specs", "display_specs"):
+        assert legacy not in products.c, legacy
+    assert "product_spec_fields" not in Base.metadata.tables
+    assert "product_spec_options" not in Base.metadata.tables
+    assert not hasattr(Product, "spec_lines")
+    assert not hasattr(Product, "technical_specs")

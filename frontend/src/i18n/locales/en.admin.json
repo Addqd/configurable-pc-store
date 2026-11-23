@@ -178,7 +178,16 @@
       "validation_type": "Select a product type",
       "validation_manufacturer": "Select a manufacturer",
       "error_load": "Could not load the product",
-      "not_found": "Product not found"
+      "not_found": "Product not found",
+      "char_boolean_value": "Yes",
+      "char_number_placeholder": "Number",
+      "char_number_error": "Enter a number",
+      "char_too_long_error": "The value is too long",
+      "char_list_empty": "No values yet.",
+      "char_list_add": "Add value",
+      "char_list_remove": "Remove value {{index}}",
+      "char_orphans_title": "Characteristics of the previous category: {{count}}",
+      "char_orphans_confirm": "Remove these characteristics when switching category"
     },
     "reviews": {
       "title": "Product reviews",

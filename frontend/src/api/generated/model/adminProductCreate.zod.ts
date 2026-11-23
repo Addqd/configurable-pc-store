@@ -30,15 +30,9 @@ export const adminProductCreateColorOneMax = 80;
 
 export const adminProductCreateGraphicsChipBrandOneMax = 40;
 
-export const adminProductCreateSpecLinesMax = 40;
+export const adminProductCreateCharacteristicsItemCodeMax = 64;
 
-export const adminProductCreateShortSpecsMax = 20;
-
-export const adminProductCreateDisplaySpecsItemLabelMax = 120;
-
-export const adminProductCreateDisplaySpecsItemValueMax = 300;
-
-export const adminProductCreateDisplaySpecsMax = 60;
+export const adminProductCreateCharacteristicsMax = 200;
 
 export const adminProductCreateOnSaleDefault = false;
 export const adminProductCreateIsActiveDefault = true;
@@ -53,14 +47,10 @@ export const AdminProductCreate = zod.object({
   "slug": zod.union([zod.string().max(adminProductCreateSlugOneMax),zod.null()]).optional(),
   "color": zod.union([zod.string().max(adminProductCreateColorOneMax),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string().max(adminProductCreateGraphicsChipBrandOneMax),zod.null()]).optional(),
-  "spec_lines": zod.array(zod.string()).max(adminProductCreateSpecLinesMax).optional(),
-  "short_specs": zod.array(zod.string()).max(adminProductCreateShortSpecsMax).optional(),
-  "technical_specs": zod.record(zod.string(), zod.unknown()).optional(),
-  "display_specs": zod.array(zod.object({
-  "label": zod.string().min(1).max(adminProductCreateDisplaySpecsItemLabelMax),
-  "value": zod.string().min(1).max(adminProductCreateDisplaySpecsItemValueMax)
-})).max(adminProductCreateDisplaySpecsMax).optional(),
-  "specifications": zod.union([zod.record(zod.string(), zod.string()),zod.null()]).optional(),
+  "characteristics": zod.array(zod.object({
+  "code": zod.string().min(1).max(adminProductCreateCharacteristicsItemCodeMax),
+  "value": zod.unknown()
+}).describe('One submitted value.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse. `null` is never\na legal value: use `remove_characteristics` to delete an existing one.')).max(adminProductCreateCharacteristicsMax).optional(),
   "on_sale": zod.boolean().default(adminProductCreateOnSaleDefault),
   "is_active": zod.boolean().default(adminProductCreateIsActiveDefault),
   "listed_at": zod.union([zod.iso.date(),zod.null()]).optional()

@@ -28,15 +28,11 @@ export const updateProductApiV1AdminProductsProductIdPatchBodyColorOneMax = 80;
 
 export const updateProductApiV1AdminProductsProductIdPatchBodyGraphicsChipBrandOneMax = 40;
 
-export const updateProductApiV1AdminProductsProductIdPatchBodySpecLinesOneMax = 40;
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemCodeMax = 64;
 
-export const updateProductApiV1AdminProductsProductIdPatchBodyShortSpecsOneMax = 20;
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax = 200;
 
-export const updateProductApiV1AdminProductsProductIdPatchBodyDisplaySpecsOneItemLabelMax = 120;
-
-export const updateProductApiV1AdminProductsProductIdPatchBodyDisplaySpecsOneItemValueMax = 300;
-
-export const updateProductApiV1AdminProductsProductIdPatchBodyDisplaySpecsOneMax = 60;
+export const updateProductApiV1AdminProductsProductIdPatchBodyRemoveCharacteristicsOneMax = 200;
 
 
 export const UpdateProductApiV1AdminProductsProductIdPatchBody = zod.object({
@@ -50,14 +46,11 @@ export const UpdateProductApiV1AdminProductsProductIdPatchBody = zod.object({
   "slug": zod.union([zod.string().max(updateProductApiV1AdminProductsProductIdPatchBodySlugOneMax),zod.null()]).optional(),
   "color": zod.union([zod.string().max(updateProductApiV1AdminProductsProductIdPatchBodyColorOneMax),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string().max(updateProductApiV1AdminProductsProductIdPatchBodyGraphicsChipBrandOneMax),zod.null()]).optional(),
-  "spec_lines": zod.union([zod.array(zod.string()).max(updateProductApiV1AdminProductsProductIdPatchBodySpecLinesOneMax),zod.null()]).optional(),
-  "short_specs": zod.union([zod.array(zod.string()).max(updateProductApiV1AdminProductsProductIdPatchBodyShortSpecsOneMax),zod.null()]).optional(),
-  "technical_specs": zod.union([zod.record(zod.string(), zod.unknown()),zod.null()]).optional(),
-  "display_specs": zod.union([zod.array(zod.object({
-  "label": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyDisplaySpecsOneItemLabelMax),
-  "value": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyDisplaySpecsOneItemValueMax)
-})).max(updateProductApiV1AdminProductsProductIdPatchBodyDisplaySpecsOneMax),zod.null()]).optional(),
-  "specifications": zod.union([zod.record(zod.string(), zod.string()),zod.null()]).optional(),
+  "characteristics": zod.union([zod.array(zod.object({
+  "code": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemCodeMax),
+  "value": zod.unknown()
+}).describe('One submitted value.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse. `null` is never\na legal value: use `remove_characteristics` to delete an existing one.')).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax),zod.null()]).optional(),
+  "remove_characteristics": zod.union([zod.array(zod.string()).max(updateProductApiV1AdminProductsProductIdPatchBodyRemoveCharacteristicsOneMax),zod.null()]).optional(),
   "on_sale": zod.union([zod.boolean(),zod.null()]).optional(),
   "is_active": zod.union([zod.boolean(),zod.null()]).optional(),
   "listed_at": zod.union([zod.iso.date(),zod.null()]).optional()

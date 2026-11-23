@@ -6,15 +6,15 @@ import { FiChevronDown, FiChevronUp, FiMessageCircle, FiPackage, FiPlus, FiSave,
 import {
   useCreateProductApiV1AdminProductsPost,
   useDeleteImageApiV1AdminProductsProductIdImagesImageIdDelete,
+  useGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet,
   useGetFilterOptionsApiV1ProductsFiltersGet,
   useGetProductApiV1AdminProductsProductIdGet,
   useGetProductOptionsApiV1AdminProductOptionsGet,
-  useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet,
   useReorderImagesApiV1AdminProductsProductIdImagesOrderPut,
   useUpdateProductApiV1AdminProductsProductIdPatch,
   useUploadImageApiV1AdminProductsProductIdImagesPost,
 } from '../../api/generated/client'
-import type { AdminProductCreate, AdminProductDetailOut, AdminProductUpdate } from '../../api/generated/model'
+import type { AdminProductCreate, AdminProductDetailOut, AdminProductUpdate, CharacteristicValueIn } from '../../api/generated/model'
 import { ApiError } from '../../api/transport'
 import { activeLocale, adminErrorText, formatMoney } from '../../admin/params'
 import { invalidateAfterProductChange } from '../../admin/queryInvalidation'
@@ -34,6 +34,17 @@ import {
 import {
   adminCard, adminControl, adminPrimaryButton, adminSecondaryButton,
 } from '../../components/admin/adminStyles'
+import {
+  type CharacteristicDefinitionLike,
+  type CharacteristicDraft,
+  draftFromValue,
+  draftToValue,
+  emptyDraft,
+  fieldTypeOf,
+  MAX_LIST_ROWS,
+  MAX_TEXT_LENGTH,
+  orphanCodes,
+} from '../../admin/characteristicDrafts'
 
 const MAX_IMAGES = 10
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -49,7 +60,8 @@ interface ProductFormState {
   productTypeId: string
   manufacturerId: string
   color: string
-  specs: Record<string, string>
+  /** One editor draft per category-scoped characteristic `code`. */
+  characteristics: Record<string, CharacteristicDraft>
 }
 
 /**
@@ -65,7 +77,7 @@ interface PriceDraft {
 
 const EMPTY_FORM: ProductFormState = {
   name: '', stock: '0', isActive: true, description: '',
-  categoryId: '', productTypeId: '', manufacturerId: '', color: '', specs: {},
+  categoryId: '', productTypeId: '', manufacturerId: '', color: '', characteristics: {},
 }
 
 let galleryKey = 0
@@ -141,7 +153,12 @@ function formFromProduct(product: AdminProductDetailOut): ProductFormState {
     productTypeId: String(product.product_type.id),
     manufacturerId: String(product.manufacturer.id),
     color: product.color ?? '',
-    specs: { ...product.specifications },
+    characteristics: Object.fromEntries(
+      (product.characteristics ?? []).map((row) => [
+        row.code,
+        draftFromValue(row.data_type, row.value),
+      ]),
+    ),
   }
 }
 
@@ -190,6 +207,9 @@ export function AdminProductFormPage() {
   const [loadedKey, setLoadedKey] = useState<string | null>(isEdit ? null : 'create')
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [specsError, setSpecsError] = useState<string | null>(null)
+  const [characteristicErrors, setCharacteristicErrors] = useState<Record<string, string>>({})
+  /** Explicit confirmation to drop values of a previous category on a transition. */
+  const [confirmOrphanRemoval, setConfirmOrphanRemoval] = useState(false)
   const [serverError, setServerError] = useState<string | null>(null)
   const [galleryError, setGalleryError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -241,9 +261,11 @@ export function AdminProductFormPage() {
     setSaved(false)
   }
 
-  const typeId = form.productTypeId ? Number(form.productTypeId) : 0
-  const template = useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet(typeId, {
-    query: { enabled: typeId > 0, retry: false },
+  const categoryId = form.categoryId ? Number(form.categoryId) : 0
+  // Definitions are category-scoped: every product type inside the category
+  // shares them, so the editor is keyed by the category, not by the type.
+  const definitions = useGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet(categoryId, {
+    query: { enabled: categoryId > 0, retry: false },
   })
 
   const createProduct = useCreateProductApiV1AdminProductsPost()
@@ -276,6 +298,8 @@ export function AdminProductFormPage() {
     setUploading(false)
     setFieldErrors({})
     setSpecsError(null)
+    setCharacteristicErrors({})
+    setConfirmOrphanRemoval(false)
     setServerError(null)
     setGalleryError(null)
     setSaved(false)
@@ -312,15 +336,46 @@ export function AdminProductFormPage() {
   }
 
   const changeCategory = (value: string) => {
-    setForm((current) => ({ ...current, categoryId: value, productTypeId: '', specs: {} }))
+    setForm((current) => ({
+      ...current,
+      categoryId: value,
+      productTypeId: '',
+      // Definitions are category-scoped, so drafts of the previous category no
+      // longer apply. The stored codes they replace are tracked so a transition
+      // can only discard them after an explicit confirmation.
+      characteristics: {},
+    }))
     setFieldErrors((current) => ({ ...current, categoryId: '' }))
     setSpecsError(null)
     setSaved(false)
   }
 
   const changeProductType = (value: string) => {
-    setForm((current) => ({ ...current, productTypeId: value, specs: {} }))
-    setFieldErrors((current) => ({ ...current, productTypeId: '' }))
+    const nextType = (options.data?.categories ?? [])
+      .flatMap((group) => (group.product_types ?? []).map((type) => ({ type, categoryId: group.category.id })))
+      .find((entry) => String(entry.type.id) === value)
+    const nextCategoryId = nextType ? String(nextType.categoryId) : form.categoryId
+    const categoryChanged = nextCategoryId !== form.categoryId
+    setForm((current) => ({
+      ...current,
+      productTypeId: value,
+      categoryId: nextCategoryId,
+      characteristics: categoryChanged ? {} : current.characteristics,
+    }))
+    setFieldErrors((current) => ({ ...current, productTypeId: '', categoryId: '' }))
+    setSpecsError(null)
+    setSaved(false)
+  }
+
+  const changeDraft = (code: string, dataType: string, patch: Partial<CharacteristicDraft>) => {
+    setForm((current) => ({
+      ...current,
+      characteristics: {
+        ...current.characteristics,
+        [code]: { ...(current.characteristics[code] ?? emptyDraft(dataType)), ...patch },
+      },
+    }))
+    setCharacteristicErrors((current) => ({ ...current, [code]: '' }))
     setSpecsError(null)
     setSaved(false)
   }
@@ -649,9 +704,14 @@ export function AdminProductFormPage() {
     return Number.isFinite(amount) && amount >= 0 ? amount : null
   }
 
+  /** Stored codes of the product that the selected category no longer defines. */
+  const storedCodes = (detail.data?.characteristics ?? []).map((row) => row.code)
+  const fields = definitions.data?.fields ?? []
+  const orphans = isEdit ? orphanCodes(storedCodes, fields) : []
+
   const validation = (): boolean => {
-    if (typeId > 0 && template.isError) {
-      setSpecsError(adminErrorText(template.error))
+    if (categoryId > 0 && definitions.isError) {
+      setSpecsError(adminErrorText(definitions.error))
       return false
     }
     const errors: Record<string, string> = {}
@@ -671,12 +731,40 @@ export function AdminProductFormPage() {
     if (!form.manufacturerId) errors.manufacturerId = t('admin.form.validation_manufacturer')
     setFieldErrors(errors)
 
-    const missing = (template.data?.fields ?? [])
-      .filter((field) => field.is_required && !(form.specs[field.code] ?? '').trim())
-      .map((field) => field.label)
+    // Per-field feedback: a required value must be present and every value must
+    // match its declared data type before anything is sent to the server.
+    const draftErrors: Record<string, string> = {}
+    const missing: string[] = []
+    for (const field of fields) {
+      const result = draftToValue(field, form.characteristics[field.code])
+      if (result === null || result.ok) continue
+      if (result.issue === 'required') missing.push(field.name)
+      else if (result.issue === 'number') draftErrors[field.code] = t('admin.form.char_number_error')
+      else draftErrors[field.code] = t('admin.form.char_too_long_error')
+    }
+    setCharacteristicErrors(draftErrors)
     setSpecsError(missing.length > 0 ? t('admin.form.specs_incomplete', { fields: missing.join(', ') }) : null)
-    return Object.keys(errors).length === 0 && missing.length === 0
+    return Object.keys(errors).length === 0
+      && missing.length === 0
+      && Object.keys(draftErrors).length === 0
   }
+
+  /** Values of the selected category, typed and ready for the API. */
+  const characteristicPayload = (): CharacteristicValueIn[] => {
+    const values: CharacteristicValueIn[] = []
+    for (const field of fields) {
+      const result = draftToValue(field, form.characteristics[field.code])
+      if (result === null || !result.ok) continue
+      values.push({ code: field.code, value: result.value })
+    }
+    return values
+  }
+
+  /**
+   * Values of the previous category are only discarded on an explicit request:
+   * without it the server rejects the transition instead of losing data.
+   */
+  const removals = (): string[] => (confirmOrphanRemoval ? orphans : [])
 
   const payload = (amount: number): AdminProductCreate => ({
     name: form.name.trim(),
@@ -686,7 +774,7 @@ export function AdminProductFormPage() {
     stock_quantity: Number(form.stock),
     description: form.description,
     color: form.color || null,
-    specifications: form.specs,
+    characteristics: characteristicPayload(),
     is_active: form.isActive,
   })
 
@@ -711,9 +799,10 @@ export function AdminProductFormPage() {
         stock_quantity: Number(form.stock),
         description: form.description,
         color: form.color || null,
-        specifications: form.specs,
+        characteristics: characteristicPayload(),
         is_active: form.isActive,
       }
+      if (removals().length > 0) data.remove_characteristics = removals()
       try {
         await updateProduct.mutateAsync({ productId: numericId, data })
         invalidateCatalog()
@@ -833,11 +922,11 @@ export function AdminProductFormPage() {
   }))
   const colors = filterOptions.data?.colors ?? []
   const colorOptions = colors.includes(form.color) || !form.color ? colors : [form.color, ...colors]
-  const templateFields = template.data?.fields ?? []
+  const templateFields = definitions.data?.fields ?? []
   const submitLabel = createdProduct
     ? t('admin.form.go_to_edit')
     : isEdit ? t('admin.form.submit_save') : t('admin.form.submit_create')
-  const submitPending = createProduct.isPending || updateProduct.isPending || uploading || template.isLoading
+  const submitPending = createProduct.isPending || updateProduct.isPending || uploading || definitions.isLoading
 
   return (
     <AdminLayout footer={false}>
@@ -1131,27 +1220,10 @@ export function AdminProductFormPage() {
                 </button>
 
                 {specsOpen && (
-                  <div className="space-y-3 border-t border-border bg-surface p-4">
-                    {!form.productTypeId ? (
-                      <>
-                        {[0, 1, 2].map((index) => (
-                          <div key={index} className="grid gap-3 sm:grid-cols-2">
-                            <div className="relative">
-                              <select disabled className={`${adminControl} appearance-none pr-10`} aria-label={t('admin.form.spec_param')}>
-                                <option>{t('admin.form.spec_param')}</option>
-                              </select>
-                            </div>
-                            <div className="relative">
-                              <select disabled className={`${adminControl} appearance-none pr-10`} aria-label={t('admin.form.spec_value')}>
-                                <option>{t('admin.form.spec_value')}</option>
-                              </select>
-                              <SpecChevron />
-                            </div>
-                          </div>
-                        ))}
-                        <p className="text-xs text-text-muted">{t('admin.form.specs_empty')}</p>
-                      </>
-                    ) : template.isLoading ? (
+                  <div className="space-y-4 border-t border-border bg-surface p-4">
+                    {!form.categoryId ? (
+                      <p className="text-xs text-text-muted">{t('admin.form.specs_empty')}</p>
+                    ) : definitions.isLoading ? (
                       <SkeletonRegion className="space-y-3" testId="spec-template-skeleton">
                         {[0, 1, 2].map((index) => (
                           <div key={index} className="grid items-center gap-3 sm:grid-cols-2">
@@ -1160,41 +1232,39 @@ export function AdminProductFormPage() {
                           </div>
                         ))}
                       </SkeletonRegion>
-                    ) : template.isError ? (
-                      <AdminError message={adminErrorText(template.error)} onRetry={() => void template.refetch()} compact />
+                    ) : definitions.isError ? (
+                      <AdminError message={adminErrorText(definitions.error)} onRetry={() => void definitions.refetch()} compact />
                     ) : templateFields.length === 0 ? (
                       <p className="text-sm text-text-muted">{t('admin.form.specs_empty')}</p>
                     ) : (
                       templateFields.map((field) => (
-                        <div key={field.id} className="grid items-center gap-3 sm:grid-cols-2">
-                          <div className="relative flex h-11 items-center rounded-lg border border-border bg-surface-2 px-3.5 pr-10 text-sm text-text-primary">
-                            <span className="truncate">{field.label}</span>
-                            {field.is_required && <span className="ml-1 text-text-secondary" aria-hidden="true">*</span>}
-                          </div>
-                          <div className="relative">
-                            <select
-                              value={form.specs[field.code] ?? ''}
-                              disabled={locked}
-                              aria-label={field.label}
-                              onChange={(event) => {
-                                setForm((current) => ({
-                                  ...current,
-                                  specs: { ...current.specs, [field.code]: event.target.value },
-                                }))
-                                setSpecsError(null)
-                                setSaved(false)
-                              }}
-                              className={`${adminControl} appearance-none pr-10`}
-                            >
-                              <option value="">{t('admin.form.spec_value')}</option>
-                              {(field.options ?? []).map((option) => (
-                                <option key={option.id} value={option.value}>{option.value}</option>
-                              ))}
-                            </select>
-                            <SpecChevron />
-                          </div>
-                        </div>
+                        <CharacteristicFieldEditor
+                          key={field.code}
+                          field={field}
+                          draft={form.characteristics[field.code] ?? emptyDraft(field.data_type)}
+                          disabled={locked}
+                          error={characteristicErrors[field.code]}
+                          onChange={(patch) => changeDraft(field.code, field.data_type, patch)}
+                        />
                       ))
+                    )}
+                    {orphans.length > 0 && (
+                      <div role="alert" className="rounded-lg border border-danger-border bg-danger-surface px-4 py-3 text-sm text-text-primary">
+                        <p className="font-medium text-danger">
+                          {t('admin.form.char_orphans_title', { count: orphans.length })}
+                        </p>
+                        <p className="mt-1 text-xs text-text-secondary">{orphans.join(', ')}</p>
+                        <label className="mt-3 flex items-start gap-2 text-xs text-text-primary">
+                          <input
+                            type="checkbox"
+                            checked={confirmOrphanRemoval}
+                            disabled={locked}
+                            onChange={(event) => setConfirmOrphanRemoval(event.target.checked)}
+                            className="mt-0.5"
+                          />
+                          <span>{t('admin.form.char_orphans_confirm')}</span>
+                        </label>
+                      </div>
                     )}
                     {specsError && <p role="alert" className="text-sm text-danger">{specsError}</p>}
                   </div>
@@ -1248,13 +1318,111 @@ export function AdminProductFormPage() {
   )
 }
 
-function SpecChevron() {
+/**
+ * One dynamically generated characteristic input.
+ *
+ * The control follows the definition's declared data type: free text, validated
+ * numeric, checkbox, editable string list or editable number list. List rows are
+ * edited individually so order and duplicates are never lost to comma splitting.
+ */
+function CharacteristicFieldEditor({
+  field, draft, disabled, error, onChange,
+}: {
+  field: CharacteristicDefinitionLike
+  draft: CharacteristicDraft
+  disabled: boolean
+  error?: string
+  onChange: (patch: Partial<CharacteristicDraft>) => void
+}) {
+  const { t } = useTranslation()
+  const controlId = `characteristic-${field.code}`
+  const kind = fieldTypeOf(field.data_type)
+  const unit = field.unit ? <span className="ml-1 whitespace-nowrap text-text-muted">{field.unit}</span> : null
+  const label = (
+    <label htmlFor={controlId} className="flex min-w-0 items-center text-sm text-text-primary">
+      <span className="truncate">{field.name}</span>
+      {unit}
+      {field.is_required && <span className="ml-1 text-danger" aria-hidden="true">*</span>}
+    </label>
+  )
+
+  const setRow = (index: number, value: string) => {
+    const items = [...draft.items]
+    items[index] = value
+    onChange({ items })
+  }
+
   return (
-    <svg
-      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted"
-      viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"
-    >
-      <path d="m6 9 6 6 6-6" />
-    </svg>
+    <div className="grid items-start gap-3 sm:grid-cols-2">
+      <div className="flex min-h-11 items-center rounded-lg border border-border bg-surface-2 px-3.5 text-sm text-text-primary">
+        {label}
+      </div>
+      <div className="min-w-0">
+        {kind === 'boolean' ? (
+          <label htmlFor={controlId} className="flex min-h-11 items-center gap-2 text-sm text-text-primary">
+            <input
+              id={controlId}
+              type="checkbox"
+              checked={draft.checked}
+              disabled={disabled}
+              onChange={(event) => onChange({ checked: event.target.checked })}
+            />
+            <span>{t('admin.form.char_boolean_value')}</span>
+          </label>
+        ) : kind === 'string' || kind === 'number' ? (
+          <input
+            id={controlId}
+            type="text"
+            inputMode={kind === 'number' ? 'decimal' : undefined}
+            aria-label={field.name}
+            aria-invalid={Boolean(error)}
+            value={draft.text}
+            disabled={disabled}
+            maxLength={kind === 'string' ? MAX_TEXT_LENGTH : undefined}
+            placeholder={kind === 'number' ? t('admin.form.char_number_placeholder') : undefined}
+            onChange={(event) => onChange({ text: event.target.value })}
+            className={adminControl}
+          />
+        ) : (
+          <div className="space-y-2">
+            {draft.items.length === 0 && (
+              <p className="text-xs text-text-muted">{t('admin.form.char_list_empty')}</p>
+            )}
+            {draft.items.map((row, index) => (
+              <div key={index} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  aria-label={`${field.name} ${index + 1}`}
+                  inputMode={kind === 'number_list' ? 'decimal' : undefined}
+                  value={row}
+                  disabled={disabled}
+                  maxLength={kind === 'string_list' ? MAX_TEXT_LENGTH : undefined}
+                  onChange={(event) => setRow(index, event.target.value)}
+                  className={adminControl}
+                />
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-label={t('admin.form.char_list_remove', { index: index + 1 })}
+                  onClick={() => onChange({ items: draft.items.filter((_, position) => position !== index) })}
+                  className="shrink-0 rounded-md border border-border px-2 py-1 text-sm text-text-primary hover:bg-surface-3"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+            <button
+              type="button"
+              disabled={disabled || draft.items.length >= MAX_LIST_ROWS}
+              onClick={() => onChange({ items: [...draft.items, ''] })}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-3 disabled:opacity-50"
+            >
+              {t('admin.form.char_list_add')}
+            </button>
+          </div>
+        )}
+        {error && <p role="alert" className="mt-1 text-xs text-danger">{error}</p>}
+      </div>
+    </div>
   )
 }

@@ -6,11 +6,7 @@
  */
 import * as zod from 'zod';
 
-export const adminProductDetailOutSpecLinesDefault = [];
-export const adminProductDetailOutShortSpecsDefault = [];
-export const adminProductDetailOutTechnicalSpecsDefault = {};
-export const adminProductDetailOutDisplaySpecsDefault = [];
-export const adminProductDetailOutSpecificationsDefault = {};
+export const adminProductDetailOutCharacteristicsDefault = [];
 export const adminProductDetailOutImagesItemIsCoverDefault = false;
 export const adminProductDetailOutImagesDefault = [];
 export const adminProductDetailOutAverageRatingDefault = 0;
@@ -25,14 +21,18 @@ export const AdminProductDetailOut = zod.object({
   "stock_quantity": zod.int(),
   "color": zod.union([zod.string(),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string(),zod.null()]).optional(),
-  "spec_lines": zod.array(zod.string()).default(adminProductDetailOutSpecLinesDefault),
-  "short_specs": zod.array(zod.string()).default(adminProductDetailOutShortSpecsDefault),
-  "technical_specs": zod.record(zod.string(), zod.unknown()).default(adminProductDetailOutTechnicalSpecsDefault),
-  "display_specs": zod.array(zod.object({
-  "label": zod.string(),
-  "value": zod.string()
-}).describe('Customer-facing specification row; internal evidence metadata is not exposed.')).default(adminProductDetailOutDisplaySpecsDefault),
-  "specifications": zod.record(zod.string(), zod.string()).default(adminProductDetailOutSpecificationsDefault),
+  "characteristics": zod.array(zod.object({
+  "code": zod.string(),
+  "name": zod.string(),
+  "data_type": zod.string(),
+  "unit": zod.union([zod.string(),zod.null()]).optional(),
+  "sort_order": zod.int(),
+  "is_required": zod.boolean(),
+  "show_in_short": zod.boolean(),
+  "show_in_details": zod.boolean(),
+  "value": zod.unknown(),
+  "display_value": zod.string()
+}).describe('One category-scoped characteristic value of a product.\n\n`value` keeps its native JSON type (number, boolean, ordered list) so clients\ncan reason about it structurally. `display_value` is the ready-to-render\nstring: unit appended once, no raw JSON and no Python representation.')).default(adminProductDetailOutCharacteristicsDefault),
   "on_sale": zod.boolean(),
   "is_active": zod.boolean(),
   "listed_at": zod.iso.date(),

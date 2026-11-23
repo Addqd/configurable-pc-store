@@ -43,6 +43,7 @@ import {
   CartOut,
   CategoryOut,
   ChangePasswordApiV1AuthPasswordPatch200,
+  CharacteristicDefinitionsOut,
   CheckoutResponse,
   DatabaseHealthResponse,
   FavoriteListOut,
@@ -62,7 +63,6 @@ import {
   ReviewOut,
   SavedBuildOut,
   SearchSuggestionOut,
-  SpecificationTemplateOut,
   TokenResponse,
   UserOut
 } from './model';
@@ -5064,26 +5064,27 @@ export function useGetProductOptionsApiV1AdminProductOptionsGet<TData = Awaited<
 
 
 
-export const getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetUrl = (productTypeId: number,) => {
+export const getGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetUrl = (categoryId: number,) => {
 
 
 
 
-  return `/api/v1/admin/product-types/${productTypeId}/spec-fields`
+  return `/api/v1/admin/categories/${categoryId}/characteristics`
 }
 
 /**
- * @summary Get Spec Template
+ * Category-scoped field definitions for the dynamic product editor.
+ * @summary Get Characteristic Definitions
  */
-export const getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet = async (productTypeId: number, options?: Parameters<typeof apiFetch>[1]): Promise<SpecificationTemplateOut> => {
+export const getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet = async (categoryId: number, options?: Parameters<typeof apiFetch>[1]): Promise<CharacteristicDefinitionsOut> => {
 
-  return apiFetch<SpecificationTemplateOut>(getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetUrl(productTypeId),
+  return apiFetch<CharacteristicDefinitionsOut>(getGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetUrl(categoryId),
   {
     ...options,
     method: 'GET'
 
     ,
-    schema: SpecificationTemplateOut
+    schema: CharacteristicDefinitionsOut
   }
 );}
 
@@ -5091,69 +5092,81 @@ export const getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet = a
 
 
 
-export const getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryKey = (productTypeId: number,) => {
+export const getGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetQueryKey = (categoryId: number,) => {
     return [
-    `/api/v1/admin/product-types/${productTypeId}/spec-fields`
+    `/api/v1/admin/categories/${categoryId}/characteristics`
     ] as const;
     }
 
 
-export const getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryOptions = <TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+export const getGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetQueryOptions = <TData = Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError = void | HTTPValidationError>(categoryId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
 ) => {
 
 const {query: queryOptions, request: requestOptions} = options ?? {};
 
-  const queryKey =  queryOptions?.queryKey ?? getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryKey(productTypeId);
+  const queryKey =  queryOptions?.queryKey ?? getGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetQueryKey(categoryId);
 
 
 
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>> = ({ signal }) => getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet(productTypeId, { signal, ...requestOptions });
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>> = ({ signal }) => getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet(categoryId, { signal, ...requestOptions });
 
 
 
 
 
-   return  { queryKey, queryFn, enabled: productTypeId !== null && productTypeId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+   return  { queryKey, queryFn, enabled: categoryId !== null && categoryId !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
 
-export type GetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>>
-export type GetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryError = void | HTTPValidationError
+export type GetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>>
+export type GetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetQueryError = void | HTTPValidationError
 
 
-/** @summary Get Spec Template */
-export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
- productTypeId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>> & Pick<
+/**
+ * Category-scoped field definitions for the dynamic product editor.
+ * @summary Get Characteristic Definitions
+ */
+export function useGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet<TData = Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError = void | HTTPValidationError>(
+ categoryId: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError, TData>> & Pick<
         DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>,
+          Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>,
           TError,
-          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>
+          Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof apiFetch>}
  , queryClient?: QueryClient
   ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/** @summary Get Spec Template */
-export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
- productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>> & Pick<
+/**
+ * Category-scoped field definitions for the dynamic product editor.
+ * @summary Get Characteristic Definitions
+ */
+export function useGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet<TData = Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError = void | HTTPValidationError>(
+ categoryId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError, TData>> & Pick<
         UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>,
+          Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>,
           TError,
-          Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>
+          Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>
         > , 'initialData'
       >, request?: SecondParameter<typeof apiFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/** @summary Get Spec Template */
-export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
- productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+/**
+ * Category-scoped field definitions for the dynamic product editor.
+ * @summary Get Characteristic Definitions
+ */
+export function useGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet<TData = Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError = void | HTTPValidationError>(
+ categoryId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
  , queryClient?: QueryClient
   ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/** @summary Get Spec Template */
-export function useGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet<TData = Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError = void | HTTPValidationError>(
- productTypeId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
+/**
+ * Category-scoped field definitions for the dynamic product editor.
+ * @summary Get Characteristic Definitions
+ */
+export function useGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet<TData = Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError = void | HTTPValidationError>(
+ categoryId: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet>>, TError, TData>>, request?: SecondParameter<typeof apiFetch>}
  , queryClient?: QueryClient
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
-  const queryOptions = getGetSpecTemplateApiV1AdminProductTypesProductTypeIdSpecFieldsGetQueryOptions(productTypeId,options)
+  const queryOptions = getGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGetQueryOptions(categoryId,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

@@ -1,7 +1,9 @@
 """Server-side component compatibility, based on explicit structured evidence.
 
-Only the documented fields in Product.technical_specs are considered. A missing,
-malformed, or unverified dimension gives ``unknown``, never a false positive.
+Only values of the normalized `product_characteristics` tables are considered,
+addressed by characteristic `code`. A missing, malformed, or unverified dimension
+gives ``unknown``, never a false positive. Nothing is inferred from product names
+or marketing strings.
 """
 
 from __future__ import annotations
@@ -12,9 +14,10 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.models import Product, SavedBuild, SavedBuildItem
+from app.models import Product, ProductType, SavedBuild, SavedBuildItem
+from app.services import spec_service
 
 SLOT_CATEGORIES: dict[str, frozenset[str]] = {
     "cpu": frozenset({"cpu"}),
@@ -50,15 +53,14 @@ class CompatibilityResult:
         return self.status == "incompatible"
 
 
-def check_slot_compatibility(
-    db: Session, product_id: int, slot: str
+def _evaluate_slot(
+    product: Product | None, product_id: int, slot: str
 ) -> CompatibilityResult:
     """Validate availability and category, not just a caller-provided slot name."""
     if slot not in SLOT_CATEGORIES:
         return CompatibilityResult(
             product_id, slot, "incompatible", "Invalid component slot"
         )
-    product = db.get(Product, product_id)
     if product is None or not product.is_active:
         return CompatibilityResult(
             product_id, slot, "incompatible", "Product not available"
@@ -81,25 +83,47 @@ def check_slot_compatibility(
     )
 
 
-def _raw(product: Product, name: str) -> Any:
-    """Read a structured field without inferring anything from display strings."""
-    specs = product.technical_specs
-    if not isinstance(specs, dict):
-        return None
-    return specs.get(name)
+def check_slot_compatibility(
+    db: Session, product_id: int, slot: str
+) -> CompatibilityResult:
+    """Validate one selection without loading the whole build."""
+    if slot not in SLOT_CATEGORIES:
+        return _evaluate_slot(None, product_id, slot)
+    return _evaluate_slot(db.get(Product, product_id), product_id, slot)
 
 
-def _text(product: Product, name: str) -> str | None:
-    value = _raw(product, name)
+def _load_products(db: Session, product_ids: list[int]) -> dict[int, Product]:
+    """Load every selected product, its type and category in one query."""
+    if not product_ids:
+        return {}
+    rows = db.scalars(
+        select(Product)
+        .where(Product.id.in_(product_ids))
+        .options(selectinload(Product.product_type).selectinload(ProductType.category))
+    ).all()
+    return {product.id: product for product in rows}
+
+
+# One product's characteristic values, keyed by characteristic code.
+Values = dict[str, Any]
+
+
+def _raw(values: Values, code: str) -> Any:
+    """Read one structured characteristic without inferring anything elsewhere."""
+    return values.get(code)
+
+
+def _text(values: Values, code: str) -> str | None:
+    value = _raw(values, code)
     if isinstance(value, str) and value.strip():
         return value.strip().casefold()
     return None
 
 
 def _values(
-    product: Product, name: str, *, allow_empty: bool = False
+    values: Values, code: str, *, allow_empty: bool = False
 ) -> list[str] | None:
-    value = _raw(product, name)
+    value = _raw(values, code)
     if not isinstance(value, list) or (not value and not allow_empty):
         return None
     if any(not isinstance(x, str) or not x.strip() for x in value):
@@ -107,28 +131,39 @@ def _values(
     return [x.strip().casefold() for x in value]
 
 
-def _number(product: Product, name: str) -> Decimal | None:
-    value = _raw(product, name)
-    # Reject booleans, numbers-as-strings, NaN, zero and negative values.
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+def _decimal(value: Any) -> Decimal | None:
+    # Reject booleans and numbers-as-strings; NaN/Infinity are not finite.
+    if isinstance(value, bool) or not isinstance(value, int | float):
         return None
     try:
         result = Decimal(str(value))
     except InvalidOperation:
         return None
-    return result if result.is_finite() and result > 0 else None
+    return result if result.is_finite() else None
 
 
-def _nonnegative_load(product: Product) -> Decimal | None:
+def _number(values: Values, code: str) -> Decimal | None:
+    result = _decimal(_raw(values, code))
+    return result if result is not None and result > 0 else None
+
+
+def _nonnegative(values: Values, code: str) -> Decimal | None:
     """Allow documented zero draw for passive cooling or unpowered cases."""
-    value = _raw(product, "max_power_draw_w")
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
+    result = _decimal(_raw(values, code))
+    return result if result is not None and result >= 0 else None
+
+
+def _size_list(values: Values, code: str) -> list[Decimal] | None:
+    raw = _raw(values, code)
+    if not isinstance(raw, list) or not raw:
         return None
-    try:
-        result = Decimal(str(value))
-    except InvalidOperation:
-        return None
-    return result if result.is_finite() and result >= 0 else None
+    sizes: list[Decimal] = []
+    for item in raw:
+        size = _decimal(item)
+        if size is None or size <= 0:
+            return None
+        sizes.append(size)
+    return sizes
 
 
 def _record(
@@ -188,12 +223,12 @@ def _connectors(
     _record(results, label, ok, f"{label}: connector counts and types must match")
 
 
-def _power(products: dict[str, Product], results: list[CompatibilityResult]) -> None:
+def _power(products: dict[str, Values], results: list[CompatibilityResult]) -> None:
     """Compare complete documented maximum loads against the PSU output budget."""
     capacity = _number(products["psu"], "wattage_w")
     slots = ("cpu", "mobo", "gpu", "ram", "storage", "cooling", "case")
     loads = [
-        _nonnegative_load(products[slot])
+        _nonnegative(products[slot], "max_power_draw_w")
         if slot in ("case", "cooling")
         else _number(products[slot], "max_power_draw_w")
         for slot in slots
@@ -221,28 +256,35 @@ def check_selections(
 ) -> CompatibilityResult:
     """Return compatible only if all eight parts and every modeled check pass."""
     results: list[CompatibilityResult] = []
-    products: dict[str, Product] = {}
+    products = _load_products(db, list(dict.fromkeys(selections.values())))
+    selected_products: dict[str, Product] = {}
     for slot, product_id in selections.items():
-        result = check_slot_compatibility(db, product_id, slot)
+        product = products.get(product_id)
+        result = _evaluate_slot(product, product_id, slot)
         results.append(result)
-        if result.is_compatible:
-            product = db.get(Product, product_id)
-            if product is not None:
-                products[slot] = product
+        if result.is_compatible and product is not None:
+            selected_products[slot] = product
+    # One bulk query for all values: definitions are never fetched per rule.
+    values = spec_service.load_values(
+        db, list({product.id for product in selected_products.values()})
+    )
+    selected: dict[str, Values] = {
+        slot: values.get(product.id, {}) for slot, product in selected_products.items()
+    }
 
     for slot in sorted(set(SLOT_CATEGORIES) - set(selections)):
         _record(results, slot, None, "Required component is missing")
 
     # A malformed/incorrect selection is incompatible, even if other data is missing.
-    if len(products) == len(SLOT_CATEGORIES):
-        cpu = products["cpu"]
-        board = products["mobo"]
-        memory = products["ram"]
-        gpu = products["gpu"]
-        storage = products["storage"]
-        psu = products["psu"]
-        chassis = products["case"]
-        cooler = products["cooling"]
+    if len(selected) == len(SLOT_CATEGORIES):
+        cpu = selected["cpu"]
+        board = selected["mobo"]
+        memory = selected["ram"]
+        gpu = selected["gpu"]
+        storage = selected["storage"]
+        psu = selected["psu"]
+        chassis = selected["case"]
+        cooler = selected["cooling"]
 
         _equals(
             results, "cpu+mobo_socket", _text(cpu, "socket"), _text(board, "socket")
@@ -299,14 +341,7 @@ def check_selections(
             )
         elif cooling_type == "liquid":
             size = _number(cooler, "radiator_size_mm")
-            sizes = _raw(chassis, "supported_radiator_sizes_mm")
-            supported = (
-                [Decimal(x) for x in sizes]
-                if isinstance(sizes, list)
-                and sizes
-                and all(type(x) is int and x > 0 for x in sizes)
-                else None
-            )
+            supported = _size_list(chassis, "supported_radiator_sizes_mm")
             ok = None if size is None or supported is None else size in supported
             _record(
                 results,
@@ -350,14 +385,7 @@ def check_selections(
         storage_type = _text(storage, "interface")
         if storage_type == "nvme":
             length = _number(storage, "length_mm")
-            sizes = _raw(board, "supported_nvme_lengths_mm")
-            supported = (
-                [Decimal(x) for x in sizes]
-                if isinstance(sizes, list)
-                and sizes
-                and all(type(x) is int and x > 0 for x in sizes)
-                else None
-            )
+            supported = _size_list(board, "supported_nvme_lengths_mm")
             ok = None if length is None or supported is None else length in supported
             _record(results, "storage+mobo_length", ok, "Verified M.2 lengths required")
         elif storage_type == "sata":
@@ -399,12 +427,12 @@ def check_selections(
             _values(board, "required_cpu_power_connectors", allow_empty=True),
             _values(psu, "available_cpu_power_connectors", allow_empty=True),
         )
-        _power(products, results)
+        _power(selected, results)
 
     if any(item.is_incompatible for item in results):
         status = "incompatible"
         message = "A verified incompatibility was found"
-    elif len(products) != len(SLOT_CATEGORIES) or any(
+    elif len(selected) != len(SLOT_CATEGORIES) or any(
         item.status == "unknown" for item in results
     ):
         status = "unknown"

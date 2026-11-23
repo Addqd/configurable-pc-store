@@ -1,4 +1,4 @@
-"""Product, specification and image administration."""
+"""Product, characteristic and image administration."""
 
 from __future__ import annotations
 
@@ -15,13 +15,15 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_settings
 from app.models import (
+    Characteristic,
     Manufacturer,
+    ProductCharacteristic,
     ProductImage,
-    ProductSpecField,
-    ProductSpecOption,
     User,
 )
+from app.schemas.admin_products import AdminProductUpdate, CharacteristicValueIn
 from app.services import product_admin_service, product_image_service
+from app.services.errors import InvalidInputError
 
 JPEG = b"\xff\xd8\xff\xe0" + b"\x00" * 64
 MEDIA_URL_PREFIX = "/api/v1/media/products"
@@ -66,48 +68,61 @@ def media_root(monkeypatch):
 
 
 @pytest.fixture()
-def chipset_template(test_db_session: Session, sample_products: dict) -> int:
-    """A required GPU template field with a closed dropdown list."""
-    type_id = sample_products["gpu"].product_type_id
-    field = ProductSpecField(
-        product_type_id=type_id,
-        code="chipset",
-        label="Чипсет",
-        sort_order=0,
+def gpu_number_definition(
+    test_db_session: Session, sample_products: dict
+) -> Characteristic:
+    """A required numeric definition scoped to the GPU category."""
+    category_id = sample_products["gpu"].product_type.category_id
+    definition = Characteristic(
+        category_id=category_id,
+        code="test_probe_wattage",
+        name="Тестовая мощность",
+        data_type="number",
+        unit="Вт",
+        sort_order=900,
         is_required=True,
     )
-    test_db_session.add(field)
+    test_db_session.add(definition)
     test_db_session.flush()
-    test_db_session.add_all(
-        [
-            ProductSpecOption(field_id=field.id, value="GeForce", sort_order=0),
-            ProductSpecOption(field_id=field.id, value="Radeon", sort_order=1),
-        ]
-    )
-    test_db_session.flush()
-    return type_id
+    return definition
 
 
 @pytest.fixture()
-def cpu_socket_template(test_db_session: Session, sample_products: dict) -> int:
-    type_id = sample_products["cpu"].product_type_id
-    field = ProductSpecField(
-        product_type_id=type_id,
-        code="socket",
-        label="Сокет",
-        sort_order=0,
+def gpu_optional_definition(
+    test_db_session: Session, sample_products: dict
+) -> Characteristic:
+    """A non-required text definition scoped to the GPU category."""
+    category_id = sample_products["gpu"].product_type.category_id
+    definition = Characteristic(
+        category_id=category_id,
+        code="test_probe_note",
+        name="Тестовая заметка",
+        data_type="string",
+        sort_order=901,
+        is_required=False,
+    )
+    test_db_session.add(definition)
+    test_db_session.flush()
+    return definition
+
+
+@pytest.fixture()
+def cpu_text_definition(
+    test_db_session: Session, sample_products: dict
+) -> Characteristic:
+    """A required text definition scoped to the CPU category."""
+    category_id = sample_products["cpu"].product_type.category_id
+    definition = Characteristic(
+        category_id=category_id,
+        code="test_probe_socket",
+        name="Тестовый сокет",
+        data_type="string",
+        sort_order=900,
         is_required=True,
     )
-    test_db_session.add(field)
+    test_db_session.add(definition)
     test_db_session.flush()
-    test_db_session.add_all(
-        [
-            ProductSpecOption(field_id=field.id, value="AM5", sort_order=0),
-            ProductSpecOption(field_id=field.id, value="LGA1700", sort_order=1),
-        ]
-    )
-    test_db_session.flush()
-    return type_id
+    return definition
 
 
 def test_create_generates_unique_sku_and_slug(
@@ -122,7 +137,7 @@ def test_create_generates_unique_sku_and_slug(
     assert created["is_active"] is True
     assert created["images"] == []
     assert created["cover_image_url"].endswith("/product-placeholder.jpg")
-    assert created["specifications"] == {}
+    assert created["characteristics"] == []
 
     second = _create(api_client, admin_user, sample_products)
     assert second.status_code == 201, second.text
@@ -167,58 +182,248 @@ def test_create_validation(
     assert extra_field.status_code == 422
 
 
-def test_specification_template_and_validation(
+def test_characteristic_definitions_are_category_scoped(
     api_client: TestClient,
     admin_user: dict,
     sample_products: dict,
-    test_db_session: Session,
-    chipset_template: int,
+    gpu_number_definition: Characteristic,
 ):
-    type_id = chipset_template
-
-    template = api_client.get(
-        f"/api/v1/admin/product-types/{type_id}/spec-fields",
+    category_id = gpu_number_definition.category_id
+    response = api_client.get(
+        f"/api/v1/admin/categories/{category_id}/characteristics",
         headers=admin_user["headers"],
     )
-    assert template.status_code == 200
-    body = template.json()
-    assert body["product_type_id"] == type_id
-    assert body["fields"][0]["code"] == "chipset"
-    assert body["fields"][0]["is_required"] is True
-    assert [option["value"] for option in body["fields"][0]["options"]] == [
-        "GeForce",
-        "Radeon",
-    ]
-
-    missing = _create(api_client, admin_user, sample_products)
-    assert missing.status_code == 422
-    assert "Чипсет" in missing.json()["detail"]
-
-    unknown = _create(
-        api_client, admin_user, sample_products, specifications={"socket": "AM5"}
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["category_id"] == category_id
+    field = next(
+        item for item in body["fields"] if item["code"] == "test_probe_wattage"
     )
-    assert unknown.status_code == 422
-    assert "Unknown specification" in unknown.json()["detail"]
+    assert field["name"] == "Тестовая мощность"
+    assert field["data_type"] == "number"
+    assert field["unit"] == "Вт"
+    assert field["is_required"] is True
+    # Ordered by `sort_order`.
+    orders = [item["sort_order"] for item in body["fields"]]
+    assert orders == sorted(orders)
 
-    disallowed = _create(
-        api_client, admin_user, sample_products, specifications={"chipset": "Intel"}
+    # Definitions belong to the category, so a different category never sees them.
+    other = api_client.get(
+        f"/api/v1/admin/categories/{sample_products['cpu'].product_type.category_id}"
+        "/characteristics",
+        headers=admin_user["headers"],
     )
-    assert disallowed.status_code == 422
+    assert other.status_code == 200, other.text
+    assert "test_probe_wattage" not in {item["code"] for item in other.json()["fields"]}
 
-    valid = _create(
-        api_client, admin_user, sample_products, specifications={"chipset": "GeForce"}
+
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({}, "Тестовая мощность"),
+        (
+            {"characteristics": [{"code": "unknown_code", "value": "x"}]},
+            "Unknown characteristic code",
+        ),
+        (
+            {"characteristics": [{"code": "test_probe_wattage", "value": "сто"}]},
+            "numeric value",
+        ),
+        (
+            {"characteristics": [{"code": "test_probe_wattage", "value": True}]},
+            "numeric value",
+        ),
+        (
+            {"characteristics": [{"code": "test_probe_wattage", "value": None}]},
+            "null",
+        ),
+        (
+            {
+                "characteristics": [
+                    {"code": "test_probe_wattage", "value": 250},
+                    {"code": "test_probe_wattage", "value": 300},
+                ]
+            },
+            "Duplicate characteristic code",
+        ),
+    ],
+    ids=[
+        "missing-required",
+        "unknown-code",
+        "wrong-type",
+        "boolean-as-number",
+        "json-null",
+        "duplicate-code",
+    ],
+)
+def test_create_rejects_invalid_characteristics(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    gpu_number_definition: Characteristic,
+    payload: dict,
+    expected: str,
+):
+    response = _create(api_client, admin_user, sample_products, **payload)
+    assert response.status_code == 422, response.text
+    assert expected in response.json()["detail"]
+
+
+def test_create_and_update_store_typed_values(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    gpu_number_definition: Characteristic,
+    gpu_optional_definition: Characteristic,
+):
+    created = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        characteristics=[
+            {"code": "test_probe_wattage", "value": 250},
+            {"code": "test_probe_note", "value": "  Заметка  "},
+            {"code": "gpu_model", "value": "GeForce RTX"},
+        ],
     )
-    assert valid.status_code == 201, valid.text
-    assert valid.json()["specifications"] == {"chipset": "GeForce"}
-    assert valid.json()["technical_specs"]["chipset"] == "GeForce"
+    assert created.status_code == 201, created.text
+    body = created.json()
+    rows = {row["code"]: row for row in body["characteristics"]}
+    assert rows["test_probe_wattage"]["value"] == 250
+    assert rows["test_probe_wattage"]["display_value"] == "250 Вт"
+    assert rows["test_probe_note"]["value"] == "Заметка"
+    assert rows["gpu_model"]["value"] == "GeForce RTX"
+    assert rows["test_probe_wattage"]["is_required"] is True
 
+    path = f"/api/v1/admin/products/{body['id']}"
+    headers = admin_user["headers"]
+
+    # An omitted code keeps its stored value; only the submitted one changes.
     updated = api_client.patch(
-        f"/api/v1/admin/products/{valid.json()['id']}",
-        headers=admin_user["headers"],
-        json={"specifications": {"chipset": "Radeon"}},
+        path,
+        headers=headers,
+        json={"characteristics": [{"code": "gpu_model", "value": "Radeon RX"}]},
     )
     assert updated.status_code == 200, updated.text
-    assert updated.json()["specifications"] == {"chipset": "Radeon"}
+    after = {row["code"]: row for row in updated.json()["characteristics"]}
+    assert after["gpu_model"]["value"] == "Radeon RX"
+    assert after["test_probe_wattage"]["value"] == 250
+
+    # An explicit removal is honoured for a non-required definition.
+    removed = api_client.patch(
+        path, headers=headers, json={"remove_characteristics": ["test_probe_note"]}
+    )
+    assert removed.status_code == 200, removed.text
+    assert "test_probe_note" not in {
+        row["code"] for row in removed.json()["characteristics"]
+    }
+
+    # A required definition can never be removed.
+    forced = api_client.patch(
+        path,
+        headers=headers,
+        json={"remove_characteristics": ["test_probe_wattage"]},
+    )
+    assert forced.status_code == 422
+    assert "Тестовая мощность" in forced.json()["detail"]
+
+
+def test_rolled_back_characteristic_write_leaves_no_rows(
+    isolated_connection,
+    sample_products: dict,
+    admin_user: dict,
+    gpu_number_definition: Characteristic,
+):
+    """A failed transaction must not leave partial characteristic rows."""
+    product = sample_products["gpu"]
+
+    with _service_session(isolated_connection) as db:
+        actor = db.get(User, admin_user["id"])
+        product_admin_service.update_product(
+            db,
+            actor,
+            product.id,
+            AdminProductUpdate(
+                characteristics=[
+                    CharacteristicValueIn(code="test_probe_wattage", value=250)
+                ]
+            ),
+        )
+        with pytest.raises(InvalidInputError):
+            product_admin_service.update_product(
+                db,
+                actor,
+                product.id,
+                AdminProductUpdate(
+                    characteristics=[
+                        CharacteristicValueIn(code="test_probe_wattage", value="nope")
+                    ]
+                ),
+            )
+        db.rollback()
+
+    with _service_session(isolated_connection) as db:
+        codes = set(
+            db.scalars(
+                select(Characteristic.code)
+                .join(
+                    ProductCharacteristic,
+                    ProductCharacteristic.characteristic_id == Characteristic.id,
+                )
+                .where(ProductCharacteristic.product_id == product.id)
+            ).all()
+        )
+        assert "test_probe_wattage" not in codes
+
+
+def test_category_transition_never_drops_values_silently(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    gpu_number_definition: Characteristic,
+    cpu_text_definition: Characteristic,
+):
+    created = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        characteristics=[{"code": "test_probe_wattage", "value": 250}],
+    )
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+    path = f"/api/v1/admin/products/{product_id}"
+    headers = admin_user["headers"]
+    cpu_type_id = sample_products["cpu"].product_type_id
+
+    blocked = api_client.patch(
+        path, headers=headers, json={"product_type_id": cpu_type_id}
+    )
+    assert blocked.status_code == 422, blocked.text
+    detail = blocked.json()["detail"]
+    assert "test_probe_wattage" in detail
+    # The rejected transition did not change the product.
+    unchanged = api_client.get(path, headers=headers).json()
+    assert unchanged["product_type"]["id"] != cpu_type_id
+    assert {row["code"]: row["value"] for row in unchanged["characteristics"]} == {
+        "test_probe_wattage": 250
+    }
+
+    # An explicit removal plus the target-category requirements is accepted.
+    switched = api_client.patch(
+        path,
+        headers=headers,
+        json={
+            "product_type_id": cpu_type_id,
+            "remove_characteristics": ["test_probe_wattage"],
+            "characteristics": [{"code": "test_probe_socket", "value": "AM5"}],
+        },
+    )
+    assert switched.status_code == 200, switched.text
+    body = switched.json()
+    assert body["product_type"]["id"] == cpu_type_id
+    assert {row["code"]: row["value"] for row in body["characteristics"]} == {
+        "test_probe_socket": "AM5"
+    }
 
 
 def test_update_and_soft_delete(
@@ -463,138 +668,6 @@ def test_media_urls_are_served_through_the_api_prefix(
         f"{MEDIA_URL_PREFIX}/nested/{filename}",
     ):
         assert api_client.get(path).status_code == 404, path
-
-
-def test_technical_specs_cannot_bypass_template_validation(
-    api_client: TestClient,
-    admin_user: dict,
-    sample_products: dict,
-    chipset_template: int,
-):
-    """F4: the same dropdown/required rules apply to both input properties."""
-    headers = admin_user["headers"]
-
-    disallowed = _create(
-        api_client, admin_user, sample_products, technical_specs={"chipset": "Intel"}
-    )
-    assert disallowed.status_code == 422
-    assert "not allowed" in disallowed.json()["detail"]
-
-    conflict = _create(
-        api_client,
-        admin_user,
-        sample_products,
-        technical_specs={"chipset": "Intel"},
-        specifications={"chipset": "GeForce"},
-    )
-    assert conflict.status_code == 422
-    assert "Conflicting" in conflict.json()["detail"]
-
-    missing = _create(
-        api_client, admin_user, sample_products, technical_specs={"tdp": 250}
-    )
-    assert missing.status_code == 422
-    assert "Чипсет" in missing.json()["detail"]
-
-    valid = _create(
-        api_client,
-        admin_user,
-        sample_products,
-        technical_specs={"chipset": "Radeon", "tdp": 250},
-    )
-    assert valid.status_code == 201, valid.text
-    body = valid.json()
-    assert body["technical_specs"] == {"chipset": "Radeon", "tdp": 250}
-    assert body["specifications"] == {"chipset": "Radeon"}
-
-    path = f"/api/v1/admin/products/{body['id']}"
-    bypass = api_client.patch(
-        path, headers=headers, json={"technical_specs": {"chipset": "Intel"}}
-    )
-    assert bypass.status_code == 422
-    cleared = api_client.patch(
-        path, headers=headers, json={"technical_specs": {"chipset": "", "tdp": 250}}
-    )
-    assert cleared.status_code == 422
-
-    updated = api_client.patch(
-        path,
-        headers=headers,
-        json={"technical_specs": {"chipset": "GeForce", "tdp": 250}},
-    )
-    assert updated.status_code == 200, updated.text
-    assert updated.json()["technical_specs"] == {"chipset": "GeForce", "tdp": 250}
-
-    # `technical_specs` replaces the stored value, so dropping the required
-    # template code is refused instead of silently removing it.
-    dropped = api_client.patch(
-        path, headers=headers, json={"technical_specs": {"tdp": 300}}
-    )
-    assert dropped.status_code == 422
-    assert "Чипсет" in dropped.json()["detail"]
-
-    # Non-template legacy specifications keep working and stay readable.
-    legacy = api_client.patch(
-        path,
-        headers=headers,
-        json={"technical_specs": {"chipset": "GeForce", "tdp": 300, "length_mm": 320}},
-    )
-    assert legacy.status_code == 200, legacy.text
-    assert legacy.json()["technical_specs"] == {
-        "chipset": "GeForce",
-        "tdp": 300,
-        "length_mm": 320,
-    }
-    assert legacy.json()["specifications"] == {"chipset": "GeForce"}
-
-
-def test_product_type_change_revalidates_specifications(
-    api_client: TestClient,
-    admin_user: dict,
-    sample_products: dict,
-    chipset_template: int,
-    cpu_socket_template: int,
-):
-    created = _create(
-        api_client, admin_user, sample_products, specifications={"chipset": "GeForce"}
-    )
-    assert created.status_code == 201, created.text
-    product_id = created.json()["id"]
-    path = f"/api/v1/admin/products/{product_id}"
-    headers = admin_user["headers"]
-
-    without_socket = api_client.patch(
-        path, headers=headers, json={"product_type_id": cpu_socket_template}
-    )
-    assert without_socket.status_code == 422
-    assert "Сокет" in without_socket.json()["detail"]
-
-    bypass_attempt = api_client.patch(
-        path,
-        headers=headers,
-        json={
-            "product_type_id": cpu_socket_template,
-            "technical_specs": {"socket": "AM4"},
-        },
-    )
-    assert bypass_attempt.status_code == 422
-    assert "not allowed" in bypass_attempt.json()["detail"]
-
-    switched = api_client.patch(
-        path,
-        headers=headers,
-        json={
-            "product_type_id": cpu_socket_template,
-            "specifications": {"socket": "AM5"},
-        },
-    )
-    assert switched.status_code == 200, switched.text
-    body = switched.json()
-    assert body["product_type"]["id"] == cpu_socket_template
-    assert body["specifications"] == {"socket": "AM5"}
-    # Non-template legacy keys survive a product-type change.
-    assert body["technical_specs"]["chipset"] == "GeForce"
-    assert body["technical_specs"]["socket"] == "AM5"
 
 
 def _service_session(isolated_connection) -> Session:

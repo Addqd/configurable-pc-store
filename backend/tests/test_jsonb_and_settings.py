@@ -1,24 +1,26 @@
-"""Regression checks for settings secrets and JSONB mutation tracking."""
+"""Regression checks for settings secrets and JSONB columns."""
 
-from decimal import Decimal
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
-from sqlalchemy import inspect
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm.attributes import set_committed_value
 
 from app.core.config import AppSettings
-from app.models import Product
+from app.models import CartItem, OrderItem, Product, ProductCharacteristic
 
 
-def _product() -> Product:
-    return Product(
-        product_type_id=1,
-        manufacturer_id=1,
-        slug="test-product",
-        name="Test product",
-        price=Decimal("1.00"),
+def _cart_item(snapshot: dict | None) -> CartItem:
+    timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+    return CartItem(
+        id=1,
+        cart_id=1,
+        kind="custom_build" if snapshot else "product",
+        product_id=None if snapshot else 1,
+        build_snapshot=snapshot,
+        quantity=1,
+        created_at=timestamp,
+        updated_at=timestamp,
     )
 
 
@@ -31,36 +33,62 @@ def test_settings_repr_does_not_expose_password() -> None:
     assert "example-test-password-not-a-secret" not in repr(settings)
 
 
-def test_catalog_jsonb_list_detects_in_place_changes() -> None:
-    product = _product()
-    product.spec_lines = ["AM5"]
-    set_committed_value(product, "spec_lines", product.spec_lines)
-    product.spec_lines.append("DDR5")
-    assert inspect(product).attrs.spec_lines.history.has_changes()
+def test_product_has_no_legacy_specification_columns() -> None:
+    # The legacy display/specification architecture is gone from the ORM and must
+    # never come back: only real product attributes remain.
+    columns = set(Product.__table__.c.keys())
+    assert columns == {
+        "id",
+        "product_type_id",
+        "manufacturer_id",
+        "slug",
+        "sku",
+        "name",
+        "description",
+        "price",
+        "stock_quantity",
+        "color",
+        "graphics_chip_brand",
+        "on_sale",
+        "is_active",
+        "listed_at",
+        "created_at",
+        "updated_at",
+    }
+    assert not any(isinstance(column.type, JSONB) for column in Product.__table__.c)
 
 
-def test_catalog_jsonb_dict_detects_in_place_changes() -> None:
-    product = _product()
-    product.technical_specs = {"socket": "AM5"}
-    set_committed_value(product, "technical_specs", product.technical_specs)
-    product.technical_specs["socket"] = "LGA1700"
-    assert inspect(product).attrs.technical_specs.history.has_changes()
+def test_characteristic_value_is_jsonb_without_any_default() -> None:
+    # One definition can hold a string, number, boolean, string list or number
+    # list; the column must not coerce or default the value.
+    column = ProductCharacteristic.__table__.c.value
+    assert isinstance(column.type, JSONB)
+    assert column.nullable is False
+    assert column.default is None
+    assert column.server_default is None
 
 
-def test_catalog_display_specs_jsonb_list_detects_in_place_changes() -> None:
-    product = _product()
-    product.display_specs = [{"label": "Сокет", "value": "AM5"}]
-    set_committed_value(product, "display_specs", product.display_specs)
-    product.display_specs.append({"label": "Ядра", "value": "6"})
-    assert inspect(product).attrs.display_specs.history.has_changes()
+def test_cart_snapshot_uses_sql_null_for_regular_products() -> None:
+    # A Python None must become SQL NULL, as required by ck_cart_items_kind_payload.
+    column = CartItem.__table__.c.build_snapshot
+    assert isinstance(column.type, JSONB)
+    assert column.type.none_as_null is True
+    assert _cart_item(None).build_snapshot is None
 
 
-def test_catalog_display_specs_column_matches_applied_migration() -> None:
-    column = Product.__table__.c.display_specs
+def test_order_specs_snapshot_stays_a_non_null_jsonb_array() -> None:
+    column = OrderItem.__table__.c.specs_snapshot
     assert isinstance(column.type, JSONB)
     assert column.nullable is False
     assert column.server_default is not None
     assert "'[]'::jsonb" in str(column.server_default.arg)
+
+
+def test_order_components_snapshot_is_nullable_jsonb() -> None:
+    column = OrderItem.__table__.c.components_snapshot
+    assert isinstance(column.type, JSONB)
+    assert column.type.none_as_null is True
+    assert column.nullable is True
 
 
 def _settings(**overrides):

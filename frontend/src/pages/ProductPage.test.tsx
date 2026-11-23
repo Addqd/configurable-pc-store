@@ -18,13 +18,13 @@ describe('server product page', () => {
     expect(await screen.findByRole('heading', { name: 'AMD Ryzen 5 7600' })).toBeTruthy()
     expect(screen.getByText('Server description')).toBeTruthy()
     expect(screen.getByText(/18\s*990/)).toBeTruthy()
-    expect(screen.getByText('6 ядер')).toBeTruthy()
+    expect(screen.getByText('5.1 ГГц')).toBeTruthy()
     const availability = screen.getByText('В наличии')
     expect(availability.className).toContain('text-emerald-500')
     expect(availability.querySelector('span')?.className).toContain('bg-emerald-500')
   })
-  it('renders the imported display_specs label/value pairs and never the evidence metadata', async () => {
-    setup()
+  it('renders the show_in_details characteristic rows and never internal metadata', async () => {
+    setup('gaming-pc-powerplay')
     expect(await screen.findByText('Кэш L3')).toBeTruthy()
     expect(screen.getByText('32 МБ')).toBeTruthy()
     expect(screen.getByText('Техпроцесс')).toBeTruthy()

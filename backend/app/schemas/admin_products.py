@@ -1,4 +1,4 @@
-"""Pydantic contracts for product, specification and image administration."""
+"""Pydantic contracts for product, characteristic and image administration."""
 
 from __future__ import annotations
 
@@ -11,8 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from app.schemas.catalog import (
     CategoryOut,
+    CharacteristicValueOut,
     ManufacturerOut,
-    ProductDisplaySpecOut,
     ProductTypeOut,
 )
 
@@ -31,6 +31,9 @@ ProductSort = Literal[
     "id_asc",
     "id_desc",
 ]
+CharacteristicDataType = Literal[
+    "string", "number", "boolean", "string_list", "number_list"
+]
 
 MAX_IMAGE_COUNT = 10
 _SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
@@ -42,35 +45,58 @@ _NON_NULLABLE_UPDATE_FIELDS = (
     "stock_quantity",
     "description",
     "slug",
-    "spec_lines",
-    "short_specs",
-    "technical_specs",
-    "display_specs",
+    "characteristics",
     "on_sale",
     "is_active",
     "listed_at",
 )
 
 
-class ProductSpecOptionOut(BaseModel):
-    id: int
-    value: str
-    sort_order: int
+# ── Characteristic definitions (category-scoped) ─────────────────────────────
 
 
-class ProductSpecFieldOut(BaseModel):
-    id: int
+class CharacteristicDefinitionOut(BaseModel):
+    """One server-side field definition the admin editor renders dynamically."""
+
     code: str
-    label: str
+    name: str
+    data_type: CharacteristicDataType
+    unit: str | None = None
     sort_order: int
     is_required: bool
-    options: list[ProductSpecOptionOut] = []
+    show_in_short: bool
+    show_in_details: bool
 
 
-class SpecificationTemplateOut(BaseModel):
-    product_type_id: int
-    product_type_name: str
-    fields: list[ProductSpecFieldOut] = []
+class CharacteristicDefinitionsOut(BaseModel):
+    category_id: int
+    category_name: str
+    fields: list[CharacteristicDefinitionOut] = []
+
+
+class CharacteristicValueIn(BaseModel):
+    """One submitted value.
+
+    A list of pairs (instead of an object) lets the API reject a duplicated code
+    in the same payload, which an object would silently collapse. `null` is never
+    a legal value: use `remove_characteristics` to delete an existing one.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=64)
+    value: Any
+
+    @field_validator("code")
+    @classmethod
+    def clean_code(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Characteristic code must not be blank")
+        return cleaned
+
+
+# ── Shared catalogue payloads ────────────────────────────────────────────────
 
 
 class ProductTypeWithCategoryOut(BaseModel):
@@ -128,11 +154,8 @@ class AdminProductDetailOut(BaseModel):
     stock_quantity: int
     color: str | None = None
     graphics_chip_brand: str | None = None
-    spec_lines: list[str] = []
-    short_specs: list[str] = []
-    technical_specs: dict[str, Any] = {}
-    display_specs: list[ProductDisplaySpecOut] = []
-    specifications: dict[str, str] = {}
+    # Every value currently stored for the product, ordered by definition order.
+    characteristics: list[CharacteristicValueOut] = []
     on_sale: bool
     is_active: bool
     listed_at: date
@@ -145,21 +168,6 @@ class AdminProductDetailOut(BaseModel):
     cover_image_url: str
     average_rating: float = 0.0
     review_count: int = 0
-
-
-class ProductDisplaySpecIn(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    label: str = Field(min_length=1, max_length=120)
-    value: str = Field(min_length=1, max_length=300)
-
-    @field_validator("label", "value")
-    @classmethod
-    def clean_text(cls, value: str) -> str:
-        cleaned = " ".join(value.split())
-        if not cleaned:
-            raise ValueError("Value must not be blank")
-        return cleaned
 
 
 def _clean_name(value: str | None) -> str | None:
@@ -201,33 +209,6 @@ def _clean_optional_text(value: str | None) -> str | None:
     return " ".join(value.split()) or None
 
 
-def _clean_lines(value: list[str]) -> list[str]:
-    cleaned: list[str] = []
-    for raw in value:
-        text = " ".join(raw.split())
-        if not text:
-            continue
-        if len(text) > 300:
-            raise ValueError("Specification lines must be at most 300 characters")
-        cleaned.append(text)
-    return cleaned
-
-
-def _clean_technical_specs(value: dict[str, Any]) -> dict[str, Any]:
-    cleaned: dict[str, Any] = {}
-    for raw_key, raw_value in value.items():
-        key = raw_key.strip()
-        if not key or len(key) > 64:
-            raise ValueError("Specification keys must be 1-64 characters")
-        if isinstance(raw_value, str):
-            cleaned[key] = raw_value.strip()[:500]
-        elif isinstance(raw_value, bool | int | float) or raw_value is None:
-            cleaned[key] = raw_value
-        else:
-            raise ValueError("Specification values must be scalar values")
-    return cleaned
-
-
 class AdminProductCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -241,13 +222,9 @@ class AdminProductCreate(BaseModel):
     slug: str | None = Field(default=None, max_length=180)
     color: str | None = Field(default=None, max_length=80)
     graphics_chip_brand: str | None = Field(default=None, max_length=40)
-    spec_lines: list[str] = Field(default_factory=list, max_length=40)
-    short_specs: list[str] = Field(default_factory=list, max_length=20)
-    technical_specs: dict[str, Any] = Field(default_factory=dict)
-    display_specs: list[ProductDisplaySpecIn] = Field(
-        default_factory=list, max_length=60
+    characteristics: list[CharacteristicValueIn] = Field(
+        default_factory=list, max_length=200
     )
-    specifications: dict[str, str] | None = None
     on_sale: bool = False
     is_active: bool = True
     listed_at: date | None = None
@@ -280,16 +257,6 @@ class AdminProductCreate(BaseModel):
     def validate_optional_text(cls, value: str | None) -> str | None:
         return _clean_optional_text(value)
 
-    @field_validator("spec_lines", "short_specs")
-    @classmethod
-    def validate_spec_lines(cls, value: list[str]) -> list[str]:
-        return _clean_lines(value)
-
-    @field_validator("technical_specs")
-    @classmethod
-    def validate_technical(cls, value: dict[str, Any]) -> dict[str, Any]:
-        return _clean_technical_specs(value)
-
 
 class AdminProductUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -304,13 +271,10 @@ class AdminProductUpdate(BaseModel):
     slug: str | None = Field(default=None, max_length=180)
     color: str | None = Field(default=None, max_length=80)
     graphics_chip_brand: str | None = Field(default=None, max_length=40)
-    spec_lines: list[str] | None = Field(default=None, max_length=40)
-    short_specs: list[str] | None = Field(default=None, max_length=20)
-    technical_specs: dict[str, Any] | None = None
-    display_specs: list[ProductDisplaySpecIn] | None = Field(
-        default=None, max_length=60
+    characteristics: list[CharacteristicValueIn] | None = Field(
+        default=None, max_length=200
     )
-    specifications: dict[str, str] | None = None
+    remove_characteristics: list[str] | None = Field(default=None, max_length=200)
     on_sale: bool | None = None
     is_active: bool | None = None
     listed_at: date | None = None
@@ -339,16 +303,6 @@ class AdminProductUpdate(BaseModel):
     @classmethod
     def validate_optional_text(cls, value: str | None) -> str | None:
         return _clean_optional_text(value)
-
-    @field_validator("spec_lines", "short_specs")
-    @classmethod
-    def validate_spec_lines(cls, value: list[str] | None) -> list[str] | None:
-        return None if value is None else _clean_lines(value)
-
-    @field_validator("technical_specs")
-    @classmethod
-    def validate_technical(cls, value: dict[str, Any] | None) -> dict[str, Any] | None:
-        return None if value is None else _clean_technical_specs(value)
 
     @model_validator(mode="after")
     def reject_explicit_nulls(self) -> AdminProductUpdate:

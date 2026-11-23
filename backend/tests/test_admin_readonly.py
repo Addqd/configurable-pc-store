@@ -227,22 +227,23 @@ def test_admin_query_services_execute_read_only():
 
         detail = product_admin_service.get_product_detail(db, first.id)
         assert detail.id == first.id
-        assert isinstance(detail.specifications, dict)
-        assert isinstance(detail.technical_specs, dict)
+        # Every exposed value is native JSON with a readable rendering.
+        for row in detail.characteristics:
+            assert row.code
+            assert row.name
+            assert row.display_value
+            assert row.value is not None
 
         options = product_admin_service.form_options(db)
         assert options.categories
         assert options.manufacturers
-        type_id = options.categories[0].product_types[0].id
-        template = product_admin_service.spec_template(db, type_id)
-        assert template.product_type_id == type_id
-        fields, field_options = spec_service.template_fields(db, type_id)
-        assert len(fields) == len(template.fields)
-        assert all(
-            option.field_id in {field.id for field in fields}
-            for rows in field_options.values()
-            for option in rows
+        category = options.categories[0].category
+        definitions = product_admin_service.characteristic_definitions(db, category.id)
+        assert definitions.category_id == category.id
+        assert len(definitions.fields) == len(
+            spec_service.definitions_for_category(db, category.id)
         )
+        assert all(field.code and field.data_type for field in definitions.fields)
 
         reviews = review_admin_service.list_reviews(db, page=1, page_size=3)
         assert reviews.total >= len(reviews.items)

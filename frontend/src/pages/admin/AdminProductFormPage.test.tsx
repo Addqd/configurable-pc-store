@@ -8,7 +8,7 @@ import i18n from '../../i18n'
 import { AdminProductFormPage } from './AdminProductFormPage'
 import {
   callsTo, jsonResponse, productDetailFixture, productOptionsFixture, requestBody,
-  specTemplateFixture, stubAdminFetch,
+  characteristicDefinitionsFixture, stubAdminFetch,
 } from '../../test-admin-api'
 
 vi.mock('../../components/Header', () => ({ Header: () => <header data-testid="header" /> }))
@@ -22,7 +22,7 @@ function setup(options: { failFirstUpload?: boolean; failFirstOrder?: boolean } 
     if (url.pathname === '/api/v1/products/filters') {
       return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
     }
-    if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+    if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
     if (url.pathname === '/api/v1/admin/products' && method === 'POST') {
       const body = requestBody(init) as { name: string }
       return jsonResponse({
@@ -103,13 +103,13 @@ describe('admin product creation', () => {
     expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
   })
 
-  it('sends the contract payload, including the server-driven specifications', async () => {
+  it('sends the contract payload, including the typed characteristics', async () => {
     const fetchMock = setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
     const memory = await screen.findByLabelText('Объём памяти')
     fireEvent.change(memory, { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192' } })
 
     fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
     expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
@@ -124,59 +124,75 @@ describe('admin product creation', () => {
       stock_quantity: 5,
       description: '',
       color: null,
-      specifications: { memory_size: '12 ГБ', memory_bus: '192 бит' },
+      characteristics: [
+        { code: 'memory_size', value: '12 ГБ' },
+        { code: 'memory_bus', value: 192 },
+      ],
       is_active: true,
     })
   })
 
-  it('removes the dropdown arrow from the fixed characteristic labels only', async () => {
+  it('renders a control that matches each declared data type', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
 
-    const valueSelect = await screen.findByLabelText('Объём памяти')
-    const row = valueSelect.closest('.grid') as HTMLElement
-    const [labelBox, valueBox] = Array.from(row.children) as HTMLElement[]
-
-    // The left box only states the server-driven characteristic name: it is not a
-    // control, so it must not carry a dropdown indicator.
-    expect(labelBox.textContent).toBe('Объём памяти*')
-    expect(labelBox.querySelector('svg')).toBeNull()
-    expect(labelBox.getAttribute('role')).toBeNull()
-    // The right selector keeps its own arrow and stays fully interactive.
-    expect(valueBox.querySelector('svg')).not.toBeNull()
-    fireEvent.change(valueSelect, { target: { value: '16 ГБ' } })
-    expect((valueSelect as HTMLSelectElement).value).toBe('16 ГБ')
+    const text = await screen.findByLabelText('Объём памяти')
+    expect((text as HTMLInputElement).type).toBe('text')
+    const numeric = screen.getByLabelText('Шина памяти')
+    expect((numeric as HTMLInputElement).type).toBe('text')
+    expect(numeric.getAttribute('inputmode')).toBe('decimal')
+    expect((screen.getByLabelText('Подсветка') as HTMLInputElement).type).toBe('checkbox')
+    // Only the fixed label column states the definition name and its unit.
+    expect(screen.getByText('бит')).toBeTruthy()
+    expect(screen.getByText('Объём памяти').textContent).toContain('Объём памяти')
   })
 
-  it('keeps the approved label box styling while dropping its arrow', async () => {
-    setup()
+  it('edits list values as individual rows so order and duplicates survive', async () => {
+    const fetchMock = setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
-    fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
-    fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
-    const valueSelect = await screen.findByLabelText('Шина памяти')
-    const labelBox = (valueSelect.closest('.grid') as HTMLElement).children[0] as HTMLElement
-    expect(labelBox.className).toBe(
-      'relative flex h-11 items-center rounded-lg border border-border bg-surface-2 px-3.5 pr-10 text-sm text-text-primary',
-    )
-    expect(labelBox.querySelectorAll('svg')).toHaveLength(0)
+    fillRequiredFields()
+    const memory = await screen.findByLabelText('Объём памяти')
+    fireEvent.change(memory, { target: { value: '12 ГБ' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить значение' }))
+    fireEvent.change(screen.getByLabelText('Разъёмы питания 1'), { target: { value: 'pcie-8pin' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить значение' }))
+    fireEvent.change(screen.getByLabelText('Разъёмы питания 2'), { target: { value: 'pcie-8pin' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
+    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    const body = requestBody(post?.[1] ?? {}) as { characteristics: { code: string; value: unknown }[] }
+    expect(body.characteristics).toContainEqual({
+      code: 'power_connectors',
+      value: ['pcie-8pin', 'pcie-8pin'],
+    })
   })
 
-  it('drops the placeholder arrows of the characteristic label column too', async () => {
-    setup()
+  it('rejects a non-numeric value for a numeric characteristic', async () => {
+    const fetchMock = setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
-    // Without a chosen product type the panel shows three placeholder rows.
-    const placeholders = screen.getAllByLabelText('Выберите параметр...')
-    expect(placeholders).toHaveLength(3)
-    for (const param of placeholders) {
-      expect(param.parentElement?.querySelector('svg')).toBeNull()
-    }
-    const values = screen.getAllByLabelText('Выберите значение...')
-    expect(values).toHaveLength(3)
-    for (const value of values) {
-      expect(value.parentElement?.querySelector('svg')).not.toBeNull()
-    }
+    fillRequiredFields()
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: 'много' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
+    expect(await screen.findByText('Введите число')).toBeTruthy()
+    expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
+  })
+
+  it('reports a missing required characteristic before submitting', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
+    expect(await screen.findByText(/Заполните обязательные характеристики: Шина памяти/)).toBeTruthy()
+    expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
   })
 
   it('applies the existing type and size validation to files dropped from the OS', async () => {
@@ -263,7 +279,7 @@ function setupEdit(price = '64990.00', extra?: (url: URL, init: RequestInit) => 
     if (url.pathname === '/api/v1/products/filters') {
       return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
     }
-    if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+    if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
     if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
     if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
       const body = requestBody(init) as { price?: string }
@@ -351,7 +367,7 @@ describe('admin product editing', () => {
         if (url.pathname === '/api/v1/products/filters') {
           return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
         }
-        if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+        if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
         if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
         if (url.pathname === '/api/v1/admin/products/7/images/73' && method === 'DELETE') {
           return new Response(null, { status: 204 })
@@ -407,7 +423,7 @@ describe('admin product editing', () => {
         if (url.pathname === '/api/v1/products/filters') {
           return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
         }
-        if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+        if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
         if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
         if (url.pathname === '/api/v1/admin/products/7/images/order' && method === 'PUT') return orderResponse
         return undefined
@@ -446,7 +462,7 @@ const submittedPrice = (fetchMock: ReturnType<typeof vi.fn>) => {
 }
 
 const submitForm = async () => {
-  // The submit button stays disabled until the specification template resolves.
+  // The submit button stays disabled until the category definitions resolve.
   await screen.findByLabelText('Объём памяти')
   fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
 }
@@ -524,7 +540,7 @@ describe('admin product price parsing', () => {
     const fetchMock = setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    // The submit button waits for the specification template of the chosen type.
+    // The submit button waits for the definitions of the chosen category.
     await screen.findByLabelText('Объём памяти')
     fireEvent.change(screen.getByLabelText('Цена, ₽'), { target: { value: '12,34,56' } })
 
@@ -726,7 +742,7 @@ function setupEditGallery(  extra: (url: URL, init: RequestInit) => Response | P
       if (url.pathname === '/api/v1/products/filters') {
         return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
       }
-      if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+      if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
       if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
       return extra(url, init)
     },
@@ -751,7 +767,7 @@ const creationHandler = (options: { failFirstUpload?: boolean; failOrder?: boole
     if (url.pathname === '/api/v1/products/filters') {
       return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
     }
-    if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+    if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
     if (url.pathname === '/api/v1/admin/products' && method === 'POST') {
       return jsonResponse({ ...productDetailFixture, id: 900, images: [], review_count: 0, average_rating: 0 }, 201)
     }
@@ -1118,7 +1134,7 @@ describe('admin product upload invalidation and stale navigation', () => {
         if (url.pathname === '/api/v1/products/filters') {
           return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
         }
-        if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+        if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
         if (url.pathname === '/api/v1/admin/products' && method === 'POST') {
           return jsonResponse({ ...productDetailFixture, id: 900, images: [], review_count: 0, average_rating: 0 }, 201)
         }
@@ -1164,7 +1180,7 @@ describe('admin product upload invalidation and stale navigation', () => {
         if (url.pathname === '/api/v1/products/filters') {
           return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
         }
-        if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+        if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
         if (url.pathname === '/api/v1/admin/products' && method === 'POST') {
           return jsonResponse({ ...productDetailFixture, id: 900, images: [], review_count: 0, average_rating: 0 }, 201)
         }
@@ -1432,7 +1448,7 @@ describe('admin product gallery concurrency', () => {
         if (url.pathname === '/api/v1/products/filters') {
           return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
         }
-        if (url.pathname === '/api/v1/admin/product-types/8/spec-fields') return jsonResponse(specTemplateFixture)
+        if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(characteristicDefinitionsFixture)
         if (url.pathname === '/api/v1/admin/products' && method === 'POST') {
           return jsonResponse({ ...productDetailFixture, id: 900, images: [], review_count: 0, average_rating: 0 }, 201)
         }

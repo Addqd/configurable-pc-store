@@ -35,8 +35,6 @@ from app.models import (
     Product,
     ProductCharacteristic,
     ProductImage,
-    ProductSpecField,
-    ProductSpecOption,
     ProductType,
     Review,
     SaleLineFact,
@@ -45,6 +43,7 @@ from app.models import (
     SiteEvent,
     User,
 )
+from app.services import spec_service
 from scripts.seed import parse_catalog
 
 EXPECTED_MODELS = (
@@ -63,8 +62,6 @@ EXPECTED_MODELS = (
     CartItem,
     Order,
     OrderItem,
-    ProductSpecField,
-    ProductSpecOption,
     SiteEvent,
     SaleLineFact,
     Characteristic,
@@ -77,7 +74,7 @@ EXPECTED_MODELS = (
 
 def test_all_models_mapped() -> None:
     configure_mappers()
-    assert len(EXPECTED_MODELS) == 21
+    assert len(EXPECTED_MODELS) == 19
     expected_names = {model.__tablename__ for model in EXPECTED_MODELS}
     assert set(Base.metadata.tables) == expected_names
 
@@ -114,10 +111,6 @@ def test_product_model_columns() -> None:
         "stock_quantity",
         "color",
         "graphics_chip_brand",
-        "spec_lines",
-        "short_specs",
-        "technical_specs",
-        "display_specs",
         "on_sale",
         "is_active",
         "listed_at",
@@ -216,31 +209,45 @@ def test_product_relationships(test_db_session: Session) -> None:
     assert product is not None
     assert product.product_type.category.slug == "gpu"
     assert product.manufacturer.name == "MSI"
-    assert isinstance(product.spec_lines, list)
-    assert isinstance(product.short_specs, list)
-    assert isinstance(product.technical_specs, dict)
-    assert isinstance(product.display_specs, list)
+    assert isinstance(product.characteristics, list)
 
 
-def test_seeded_products_have_customer_display_specs(
+def test_seeded_products_expose_readable_characteristics(
     test_db_session: Session,
 ) -> None:
-    """Every imported catalog product exposes readable label/value specifications."""
+    """Every imported catalog product exposes readable characteristic values."""
     seeded = {str(row["slug"]) for row in parse_catalog()}
-    rows = test_db_session.execute(
-        select(Product.slug, Product.display_specs).where(Product.slug.in_(seeded))
+    rows = test_db_session.scalars(
+        select(Product).where(Product.slug.in_(seeded))
     ).all()
-    assert {slug for slug, _ in rows} == seeded
-    for slug, specs in rows:
-        assert isinstance(specs, list) and specs, slug
-        assert all(
-            isinstance(spec, dict)
-            and isinstance(spec.get("label"), str)
-            and spec["label"].strip()
-            and isinstance(spec.get("value"), str)
-            and spec["value"].strip()
-            for spec in specs
-        ), slug
+    assert {product.slug for product in rows} == seeded
+    for product in rows:
+        category_id = product.product_type.category.id
+        definitions = spec_service.definitions_for_category(
+            test_db_session, category_id
+        )
+        values = spec_service.values_for_product(test_db_session, product.id)
+        assert definitions, product.slug
+        assert values, product.slug
+        serialized = spec_service.serialize_definitions(definitions, values)
+        assert serialized, product.slug
+        for row in serialized:
+            assert row["name"].strip(), product.slug
+            assert row["display_value"].strip(), product.slug
+            # Native JSON types survive the round trip.
+            expected = {
+                "string": str,
+                "number": int | float,
+                "boolean": bool,
+                "string_list": list,
+                "number_list": list,
+            }[row["data_type"]]
+            assert isinstance(row["value"], expected), (product.slug, row["code"])
+            if row["data_type"] == "boolean":
+                assert row["value"] is not None
+        # Every stored value belongs to the product's own category.
+        definition_codes = {definition.code for definition in definitions}
+        assert set(values).issubset(definition_codes), product.slug
 
 
 def test_category_has_product_types(test_db_session: Session) -> None:

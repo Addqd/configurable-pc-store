@@ -82,10 +82,6 @@ def _product(*urls: str) -> Product:
         description="Probe",
         price=Decimal("199.99"),
         stock_quantity=3,
-        spec_lines=[],
-        short_specs=[],
-        technical_specs={},
-        display_specs=[],
         on_sale=False,
         is_active=True,
         listed_at=date(2026, 1, 2),
@@ -441,7 +437,7 @@ def test_public_serialization_normalizes_legacy_managed_urls():
     assert cover == normalized_first
     assert [image.url for image in images] == [normalized_first, normalized_second]
 
-    summary = _summary(product, (0.0, 0))
+    summary = _summary(product, (0.0, 0), [], {})
     assert summary.cover_image_url == normalized_first
     assert [image.url for image in summary.images] == [
         normalized_first,
@@ -456,7 +452,7 @@ def test_public_product_detail_normalizes_cover_and_gallery():
     normalized = f"{API_PREFIX}/{legacy.rsplit('/', 1)[-1]}"
     product = _product(legacy)
 
-    detail = _detail(product, (0.0, 0))
+    detail = _detail(product, (0.0, 0), [], {})
     assert detail.cover_image_url == normalized
     assert [image.url for image in detail.images] == [normalized]
 
@@ -494,7 +490,7 @@ def test_correct_external_and_placeholder_urls_are_untouched():
 
     empty = _product()
     assert _images(empty) == ([], PLACEHOLDER_URL)
-    assert _summary(empty, (0.0, 0)).cover_image_url == PLACEHOLDER_URL
+    assert _summary(empty, (0.0, 0), [], {}).cover_image_url == PLACEHOLDER_URL
 
 
 @pytest.mark.parametrize(

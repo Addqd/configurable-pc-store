@@ -43,7 +43,7 @@ ADMIN_PATHS = {
     "/api/v1/admin/products",
     "/api/v1/admin/products/{product_id}",
     "/api/v1/admin/product-options",
-    "/api/v1/admin/product-types/{product_type_id}/spec-fields",
+    "/api/v1/admin/categories/{category_id}/characteristics",
     "/api/v1/admin/products/{product_id}/images",
     "/api/v1/admin/products/{product_id}/images/{image_id}",
     "/api/v1/admin/products/{product_id}/images/order",

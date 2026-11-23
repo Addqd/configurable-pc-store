@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import CartItem
+from tests.conftest import apply_characteristics as conftest_apply_characteristics
 from tests.test_compatibility_engine import _parts
 
 
@@ -178,8 +179,9 @@ def test_build_order_name_uses_cart_snapshot(
 ):
     fake, slots = _parts()
     for slot, product in sample_products.items():
-        product.technical_specs = fake.parts[slots[slot]].technical_specs
-    test_db_session.flush()
+        conftest_apply_characteristics(
+            test_db_session, product, fake.parts[slots[slot]].values
+        )
     headers = registered_user["headers"]
     items = [
         {"slot": slot, "product_id": product.id}
