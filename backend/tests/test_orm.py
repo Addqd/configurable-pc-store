@@ -18,11 +18,13 @@ from app.models import (
     Cart,
     CartItem,
     Category,
+    Characteristic,
     Favorite,
     Manufacturer,
     Order,
     OrderItem,
     Product,
+    ProductCharacteristic,
     ProductImage,
     ProductSpecField,
     ProductSpecOption,
@@ -56,6 +58,8 @@ EXPECTED_MODELS = (
     ProductSpecOption,
     SiteEvent,
     SaleLineFact,
+    Characteristic,
+    ProductCharacteristic,
 )
 
 
@@ -67,7 +71,7 @@ def db_session() -> Iterator[Session]:
 
 def test_all_models_mapped() -> None:
     configure_mappers()
-    assert len(EXPECTED_MODELS) == 19
+    assert len(EXPECTED_MODELS) == 21
     expected_names = {model.__tablename__ for model in EXPECTED_MODELS}
     assert set(Base.metadata.tables) == expected_names
 

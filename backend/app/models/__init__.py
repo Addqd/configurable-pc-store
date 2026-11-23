@@ -9,6 +9,7 @@ from app.models.catalog import (
     ProductImage,
     ProductType,
 )
+from app.models.characteristics import Characteristic, ProductCharacteristic
 from app.models.platform import (
     ProductSpecField,
     ProductSpecOption,
@@ -27,12 +28,14 @@ __all__ = [
     "CartItem",
     # Catalog
     "Category",
+    "Characteristic",
     # Social
     "Favorite",
     "Manufacturer",
     "Order",
     "OrderItem",
     "Product",
+    "ProductCharacteristic",
     "ProductImage",
     "ProductSpecField",
     "ProductSpecOption",

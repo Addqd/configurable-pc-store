@@ -32,6 +32,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.build import SavedBuildItem
     from app.models.cart_order import CartItem, OrderItem
+    from app.models.characteristics import Characteristic, ProductCharacteristic
     from app.models.social import Favorite, Review
 
 
@@ -45,6 +46,10 @@ class Category(Base):
 
     product_types: Mapped[list[ProductType]] = relationship(
         back_populates="category", cascade="all, delete-orphan"
+    )
+    # Category-scoped definitions, shared by every product type of the category.
+    characteristics: Mapped[list[Characteristic]] = relationship(
+        back_populates="category"
     )
 
 
@@ -180,6 +185,10 @@ class Product(Base):
     )
     saved_build_items: Mapped[list[SavedBuildItem]] = relationship(
         back_populates="product", passive_deletes="all"
+    )
+    # Values are owned by the product; products.id FK is ON DELETE CASCADE.
+    characteristics: Mapped[list[ProductCharacteristic]] = relationship(
+        back_populates="product", cascade="all, delete-orphan", passive_deletes=True
     )
 
 
