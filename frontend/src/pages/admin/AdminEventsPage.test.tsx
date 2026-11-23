@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router'
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { act } from 'react'
 import { render } from '../../test-utils'
 import i18n from '../../i18n'
@@ -31,12 +31,20 @@ function setup(fixture: AdminPaginatedEventsOut = eventsFixture) {
   render(
     <MemoryRouter initialEntries={['/admin/events']}>
       <Routes>
-        <Route path="/admin/events" element={<><AdminEventsPage /><LocationProbe /></>} />
+        <Route path="/admin/events" element={<><AdminEventsPage /><LocationProbe /><HistoryProbe /></>} />
         <Route path="/admin/users" element={<div>USERS PAGE</div>} />
       </Routes>
     </MemoryRouter>,
   )
   return fetchMock
+}
+
+/** Drives real browser-style history navigation inside the memory router. */
+function HistoryProbe() {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => void navigate(-1)}>История назад</button>
+  )
 }
 
 const eventRequests = (fetchMock: ReturnType<typeof vi.fn>) =>
@@ -181,6 +189,13 @@ describe('admin event journal', () => {
 describe('admin event journal date fields', () => {
   const dateFromInput = () => screen.getByLabelText('С даты') as HTMLInputElement
   const dateToInput = () => screen.getByLabelText('По дату') as HTMLInputElement
+  // Both date fields and the page's inverted-range alert use `role="alert"`, so
+  // the field message is identified by its id.
+  const fieldNotice = () =>
+    screen
+      .queryAllByRole('alert')
+      .find((element) => element.id.endsWith('-notice')) ?? null
+  const locationText = () => screen.getByTestId('location').textContent ?? ''
 
   it('inserts the date separators while the admin types', async () => {
     const fetchMock = setup()
@@ -203,37 +218,118 @@ describe('admin event journal date fields', () => {
     }
 
     // Only the complete day reaches the URL and the API, as an ISO date.
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_from=2026-11-01'))
+    await waitFor(() => expect(locationText()).toContain('date_from=2026-11-01'))
     expect(eventRequests(fetchMock).every((params) => (params.get('date_from') ?? '2026-11-01') === '2026-11-01')).toBe(true)
   })
 
-  it('never sends an impossible day to the API', async () => {
+  it('never sends an impossible day to the API and says the filter was not applied', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+
+    // A real filter is applied first, so the invalid draft has something to keep.
+    fireEvent.change(input, { target: { value: '01112026' } })
+    await waitFor(() => expect(locationText()).toContain('date_from=2026-11-01'))
+    const callsBeforeInvalid = eventRequests(fetchMock).length
+
+    fireEvent.change(input, { target: { value: '31022026' } })
+    expect(input.value).toBe('31.02.2026')
+
+    // The message appears as soon as the date is complete but impossible, and the
+    // still-active filter is named instead of being silently replaced in the UI.
+    const notice = await waitFor(() => {
+      const element = fieldNotice()
+      expect(element).not.toBeNull()
+      return element as HTMLElement
+    })
+    expect(notice.textContent).toBe('Дата не применена. Действует прежний фильтр: 01.11.2026.')
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(input.getAttribute('aria-describedby')).toBe(notice.id)
+
+    // The draft never reaches the URL or the API, the applied filter survives.
+    expect(locationText()).toContain('date_from=2026-11-01')
+    expect(eventRequests(fetchMock)).toHaveLength(callsBeforeInvalid)
+    expect(eventRequests(fetchMock).at(-1)?.get('date_from')).toBe('2026-11-01')
+
+    // Correcting the day clears the message and applies the new date.
+    fireEvent.change(input, { target: { value: '28022026' } })
+    await waitFor(() => expect(locationText()).toContain('date_from=2026-02-28'))
+    expect(fieldNotice()).toBeNull()
+    expect(input.getAttribute('aria-invalid')).toBeNull()
+    expect(eventRequests(fetchMock).at(-1)?.get('date_from')).toBe('2026-02-28')
+  })
+
+  it('reports an impossible day on its own when no filter was applied yet', async () => {
     const fetchMock = setup()
     await screen.findByText('Создал сборку #28')
     const input = dateFromInput()
     const callsBeforeTyping = eventRequests(fetchMock).length
 
     fireEvent.change(input, { target: { value: '31022026' } })
-    expect(input.value).toBe('31.02.2026')
-    fireEvent.focusOut(input)
-
-    expect(await screen.findByText('Проверьте заполнение полей.')).toBeTruthy()
-    expect(input.getAttribute('aria-invalid')).toBe('true')
-    expect(screen.getByTestId('location').textContent).not.toContain('date_from')
+    await waitFor(() => expect(fieldNotice()?.textContent).toBe('Дата не применена.'))
+    expect(locationText()).not.toContain('date_from')
     expect(eventRequests(fetchMock)).toHaveLength(callsBeforeTyping)
 
-    // Correcting the day clears the message and applies the filter.
-    fireEvent.change(input, { target: { value: '28022026' } })
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_from=2026-02-28'))
-    expect(screen.queryByText('Проверьте заполнение полей.')).toBeNull()
-    expect(eventRequests(fetchMock).at(-1)?.get('date_from')).toBe('2026-02-28')
+    // An empty field clears the message: there is no applied filter to explain.
+    fireEvent.change(input, { target: { value: '' } })
+    expect(fieldNotice()).toBeNull()
   })
 
-  it('does not report an error while a date is still being typed', async () => {
+  it('does not report a date that is still being typed, but does once the field is left', async () => {
     setup()
     await screen.findByText('Создал сборку #28')
-    fireEvent.change(dateFromInput(), { target: { value: '0111' } })
-    expect(screen.queryByText('Проверьте заполнение полей.')).toBeNull()
+    const input = dateFromInput()
+
+    fireEvent.change(input, { target: { value: '0111' } })
+    expect(fieldNotice()).toBeNull()
+
+    // Leaving an unfinished draft must not look like an applied filter either.
+    fireEvent.focusOut(input)
+    const notice = await waitFor(() => {
+      const element = fieldNotice()
+      expect(element).not.toBeNull()
+      return element as HTMLElement
+    })
+    expect(notice.textContent).toBe('Введите дату полностью.')
+    expect(locationText()).not.toContain('date_from')
+  })
+
+  it('keeps the previous filter and names it when an unfinished draft is left behind', async () => {
+    const fetchMock = setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+
+    fireEvent.change(input, { target: { value: '01112026' } })
+    await waitFor(() => expect(locationText()).toContain('date_from=2026-11-01'))
+    const callsBeforeTyping = eventRequests(fetchMock).length
+
+    fireEvent.change(input, { target: { value: '0211' } })
+    expect(fieldNotice()).toBeNull()
+    fireEvent.focusOut(input)
+
+    await waitFor(() =>
+      expect(fieldNotice()?.textContent).toBe(
+        'Введите дату полностью. Действует прежний фильтр: 01.11.2026.',
+      ),
+    )
+    expect(locationText()).toContain('date_from=2026-11-01')
+    expect(eventRequests(fetchMock)).toHaveLength(callsBeforeTyping)
+  })
+
+  it('clears the applied filter and the message when the field is emptied', async () => {
+    setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+
+    fireEvent.change(input, { target: { value: '01112026' } })
+    await waitFor(() => expect(locationText()).toContain('date_from=2026-11-01'))
+    fireEvent.change(input, { target: { value: '31022026' } })
+    await waitFor(() => expect(fieldNotice()).not.toBeNull())
+
+    fireEvent.change(input, { target: { value: '' } })
+    await waitFor(() => expect(locationText()).not.toContain('date_from'))
+    expect(input.value).toBe('')
+    expect(fieldNotice()).toBeNull()
   })
 
   it('writes the picked calendar day into the text field and the filter', async () => {
@@ -243,7 +339,7 @@ describe('admin event journal date fields', () => {
 
     // The value in the URL decides which month the calendar opens on.
     fireEvent.change(input, { target: { value: '01112026' } })
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_from=2026-11-01'))
+    await waitFor(() => expect(locationText()).toContain('date_from=2026-11-01'))
     fireEvent.click(input)
 
     const secondDay = await waitFor(() => {
@@ -256,6 +352,7 @@ describe('admin event journal date fields', () => {
 
     await waitFor(() => expect(input.value).toBe('02.11.2026'))
     await waitFor(() => expect(eventRequests(fetchMock).at(-1)?.get('date_from')).toBe('2026-11-02'))
+    expect(fieldNotice()).toBeNull()
   })
 
   it('resets both text fields together with the date filters', async () => {
@@ -263,13 +360,19 @@ describe('admin event journal date fields', () => {
     await screen.findByText('Создал сборку #28')
     fireEvent.change(dateFromInput(), { target: { value: '01112026' } })
     fireEvent.change(dateToInput(), { target: { value: '30112026' } })
-    await waitFor(() => expect(screen.getByTestId('location').textContent).toContain('date_to=2026-11-30'))
+    await waitFor(() => expect(locationText()).toContain('date_to=2026-11-30'))
+
+    // A pending invalid draft must not survive the reset either.
+    fireEvent.change(dateFromInput(), { target: { value: '31022026' } })
+    await waitFor(() => expect(fieldNotice()).not.toBeNull())
 
     fireEvent.click(screen.getByRole('button', { name: 'Сбросить' }))
 
     await waitFor(() => expect(dateFromInput().value).toBe(''))
     expect(dateToInput().value).toBe('')
-    const location = screen.getByTestId('location').textContent ?? ''
+    expect(fieldNotice()).toBeNull()
+    expect(dateFromInput().getAttribute('aria-invalid')).toBeNull()
+    const location = locationText()
     expect(location).not.toContain('date_from')
     expect(location).not.toContain('date_to')
   })
@@ -284,7 +387,24 @@ describe('admin event journal date fields', () => {
     await waitFor(() => expect(dateFromInput().value).toBe(''))
     fireEvent.change(dateFromInput(), { target: { value: '05052026' } })
     await waitFor(() => expect(dateFromInput().value).toBe('05.05.2026'))
-    expect(screen.getByTestId('location').textContent).toContain('date_from=2026-05-05')
+    expect(locationText()).toContain('date_from=2026-05-05')
+  })
+
+  it('follows browser history back to the applied state and drops the invalid draft', async () => {
+    setup()
+    await screen.findByText('Создал сборку #28')
+    const input = dateFromInput()
+
+    fireEvent.change(input, { target: { value: '01112026' } })
+    await waitFor(() => expect(locationText()).toContain('date_from=2026-11-01'))
+    fireEvent.change(input, { target: { value: '31022026' } })
+    await waitFor(() => expect(fieldNotice()).not.toBeNull())
+
+    fireEvent.click(screen.getByRole('button', { name: 'История назад' }))
+
+    await waitFor(() => expect(locationText()).not.toContain('date_from'))
+    expect(input.value).toBe('')
+    expect(fieldNotice()).toBeNull()
   })
 })
 

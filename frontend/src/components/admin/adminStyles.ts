@@ -3,12 +3,12 @@ export const adminCard =
   'rounded-2xl border border-border bg-surface shadow-[0_1px_3px_var(--color-shadow)]'
 
 export const adminControl =
-  'h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60'
+  'pc-field h-11 w-full rounded-lg border border-border bg-surface px-3.5 text-sm text-text-primary placeholder:text-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60'
 
 export const adminSelect = `${adminControl} appearance-none pr-10`
 
 export const adminTextarea =
-  'min-h-[110px] w-full rounded-lg border border-border bg-surface px-3.5 py-3 text-sm leading-relaxed text-text-primary placeholder:text-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60'
+  'pc-field min-h-[110px] w-full rounded-lg border border-border bg-surface px-3.5 py-3 text-sm leading-relaxed text-text-primary placeholder:text-text-muted transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/25 disabled:cursor-not-allowed disabled:opacity-60'
 
 export const adminPrimaryButton =
   'pc-primary-button inline-flex h-11 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60'

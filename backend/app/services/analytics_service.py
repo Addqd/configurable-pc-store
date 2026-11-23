@@ -97,6 +97,17 @@ def _month_start(value: date) -> date:
     return date(value.year, value.month, 1)
 
 
+def _shift_months(value: date, months: int) -> date:
+    """First day of the month `months` away from the month of `value`."""
+    index = value.year * 12 + (value.month - 1) + months
+    return date(index // 12, index % 12 + 1, 1)
+
+
+def _month_end(value: date) -> date:
+    """Last day of the month `value` belongs to."""
+    return _shift_months(_month_start(value), 1) - timedelta(days=1)
+
+
 def _month_first(month_value: datetime | date) -> date:
     return date(month_value.year, month_value.month, 1)
 
@@ -112,15 +123,68 @@ def _bucket_first(value: datetime | date, granularity: Granularity) -> date:
 
 def _month_sequence(start: date, end: date) -> list[date]:
     current = _month_start(start)
-    last = _month_start(end)
-    last = max(last, current)
+    last = max(_month_start(end), current)
     months: list[date] = []
     while current <= last and len(months) < MAX_MONTHS:
         months.append(current)
-        year = current.year + (current.month // 12)
-        month = current.month % 12 + 1
-        current = date(year, month, 1)
+        current = _shift_months(current, 1)
     return months
+
+
+def _bucket_limit(granularity: Granularity) -> int:
+    """Hard ceiling on the number of points one series may return."""
+    return MAX_DAYS if granularity == "day" else MAX_MONTHS
+
+
+def _bucket_span(start: date, end: date, granularity: Granularity) -> int:
+    """Number of buckets an inclusive interval covers in `granularity`."""
+    if granularity == "month":
+        return (end.year - start.year) * 12 + (end.month - start.month) + 1
+    return (end - start).days + 1
+
+
+def _tail_window(start: date, end: date, granularity: Granularity) -> tuple[date, date]:
+    """The last `_bucket_limit` buckets of an interval that cannot be shown whole."""
+    limit = _bucket_limit(granularity)
+    if granularity == "month":
+        return max(start, _shift_months(end, -(limit - 1))), end
+    return max(start, end - timedelta(days=limit - 1)), end
+
+
+def _display_interval(
+    start: date,
+    end: date,
+    buckets: Sequence[date],
+    granularity: Granularity,
+) -> tuple[date, date]:
+    """Bounded interval one shared axis may draw for the requested period.
+
+    The requested filtering interval stays the source of the totals; it can be far
+    longer than a readable axis. A bounded axis must never drop a recorded sale, so
+    an over-long request is narrowed to the interval that actually holds the
+    records. Only a window that still cannot be shown whole is cut from its tail.
+    """
+    if _bucket_span(start, end, granularity) <= _bucket_limit(granularity):
+        return start, end
+    if not buckets:
+        # Nothing recorded inside this long interval: stay bounded and empty rather
+        # than drawing thousands of zero points.
+        return _tail_window(start, end, granularity)
+    first_recorded, last_recorded = min(buckets), max(buckets)
+    if granularity == "day":
+        # Daily points exist only when every record falls inside one calendar month,
+        # so that month (clipped to the request) covers each recorded day. The span
+        # is widened to the last recorded month, so no bucket can fall outside it.
+        window_start = max(start, _month_start(first_recorded))
+        window_end = min(end, _month_end(last_recorded))
+    else:
+        window_start = max(start, first_recorded)
+        window_end = min(end, last_recorded)
+    if _bucket_span(window_start, window_end, granularity) <= _bucket_limit(
+        granularity
+    ):
+        return window_start, window_end
+    return _tail_window(window_start, window_end, granularity)
 
 
 def _bucket_sequence(start: date, end: date, granularity: Granularity) -> list[date]:
@@ -205,10 +269,12 @@ def _bucket_bounds(
     date_to: date | None,
     granularity: Granularity,
 ) -> tuple[date, date]:
-    """One interval, in the request's granularity, shared by every series.
+    """One bounded interval, in the request's granularity, shared by every series.
 
     An explicit range wins; otherwise the interval is derived from all supplied
-    sales data, so compared products always share the same bucket sequence.
+    sales data, so compared products always share the same bucket sequence. The
+    result is kept inside the per-granularity bucket cap without dropping recorded
+    activity, so a request longer than that cap still draws its sales.
     """
     buckets = [bucket for series in series_group for bucket in series]
     if date_from is not None:
@@ -229,7 +295,7 @@ def _bucket_bounds(
         end = max(buckets)
     else:
         end = start
-    return start, max(end, start)
+    return _display_interval(start, max(end, start), buckets, granularity)
 
 
 def _fill_between(

@@ -30,9 +30,18 @@ export function maskDateText(raw: string): string {
     .join('.')
 }
 
+/**
+ * True when the text has the full `ДД.ММ.ГГГГ` shape, whether or not that day
+ * exists. The field uses it to tell "still being typed" (`01.11.20`) from
+ * "finished but impossible" (`31.02.2026`), which deserve different messages.
+ */
+export function isCompleteDateText(text: string): boolean {
+  return DATE_INPUT_PATTERN.test(text)
+}
+
 /** Parses a complete `ДД.ММ.ГГГГ` text; `null` for partial or impossible dates. */
 export function dateFromText(text: string): Date | null {
-  if (!DATE_INPUT_PATTERN.test(text)) return null
+  if (!isCompleteDateText(text)) return null
   const parsed = parse(text, DATE_INPUT_FORMAT, new Date())
   if (!isValid(parsed)) return null
   if (parsed.getFullYear() < MIN_YEAR) return null

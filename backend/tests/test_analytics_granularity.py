@@ -14,9 +14,11 @@ import pytest
 
 from app.services.analytics_service import (
     MAX_DAYS,
+    MAX_MONTHS,
     _bucket_bounds,
     _bucket_first,
     _bucket_sequence,
+    _bucket_span,
     _fill_between,
     _granularity_for,
 )
@@ -123,6 +125,138 @@ def test_data_bounds_are_used_without_an_explicit_range() -> None:
         date(2026, 11, 1),
         date(2026, 11, 1),
     )
+
+
+def test_wide_requested_range_keeps_the_only_sales_month() -> None:
+    """A request far longer than MAX_DAYS must not hide the recorded sales.
+
+    The granularity rule already chose daily points, so the axis has to move to the
+    month that actually holds the records instead of starting at the request and
+    stopping after MAX_DAYS days (November 2026 used to be cut off completely).
+    """
+    span = (date(2026, 11, 20), date(2026, 11, 21))
+    date_from, date_to = date(2025, 1, 1), date(2026, 12, 31)
+    assert _granularity_for(span, date_from, date_to) == "day"
+
+    series = {
+        date(2026, 11, 20): (2, 5, Decimal("500.00")),
+        date(2026, 11, 21): (1, 1, Decimal("90.00")),
+    }
+    start, end = _bucket_bounds([series], date_from, date_to, "day")
+
+    assert _bucket_span(start, end, "day") <= MAX_DAYS
+    assert start <= span[0] and span[1] <= end
+    assert start >= date_from and end <= date_to
+
+    points = _fill_between(series, start, end, "day")
+    labels = [point.month for point in points]
+    assert date(2026, 11, 20) in labels
+    assert date(2026, 11, 21) in labels
+    # Zero filling stays inside the drawn window only: no invented activity.
+    assert all(
+        point.units_count == 0 and point.amount == Decimal("0.00")
+        for point in points
+        if point.month not in series
+    )
+    # The chart and the aggregate totals describe the same sales.
+    assert sum(point.units_count for point in points) == 6
+    assert sum(point.amount for point in points) == Decimal("590.00")
+
+
+def test_wide_requested_range_covers_every_recorded_day_of_the_month() -> None:
+    series = {
+        date(2026, 11, 3): (1, 2, Decimal("200.00")),
+        date(2026, 11, 9): (1, 1, Decimal("40.00")),
+        date(2026, 11, 27): (3, 4, Decimal("800.00")),
+    }
+    start, end = _bucket_bounds([series], date(2025, 3, 1), date(2026, 12, 31), "day")
+    points = _fill_between(series, start, end, "day")
+    labels = [point.month for point in points]
+    assert labels == sorted(labels)
+    assert set(series).issubset(labels)
+    assert (end - start).days + 1 == len(points) <= MAX_DAYS
+    assert sum(point.units_count for point in points) == 7
+    assert sum(point.amount for point in points) == Decimal("1040.00")
+
+
+def test_wide_requested_range_keeps_product_and_comparison_axes() -> None:
+    """Product cards and comparisons share the corrected interval."""
+    cpu = {date(2026, 11, 4): (1, 2, Decimal("100.00"))}
+    gpu = {date(2026, 11, 18): (1, 1, Decimal("700.00"))}
+    date_from, date_to = date(2024, 1, 1), date(2026, 12, 31)
+
+    single_start, single_end = _bucket_bounds([cpu], date_from, date_to, "day")
+    shared_start, shared_end = _bucket_bounds([cpu, gpu], date_from, date_to, "day")
+    assert (single_start, single_end) == (shared_start, shared_end)
+
+    cpu_points = _fill_between(cpu, shared_start, shared_end, "day")
+    gpu_points = _fill_between(gpu, shared_start, shared_end, "day")
+    assert [point.month for point in cpu_points] == [
+        point.month for point in gpu_points
+    ]
+    assert sum(point.units_count for point in cpu_points) == 2
+    assert sum(point.units_count for point in gpu_points) == 1
+    assert sum(point.amount for point in cpu_points) == Decimal("100.00")
+    assert sum(point.amount for point in gpu_points) == Decimal("700.00")
+
+
+def test_empty_wide_range_stays_bounded_without_inventing_activity() -> None:
+    start, end = _bucket_bounds([{}], date(2015, 1, 1), date(2026, 12, 31), "month")
+    assert _bucket_span(start, end, "month") == MAX_MONTHS
+    assert end == date(2026, 12, 1)
+    points = _fill_between({}, start, end, "month")
+    assert len(points) == MAX_MONTHS
+    assert all(
+        point.orders_count == 0
+        and point.units_count == 0
+        and point.amount == Decimal("0.00")
+        for point in points
+    )
+
+
+def test_normal_periods_keep_the_requested_interval() -> None:
+    series = {date(2026, 11, 12): (1, 1, Decimal("10.00"))}
+    thirty_days = _bucket_bounds(
+        [series], date(2026, 10, 20), date(2026, 11, 18), "day"
+    )
+    assert thirty_days == (date(2026, 10, 20), date(2026, 11, 18))
+    assert len(_fill_between(series, *thirty_days, "day")) == 30
+
+    three_months = _bucket_bounds([series], date(2026, 9, 1), date(2026, 11, 30), "day")
+    assert three_months == (date(2026, 9, 1), date(2026, 11, 30))
+    assert len(_fill_between(series, *three_months, "day")) == 91
+
+
+def test_wide_range_with_several_sales_months_stays_monthly() -> None:
+    span = (date(2025, 2, 10), date(2025, 4, 3))
+    # Over the monthly cap as well: 264 requested months for 3 recorded months.
+    date_from, date_to = date(2005, 1, 1), date(2026, 12, 31)
+    assert _granularity_for(span, date_from, date_to) == "month"
+    series = {
+        date(2025, 2, 1): (1, 1, Decimal("10.00")),
+        date(2025, 4, 1): (1, 2, Decimal("80.00")),
+    }
+    start, end = _bucket_bounds([series], date_from, date_to, "month")
+    assert _bucket_span(start, end, "month") <= MAX_MONTHS
+    points = _fill_between(series, start, end, "month")
+    assert all(point.month.day == 1 for point in points)
+    assert [point.month for point in points] == [
+        date(2025, 2, 1),
+        date(2025, 3, 1),
+        date(2025, 4, 1),
+    ]
+    assert sum(point.units_count for point in points) == 3
+    assert sum(point.amount for point in points) == Decimal("90.00")
+
+
+def test_normal_year_of_sales_keeps_monthly_zero_fill() -> None:
+    """A request inside the caps keeps every empty month, as before."""
+    series = {date(2025, 2, 1): (1, 1, Decimal("10.00"))}
+    start, end = _bucket_bounds([series], date(2025, 1, 1), date(2026, 12, 31), "month")
+    assert (start, end) == (date(2025, 1, 1), date(2026, 12, 1))
+    points = _fill_between(series, start, end, "month")
+    assert len(points) == 24
+    assert sum(point.units_count for point in points) == 1
 
 
 def test_daily_fill_zero_fills_only_missing_days() -> None:

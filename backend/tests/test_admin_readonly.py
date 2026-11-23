@@ -7,7 +7,7 @@ JSONB journal) even when the isolated write-test database is not configured.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import func, select
@@ -22,6 +22,7 @@ from app.services import (
     spec_service,
     user_admin_service,
 )
+from app.services.analytics_service import MAX_DAYS, MAX_MONTHS
 
 
 def test_analytics_queries_execute_read_only():
@@ -120,6 +121,91 @@ def test_time_buckets_never_lose_sales_read_only():
             sum(point.units_count for point in overview.monthly) == overview.sold_units
         )
         assert sum(point.amount for point in overview.monthly) == overview.revenue
+
+
+def test_wide_requested_range_cannot_hide_recorded_sales_read_only():
+    """A request longer than the bucket cap still draws every recorded sale.
+
+    Regression guard for the daily limit: the requested range starts far before the
+    ledger, yet overview, product card and comparison must all keep the recorded
+    buckets and report the same quantities as their own aggregates.
+    """
+    with SessionLocal() as db:
+        earliest, latest = db.execute(
+            select(
+                func.min(SaleLineFact.ordered_at),
+                func.max(SaleLineFact.ordered_at),
+            )
+        ).one()
+        if earliest is None or latest is None:
+            pytest.skip("the ledger has no sales rows")
+        first_day, last_day = earliest.date(), latest.date()
+        if (last_day - first_day).days + 1 > MAX_DAYS:
+            pytest.skip("the ledger spans more than one bounded daily axis")
+
+        date_from = first_day - timedelta(days=MAX_DAYS + 30)
+        overview = analytics_service.overview(db, date_from=date_from, date_to=last_day)
+        assert overview.completed_orders >= 1
+        labels = [point.month for point in overview.monthly]
+        cap = MAX_DAYS if overview.granularity == "day" else MAX_MONTHS
+        assert 0 < len(labels) <= cap
+        assert labels == sorted(labels)
+        expected_first = (
+            first_day if overview.granularity == "day" else first_day.replace(day=1)
+        )
+        expected_last = (
+            last_day if overview.granularity == "day" else last_day.replace(day=1)
+        )
+        assert labels[0] <= expected_first
+        assert expected_last <= labels[-1]
+        # The drawn points and the aggregate totals describe the same rows.
+        assert (
+            sum(point.units_count for point in overview.monthly) == overview.sold_units
+        )
+        assert sum(point.amount for point in overview.monthly) == overview.revenue
+
+        sold_ids = list(
+            db.scalars(
+                select(SaleLineFact.product_id)
+                .where(SaleLineFact.product_id.is_not(None))
+                .distinct()
+                .order_by(SaleLineFact.product_id)
+                .limit(2)
+            ).all()
+        )
+        assert sold_ids
+
+        for product_id in sold_ids:
+            detail = analytics_service.product_stats_detail(
+                db, product_id, date_from=date_from, date_to=last_day
+            )
+            assert (
+                sum(point.units_count for point in detail.monthly)
+                == detail.product.sold_units
+            )
+            assert (
+                sum(point.amount for point in detail.monthly) == detail.product.revenue
+            )
+
+        comparison = analytics_service.comparison_timeline(
+            db, sold_ids, date_from=date_from, date_to=last_day
+        )
+        assert len({len(series.monthly) for series in comparison.series}) == 1
+        shared_labels = [
+            [point.month for point in item.monthly] for item in comparison.series
+        ]
+        assert all(labels_ == shared_labels[0] for labels_ in shared_labels)
+        for series in comparison.series:
+            detail = analytics_service.product_stats_detail(
+                db, series.product_id, date_from=date_from, date_to=last_day
+            )
+            assert (
+                sum(point.units_count for point in series.monthly)
+                == detail.product.sold_units
+            )
+            assert (
+                sum(point.amount for point in series.monthly) == detail.product.revenue
+            )
 
 
 def test_admin_query_services_execute_read_only():

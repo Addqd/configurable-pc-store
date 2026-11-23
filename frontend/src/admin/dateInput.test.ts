@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dateFromIso, dateFromText, maskDateText, textFromIso } from './dateInput'
+import { dateFromIso, dateFromText, isCompleteDateText, maskDateText, textFromIso } from './dateInput'
 
 describe('date filter masking', () => {
   it('inserts the separators while the date is typed', () => {
@@ -30,6 +30,22 @@ describe('date filter masking', () => {
     expect(maskDateText('01.11.202')).toBe('01.11.202')
     expect(maskDateText('01.11.')).toBe('01.11')
     expect(maskDateText('01.')).toBe('01')
+  })
+})
+
+describe('date filter text shape', () => {
+  it('tells a finished text from one that is still being typed', () => {
+    expect(isCompleteDateText('01.11.2026')).toBe(true)
+    // Shape only: the day may still be impossible, which is a different message.
+    expect(isCompleteDateText('31.02.2026')).toBe(true)
+    for (const partial of ['', '0', '01', '01.', '01.11', '01.11.2', '01.11.20']) {
+      expect(isCompleteDateText(partial)).toBe(false)
+    }
+  })
+
+  it('keeps impossible complete dates out of the parser', () => {
+    expect(isCompleteDateText('31.02.2026')).toBe(true)
+    expect(dateFromText('31.02.2026')).toBeNull()
   })
 })
 

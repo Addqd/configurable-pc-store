@@ -566,6 +566,118 @@ def test_empty_period_reports_zero_filled_buckets(
     assert all(point["orders_count"] == 0 for point in across_months["monthly"])
 
 
+def test_wide_requested_range_keeps_late_sales_on_every_analytics_endpoint(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """A >400-day request must not hide sales sitting at its end (MAX_DAYS cap)."""
+    cpu = sample_products["cpu"]
+    gpu = sample_products["gpu"]
+    test_db_session.add_all(
+        [
+            _ledger_row(
+                cpu, day=date(2026, 11, 20), quantity=2, unit_price="50.00", order_id=51
+            ),
+            _ledger_row(
+                cpu, day=date(2026, 11, 24), quantity=1, unit_price="50.00", order_id=52
+            ),
+            _ledger_row(
+                gpu, day=date(2026, 11, 26), quantity=3, unit_price="70.00", order_id=53
+            ),
+        ]
+    )
+    test_db_session.flush()
+
+    # The request spans 2025-01-01 .. 2026-12-31, i.e. 730 days, while every one
+    # of the sold rows sits in November 2026: daily granularity, bounded axis.
+    params = {"date_from": "2025-01-01", "date_to": "2026-12-31"}
+    overview = _overview(api_client, admin_user, **params)
+    assert overview["granularity"] == "day"
+    assert overview["date_from"] == "2025-01-01"
+    assert overview["date_to"] == "2026-12-31"
+    labels = [point["month"] for point in overview["monthly"]]
+    assert 0 < len(labels) <= 400
+    assert labels == sorted(labels)
+    assert labels[0] <= "2026-11-20" <= labels[-1]
+    assert labels[0] <= "2026-11-26" <= labels[-1]
+    # The drawn points and the aggregate totals describe the same rows.
+    assert (
+        sum(point["units_count"] for point in overview["monthly"])
+        == overview["sold_units"]
+    )
+    assert sum(Decimal(point["amount"]) for point in overview["monthly"]) == Decimal(
+        overview["revenue"]
+    )
+    assert overview["sold_units"] >= 6
+
+    detail = api_client.get(
+        f"/api/v1/admin/stats/products/{cpu.id}",
+        headers=admin_user["headers"],
+        params=params,
+    )
+    assert detail.status_code == 200, detail.text
+    detail_body = detail.json()
+    assert detail_body["granularity"] == "day"
+    detail_labels = [point["month"] for point in detail_body["monthly"]]
+    assert "2026-11-20" in detail_labels
+    assert "2026-11-24" in detail_labels
+    assert (
+        sum(point["units_count"] for point in detail_body["monthly"])
+        == detail_body["product"]["sold_units"]
+    )
+    assert sum(Decimal(point["amount"]) for point in detail_body["monthly"]) == Decimal(
+        detail_body["product"]["revenue"]
+    )
+
+    timeline = api_client.get(
+        "/api/v1/admin/stats/timeline",
+        headers=admin_user["headers"],
+        params=[
+            ("product_ids", cpu.id),
+            ("product_ids", gpu.id),
+            ("date_from", params["date_from"]),
+            ("date_to", params["date_to"]),
+        ],
+    )
+    assert timeline.status_code == 200, timeline.text
+    body = timeline.json()
+    assert body["granularity"] == "day"
+    series_labels = [
+        [point["month"] for point in series["monthly"]] for series in body["series"]
+    ]
+    # One shared axis, covering the late sales of every compared product.
+    assert series_labels[0] == series_labels[1] == labels
+    by_product = {series["product_id"]: series["monthly"] for series in body["series"]}
+    assert sum(point["units_count"] for point in by_product[cpu.id]) == 3
+    assert sum(Decimal(point["amount"]) for point in by_product[cpu.id]) == Decimal(
+        "150.00"
+    )
+    assert sum(point["units_count"] for point in by_product[gpu.id]) == 3
+    assert sum(Decimal(point["amount"]) for point in by_product[gpu.id]) == Decimal(
+        "210.00"
+    )
+
+
+def test_wide_empty_requested_range_stays_bounded(
+    api_client: TestClient,
+    admin_user: dict,
+):
+    body = _overview(
+        api_client,
+        admin_user,
+        date_from="1990-01-01",
+        date_to="2020-12-31",
+    )
+    assert body["granularity"] == "month"
+    assert 0 < len(body["monthly"]) <= 120
+    assert all(
+        point["units_count"] == 0 and Decimal(point["amount"]) == Decimal("0.00")
+        for point in body["monthly"]
+    )
+
+
 def test_account_deletion_does_not_change_historical_metrics(
     api_client: TestClient,
     admin_user: dict,

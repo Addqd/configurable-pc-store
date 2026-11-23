@@ -119,7 +119,7 @@ export function FloatingControl({
   id, label, children, className = '',
 }: { id: string; label: string; children: ReactNode; className?: string }) {
   return (
-    <div className={`rounded-lg border border-border bg-surface px-3.5 py-2 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${className}`}>
+    <div className={`pc-field rounded-lg border border-border bg-surface px-3.5 py-2 transition-colors focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/25 ${className}`}>
       <label htmlFor={id} className="block text-xs text-text-muted">{label}</label>
       {children}
     </div>

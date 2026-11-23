@@ -185,6 +185,33 @@
 }
 
 /* ==========================================================================
+   Shared form fields
+   --------------------------------------------------------------------------
+   One local hover recipe for the shared admin input, select and textarea
+   classes (`adminControl` / `adminSelect` / `adminTextarea`) and for the
+   floating-label field of the edit form. The colours move exactly one design
+   token step — the border towards `--color-border-hover`, the surface towards
+   `--color-surface-3` — and the field's existing `transition-colors` animates
+   them, so the feedback is smooth and never changes geometry, border width or
+   opacity.
+
+   A focused, disabled or invalid field keeps its own state: the guard below
+   leaves the focus ring, the disabled surface and the danger border untouched,
+   which is exactly what used to flash when a blanket opacity/outline rule was
+   stacked on top of them. The block is intentionally outside `@layer` so the
+   hover colours are not cancelled by the field's own `border-border` /
+   `bg-surface` utilities in the utilities layer.
+   ========================================================================== */
+@media (hover: hover) and (pointer: fine) {
+  .pc-field:hover:not(:focus):not(:focus-within):not(:disabled):not(
+      [aria-invalid="true"]
+    ) {
+    border-color: var(--color-border-hover);
+    background-color: var(--color-surface-3);
+  }
+}
+
+/* ==========================================================================
    Skeleton shimmer
    --------------------------------------------------------------------------
    One shared loading surface for every placeholder. The element keeps a toned
