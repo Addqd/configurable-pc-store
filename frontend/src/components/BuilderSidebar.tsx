@@ -8,9 +8,9 @@ import { formatPrice } from '../utils/formatPrice'
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiShoppingCart } from 'react-icons/fi'
 import { BuilderCompatibilitySkeleton } from './skeletons/BuilderSkeletons'
 
-interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[]; canAdd?: boolean; loading?: boolean; error?: boolean }
+interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[]; canAdd?: boolean; loading?: boolean; error?: boolean; submitting?: boolean }
 
-export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [], canAdd = true, loading = false, error = false }: BuilderSidebarProps) {
+export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [], canAdd = true, loading = false, error = false, submitting = false }: BuilderSidebarProps) {
   const { t } = useTranslation()
   const selections = useBuilderStore((state) => state.selections)
   const count = countSelected(selections)
@@ -18,7 +18,8 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
   const price = calculateBuilderPrice(selections)
   const power = estimateComponentPower(selections)
   // `canAdd` means "these exact selections were explicitly verified as compatible".
-  const eligible = status === 'compatible' && count === total && canAdd && !loading && !error
+  // A submission in flight keeps the button disabled until it settles.
+  const eligible = status === 'compatible' && count === total && canAdd && !loading && !error && !submitting
   const cartHint = count < total || status === 'incompatible'
 
   return (

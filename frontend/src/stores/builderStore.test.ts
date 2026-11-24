@@ -19,6 +19,27 @@ const withoutCharacteristic = (product: Product, code: string): Product => ({
   characteristics: (product.characteristics ?? []).filter((item) => item.code !== code),
 })
 
+describe('verification attempts', () => {
+  it('identifies every attempt separately and refuses stale or settled results', () => {
+    const first = useBuilderStore.getState().startVerification('cpu:1')
+    expect(useBuilderStore.getState().verification).toMatchObject({ requestId: first, signature: 'cpu:1', phase: 'checking' })
+
+    // Resetting verification must not revive an attempt with the same signature.
+    useBuilderStore.getState().startNewBuild()
+    const second = useBuilderStore.getState().startVerification('cpu:1')
+    expect(second).not.toBe(first)
+
+    expect(useBuilderStore.getState().settleVerification(first, 'cpu:1', 'compatible', [])).toBe(false)
+    expect(useBuilderStore.getState().verification?.phase).toBe('checking')
+
+    expect(useBuilderStore.getState().settleVerification(second, 'cpu:1', 'compatible', [])).toBe(true)
+    expect(useBuilderStore.getState().verification).toMatchObject({ requestId: second, phase: 'compatible' })
+
+    // Only the pending phase can be settled once.
+    expect(useBuilderStore.getState().settleVerification(second, 'cpu:1', 'incompatible', [])).toBe(false)
+  })
+})
+
 describe('temporary builder draft', () => {
   it('selects, replaces and removes products and totals current prices', () => {
     const [first, second] = getProductsForCategory('cpu')

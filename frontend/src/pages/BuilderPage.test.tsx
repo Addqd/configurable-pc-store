@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { MemoryRouter } from 'react-router'
 import { render } from '../test-utils'
 import { BuilderPage } from './BuilderPage'
-import { useBuilderStore, emptyBuilderSelections, type BuilderSelections } from '../stores/builderStore'
+import { useBuilderStore, emptyBuilderSelections, selectionSignature, type BuilderSelections } from '../stores/builderStore'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { i18n } from '../i18n'
@@ -67,6 +67,45 @@ function stubCompatibility(answer: (body: { items: { slot: string; product_id: n
     if (url.startsWith('/api/v1/builds/')) return jsonResponse({ detail: 'Not found' }, 404)
     return jsonResponse({ detail: 'unexpected request' }, 500)
   })
+}
+
+interface PendingCheck {
+  resolve: (response: Response) => void
+  items: { slot: string; product_id: number }[]
+}
+
+/** Compatibility requests stay pending until the test releases exactly that one. */
+function controlledCompatibility() {
+  const pending: PendingCheck[] = []
+  const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+    if (url !== '/api/v1/builds/compatibility') return jsonResponse({ detail: 'unexpected request' }, 500)
+    return await new Promise<Response>(resolve => {
+      pending.push({ resolve, items: JSON.parse(String(init.body)).items })
+    })
+  })
+  return { fetchMock, pending }
+}
+
+const cartBody = { id: 1, items: [], subtotal: '0.00', item_count: 0, created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' }
+
+interface PendingCart {
+  resolve: (response: Response) => void
+  items: { slot: string; product_id: number }[]
+}
+
+/** Every cart submission stays pending until the test releases exactly that one. */
+function controlledCart() {
+  const requests: PendingCart[] = []
+  const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+    if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+    if (url === '/api/v1/cart/builds' && init.method === 'POST') {
+      return await new Promise<Response>(resolve => {
+        requests.push({ resolve, items: JSON.parse(String(init.body)).items })
+      })
+    }
+    return jsonResponse({ detail: 'unexpected request' }, 500)
+  })
+  return { fetchMock, requests }
 }
 
 describe('explicit compatibility check', () => {
@@ -209,6 +248,147 @@ describe('explicit compatibility check', () => {
   })
 })
 
+describe('verification attempt identity', () => {
+  it('cannot settle a newer request of the identical configuration with an older response', async () => {
+    const { fetchMock, pending } = controlledCompatibility()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    const [firstCpu, secondCpu] = getProductsForCategory('cpu')
+    const signatureA = selectionSignature(useBuilderStore.getState().selections)
+
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    // A → B → A: the second attempt carries the same configuration signature.
+    act(() => useBuilderStore.getState().setProduct('cpu', secondCpu))
+    act(() => useBuilderStore.getState().setProduct('cpu', firstCpu))
+    expect(selectionSignature(useBuilderStore.getState().selections)).toBe(signatureA)
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    // The outdated compatible answer of attempt 1 settles nothing.
+    await act(async () => { pending[0].resolve(verdict('compatible')) })
+    expect(screen.queryByText('Всё совместимо')).toBeNull()
+    expect(screen.getByTestId('builder-compatibility-skeleton')).toBeTruthy()
+    expect(cartButton().disabled).toBe(true)
+
+    // Attempt 2 settles only its own response.
+    await act(async () => { pending[1].resolve(verdict('compatible')) })
+    await waitFor(() => expect(screen.getByText('Всё совместимо')).toBeTruthy())
+    expect(cartButton().disabled).toBe(false)
+  })
+
+  it('cannot open the conflict modal with an outdated incompatible response', async () => {
+    const { fetchMock, pending } = controlledCompatibility()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    act(() => useBuilderStore.getState().setProduct('cpu', getProductsForCategory('cpu')[1]))
+    await act(async () => { pending[0].resolve(verdict('incompatible', socketConflict.items)) })
+
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.queryByText(/Найдены несовместимости/i)).toBeNull()
+    expect(screen.getByText('Не проверена')).toBeTruthy()
+    expect(cartButton().disabled).toBe(true)
+  })
+
+  it('cannot replace a valid newer verdict with an older incompatible answer', async () => {
+    const { fetchMock, pending } = controlledCompatibility()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    const [firstCpu, secondCpu] = getProductsForCategory('cpu')
+
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(1))
+    act(() => useBuilderStore.getState().setProduct('cpu', secondCpu))
+    act(() => useBuilderStore.getState().setProduct('cpu', firstCpu))
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    await act(async () => { pending[1].resolve(verdict('incompatible', socketConflict.items)) })
+    const dialog = await screen.findByRole('alertdialog')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Понятно' }))
+    expect(screen.getByText(/Найдены несовместимости: 1/i)).toBeTruthy()
+
+    // The late answer of the first attempt must not overwrite the newer verdict.
+    await act(async () => { pending[0].resolve(verdict('compatible')) })
+    expect(screen.queryByText('Всё совместимо')).toBeNull()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.getByText(/Найдены несовместимости: 1/i)).toBeTruthy()
+    expect(cartButton().disabled).toBe(true)
+  })
+
+  it('cannot replace the current verification state with an outdated failed request', async () => {
+    const { fetchMock, pending } = controlledCompatibility()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    const secondCpu = getProductsForCategory('cpu')[1]
+
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(1))
+    act(() => useBuilderStore.getState().setProduct('cpu', secondCpu))
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(2))
+
+    // Attempt 2 succeeds, then attempt 1 fails: the failure is outdated.
+    await act(async () => { pending[1].resolve(verdict('compatible')) })
+    await waitFor(() => expect(screen.getByText('Всё совместимо')).toBeTruthy())
+    await act(async () => { pending[0].resolve(jsonResponse({ detail: 'boom' }, 500)) })
+
+    expect(screen.queryByText(/Не удалось проверить совместимость/i)).toBeNull()
+    expect(screen.getByText('Всё совместимо')).toBeTruthy()
+    expect(cartButton().disabled).toBe(false)
+  })
+
+  it('invalidates a pending attempt when the configurator is cleared, even for an identical signature', async () => {
+    const { fetchMock, pending } = controlledCompatibility()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    const signatureA = selectionSignature(useBuilderStore.getState().selections)
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    fireEvent.click(screen.getByRole('button', { name: /^Очистить$/i }))
+    fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button', { name: /Очистить/i }))
+    selectAll()
+    expect(selectionSignature(useBuilderStore.getState().selections)).toBe(signatureA)
+
+    await act(async () => { pending[0].resolve(verdict('compatible')) })
+    expect(screen.queryByText('Всё совместимо')).toBeNull()
+    expect(screen.getByText('Не проверена')).toBeTruthy()
+    expect(cartButton().disabled).toBe(true)
+
+    // A new click starts a new request instead of reviving the outdated answer.
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(2))
+    await act(async () => { pending[1].resolve(verdict('compatible')) })
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+  })
+
+  it('invalidates a pending attempt when a saved configuration with the same signature is opened', async () => {
+    const { fetchMock, pending } = controlledCompatibility()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(createButton())
+    await waitFor(() => expect(pending).toHaveLength(1))
+
+    act(() => useBuilderStore.getState().openSavedBuild(useBuilderStore.getState().selections, 42))
+    await act(async () => { pending[0].resolve(verdict('compatible')) })
+
+    expect(screen.queryByText('Всё совместимо')).toBeNull()
+    expect(screen.getByText('Не проверена')).toBeTruthy()
+    expect(cartButton().disabled).toBe(true)
+  })
+})
+
 describe('cart integration', () => {
   it('adds a verified configuration to the cart without saving it first', async () => {
     signedIn()
@@ -257,6 +437,129 @@ describe('cart integration', () => {
     await waitFor(() => expect(cartButton().disabled).toBe(false))
     fireEvent.click(cartButton())
     await screen.findByText(/Не удалось добавить сборку в корзину/i)
+    expect(screen.queryByText(/Сборка добавлена в корзину/i)).toBeNull()
+  })
+})
+
+describe('cart submission guard', () => {
+  const cartCalls = (fetchMock: { mock: { calls: [string, RequestInit][] } }) =>
+    fetchMock.mock.calls.filter(([url, init]) => url === '/api/v1/cart/builds' && init.method === 'POST')
+
+  it('submits one request for repeated immediate clicks and stays disabled until it settles', async () => {
+    signedIn()
+    const { fetchMock, requests } = controlledCart()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+
+    // Three clicks in a row before the first request can answer.
+    fireEvent.click(cartButton())
+    fireEvent.click(cartButton())
+    fireEvent.click(cartButton())
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(cartCalls(fetchMock)).toHaveLength(1)
+    expect(cartButton().disabled).toBe(true)
+
+    await act(async () => { requests[0].resolve(jsonResponse(cartBody)) })
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    expect(cartButton().disabled).toBe(false)
+
+    // The guard is released: an intentional second addition is a new request.
+    fireEvent.click(cartButton())
+    await waitFor(() => expect(requests).toHaveLength(2))
+    expect(cartButton().disabled).toBe(true)
+    expect(requests[1].items).toEqual(requests[0].items)
+    await act(async () => { requests[1].resolve(jsonResponse(cartBody)) })
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    expect(cartCalls(fetchMock)).toHaveLength(2)
+  })
+
+  it('rejects a duplicate click that lands before the pending state is committed', async () => {
+    signedIn()
+    const { fetchMock, requests } = controlledCart()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+
+    // Both clicks are dispatched before React commits the pending state, so the
+    // rendered disabled attribute cannot be what rejects the duplicate.
+    await act(async () => {
+      const button = cartButton()
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+      button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(fetchMock.mock.calls.filter(([url]) => url === '/api/v1/cart/builds')).toHaveLength(1)
+    expect(cartButton().disabled).toBe(true)
+
+    await act(async () => { requests[0].resolve(jsonResponse(cartBody)) })
+    await screen.findByText(/Сборка добавлена в корзину/i)
+  })
+
+  it('releases the guard after a failed submission so a retry is possible', async () => {
+    signedIn()
+    const { fetchMock, requests } = controlledCart()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+
+    fireEvent.click(cartButton())
+    await waitFor(() => expect(requests).toHaveLength(1))
+    expect(cartButton().disabled).toBe(true)
+
+    await act(async () => { requests[0].resolve(jsonResponse({ detail: 'Insufficient product stock' }, 422)) })
+    await screen.findByText(/Не удалось добавить сборку в корзину/i)
+    expect(cartButton().disabled).toBe(false)
+    expect(screen.queryByText(/Сборка добавлена в корзину/i)).toBeNull()
+
+    // The failure did not block the configuration permanently.
+    fireEvent.click(cartButton())
+    await waitFor(() => expect(requests).toHaveLength(2))
+    await act(async () => { requests[1].resolve(jsonResponse(cartBody)) })
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    expect(cartCalls(fetchMock)).toHaveLength(2)
+  })
+
+  it('never reports a pending submission as the configuration selected afterwards', async () => {
+    signedIn()
+    const { fetchMock, requests } = controlledCart()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+
+    fireEvent.click(cartButton())
+    await waitFor(() => expect(requests).toHaveLength(1))
+    act(() => useBuilderStore.getState().setProduct('cpu', getProductsForCategory('cpu')[1]))
+
+    await act(async () => { requests[0].resolve(jsonResponse(cartBody)) })
+    // The submitted configuration is no longer the current one: no purchase claim.
+    expect(screen.queryByText(/Сборка добавлена в корзину/i)).toBeNull()
+    expect(cartButton().disabled).toBe(true)
+    expect(cartCalls(fetchMock)).toHaveLength(1)
+  })
+
+  it('does not deliver cart feedback to another account than the submitting one', async () => {
+    signedIn()
+    const { fetchMock, requests } = controlledCart()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+
+    fireEvent.click(cartButton())
+    await waitFor(() => expect(requests).toHaveLength(1))
+    act(() => useAccountStore.setState({ accounts: {}, activeAccountId: null }))
+
+    await act(async () => { requests[0].resolve(jsonResponse(cartBody)) })
     expect(screen.queryByText(/Сборка добавлена в корзину/i)).toBeNull()
   })
 })

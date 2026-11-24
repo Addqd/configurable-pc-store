@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useRef, useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -34,6 +34,11 @@ export function BuilderPage() {
   const [savedNotice, setSavedNotice] = useState<{ signature: string; message: string } | null>(null)
   const [conflictModalFor, setConflictModalFor] = useState<string | null>(null)
   const [cartError, setCartError] = useState('')
+  // A cart submission is guarded synchronously: a second click can arrive before
+  // React commits the pending state, so the rendered disabled attribute alone
+  // cannot prevent a duplicate request.
+  const cartSubmissionRef = useRef(false)
+  const [cartSubmitting, setCartSubmitting] = useState(false)
   const [saveOpen, setSaveOpen] = useState(false)
   const [saveName, setSaveName] = useState(t('builder.save_name_placeholder'))
   const [saveDescription, setSaveDescription] = useState('')
@@ -86,13 +91,26 @@ export function BuilderPage() {
   const handleAddToCart = async () => {
     // The server re-validates compatibility, stock and prices; this is only the
     // client-side gate that requires an explicit check of these exact selections.
+    if (cartSubmissionRef.current || cartSubmitting || addBuild.isPending) return
     if (!complete || !compatible || checking) return
     if (!activeAccountId) { openAuthModal('login'); return }
+    // Everything the feedback describes is captured now: later edits must not be
+    // reported as bought, and a session change must not receive this answer.
+    const submittedSignature = signature
+    const submittedItems = selectionItems(selections)
+    const submittedAccountId = activeAccountId
+    cartSubmissionRef.current = true
+    setCartSubmitting(true)
     setCartError('')
     try {
-      await addBuild.mutateAsync(selectionItems(selections))
-      setAddedToCartFor(signature)
-    } catch { setCartError(t('builder.cart_error')) }
+      await addBuild.mutateAsync(submittedItems)
+      if (useAccountStore.getState().activeAccountId === submittedAccountId) setAddedToCartFor(submittedSignature)
+    } catch {
+      if (useAccountStore.getState().activeAccountId === submittedAccountId) setCartError(t('builder.cart_error'))
+    } finally {
+      cartSubmissionRef.current = false
+      setCartSubmitting(false)
+    }
   }
 
   const requestClear = () => {
@@ -108,15 +126,14 @@ export function BuilderPage() {
     const requestedItems = selectionItems(selections)
     setConflictModalFor(null)
     setCartError('')
-    startVerification(requested)
+    const requestId = startVerification(requested)
     try {
       const result = await checkCurrentCompatibilityApiV1BuildsCompatibilityPost({ items: requestedItems })
-      const status = result.overall_status
-      settleVerification(requested, status, result.items ?? [])
-      const settled = useBuilderStore.getState().verification
-      if (settled?.signature === requested && settled.phase === 'incompatible') setConflictModalFor(requested)
+      // Only this attempt may settle, and only while it is still the pending one.
+      const accepted = settleVerification(requestId, requested, result.overall_status, result.items ?? [])
+      if (accepted && result.overall_status === 'incompatible') setConflictModalFor(requested)
     } catch {
-      settleVerification(requested, 'failed', [])
+      settleVerification(requestId, requested, 'failed', [])
     }
   }
 
@@ -254,7 +271,8 @@ export function BuilderPage() {
             </section>
             <BuilderSidebar onAddToCart={() => { void handleAddToCart() }} status={compatible ? 'compatible' : incompatible ? 'incompatible' : 'unknown'}
               canAdd={compatible} checked={phase === 'compatible' || phase === 'incompatible' || phase === 'unknown'}
-              loading={checking} error={phase === 'failed'} messages={messages} />
+              loading={checking} error={phase === 'failed'} messages={messages}
+              submitting={cartSubmitting || addBuild.isPending} />
           </div>
         </div>
       </main>

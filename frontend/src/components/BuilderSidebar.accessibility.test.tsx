@@ -68,6 +68,15 @@ describe('add-to-cart accessibility description', () => {
     expect(resolvableDescriptions()).toEqual([])
   })
 
+  it('keeps the button disabled while a submission is pending', () => {
+    act(() => useBuilderStore.setState({ selections: complete() }))
+    render(<BuilderSidebar onAddToCart={() => {}} status="compatible" checked canAdd submitting />)
+    expect(cartButton().disabled).toBe(true)
+    // A pending submission is not a validation problem: nothing to describe.
+    expect(cartButton().getAttribute('aria-describedby')).toBeNull()
+    expect(resolvableDescriptions()).toEqual([])
+  })
+
   it('describes an incompatible configuration', () => {
     act(() => useBuilderStore.setState({ selections: complete() }))
     render(<BuilderSidebar onAddToCart={() => {}} status="incompatible" checked messages={['Мощность блока питания недостаточна']} />)

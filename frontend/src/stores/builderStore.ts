@@ -45,6 +45,11 @@ export function estimateComponentPower(selections: BuilderSelections): number | 
 export type CompatibilityPhase = 'checking' | 'compatible' | 'incompatible' | 'unknown' | 'failed'
 
 export interface BuildVerification {
+  /**
+   * Identity of one verification attempt. It is allocated per Create Build and
+   * never reused, so two attempts for the same configuration stay distinct.
+   */
+  requestId: number
   /** Exact selections the server answered for; any change invalidates it. */
   signature: string
   phase: CompatibilityPhase
@@ -67,13 +72,21 @@ interface BuilderState {
   startNewBuild: () => void
   /** Restore a saved configuration; its verification always starts from idle. */
   openSavedBuild: (selections: BuilderSelections, buildId: number) => void
-  startVerification: (signature: string) => void
-  settleVerification: (signature: string, phase: Exclude<CompatibilityPhase, 'checking'>, checks: CompatibilityStatus[]) => void
+  /** Allocates the identity of a new attempt and marks it as the pending one. */
+  startVerification: (signature: string) => number
+  /** Applies a response only for the still pending attempt it belongs to. */
+  settleVerification: (requestId: number, signature: string, phase: Exclude<CompatibilityPhase, 'checking'>, checks: CompatibilityStatus[]) => boolean
   resetVerification: () => void
 }
 
+/**
+ * Monotonic attempt counter of this store instance. It intentionally survives
+ * resets: a cleared configuration must not let an old response look current.
+ */
+let lastVerificationRequestId = 0
+
 /** Only an unsaved in-memory draft belongs here; saved builds live on the server. */
-export const useBuilderStore = create<BuilderState>()((set) => ({
+export const useBuilderStore = create<BuilderState>()((set, get) => ({
   selections: emptyBuilderSelections(), editingBuildId: null, verification: null,
   setProduct: (category, product) => {
     if (product.category !== CATALOG_CATEGORY_MAP[category] || !Number.isFinite(product.price) || product.price < 0) return
@@ -83,11 +96,19 @@ export const useBuilderStore = create<BuilderState>()((set) => ({
   clearAll: () => set({ selections: emptyBuilderSelections(), editingBuildId: null, verification: null }),
   startNewBuild: () => set({ selections: emptyBuilderSelections(), editingBuildId: null, verification: null }),
   openSavedBuild: (selections, buildId) => set({ selections, editingBuildId: buildId, verification: null }),
-  startVerification: signature => set({ verification: { signature, phase: 'checking', checks: [] } }),
-  settleVerification: (signature, phase, checks) => set(state => {
-    // A response for a configuration that is no longer pending is outdated.
-    if (state.verification?.signature !== signature || state.verification.phase !== 'checking') return {}
-    return { verification: { signature, phase, checks } }
-  }),
+  startVerification: signature => {
+    lastVerificationRequestId += 1
+    const requestId = lastVerificationRequestId
+    set({ verification: { requestId, signature, phase: 'checking', checks: [] } })
+    return requestId
+  },
+  settleVerification: (requestId, signature, phase, checks) => {
+    const current = get().verification
+    // Same configuration but a different attempt means an older response: it must
+    // not settle the newer request, let alone one that was already reset.
+    if (!current || current.requestId !== requestId || current.signature !== signature || current.phase !== 'checking') return false
+    set({ verification: { ...current, phase, checks } })
+    return true
+  },
   resetVerification: () => set({ verification: null }),
 }))
