@@ -1,4 +1,4 @@
-import { catalogDisplay } from '../i18n/catalogDisplay'
+import { translateCharacteristicLabel } from '../i18n/characteristics'
 import { useTranslation } from 'react-i18next'
 import { useMemo, useState } from 'react'
 import { useBuilderStore } from '../stores/builderStore'
@@ -6,10 +6,11 @@ import { deriveBuilderSpecs, type BuildSpec } from '../data/builderSpecs'
 import { FiChevronUp, FiChevronDown } from 'react-icons/fi'
 
 export function BuilderSpecsTable() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [isOpen, setIsOpen] = useState(true)
   const selections = useBuilderStore((state) => state.selections)
-  const specs = useMemo(() => deriveBuilderSpecs(selections), [selections])
+  const language = i18n.resolvedLanguage ?? 'ru'
+  const specs = useMemo(() => deriveBuilderSpecs(selections, language), [selections, language])
   const left = specs.slice(0, Math.ceil(specs.length / 2))
   const right = specs.slice(Math.ceil(specs.length / 2))
 
@@ -17,9 +18,9 @@ export function BuilderSpecsTable() {
     <div className="min-w-0 space-y-2">
       {items.map(({ label, value }) => (
         <div key={label} className="flex min-w-0 items-baseline gap-2 text-xs sm:text-sm">
-          <span className="shrink-0 text-text-muted">{catalogDisplay(label)}</span>
+          <span className="shrink-0 text-text-muted">{translateCharacteristicLabel(label, language)}</span>
           <span className="min-w-2 flex-1 border-b border-dotted border-border" aria-hidden="true" />
-          <span className="max-w-[55%] break-words text-right font-medium text-text-primary">{catalogDisplay(value)}</span>
+          <span className="max-w-[55%] break-words text-right font-medium text-text-primary">{value}</span>
         </div>
       ))}
     </div>

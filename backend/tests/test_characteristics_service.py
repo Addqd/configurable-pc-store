@@ -246,3 +246,111 @@ def test_required_validation_can_be_relaxed_for_partial_writes() -> None:
         _definitions(), {}, {"thermal_design_power_w": 65}, require_complete=False
     )
     assert merged == {"thermal_design_power_w": 65}
+
+
+# ── Required lists ─────────────────────────────────────────────────────────
+
+
+def _list_definitions() -> list[CharacteristicDefinition]:
+    return [
+        _definition(
+            "required_strings",
+            "string_list",
+            name="Обязательный список",
+            is_required=True,
+        ),
+        _definition(
+            "required_numbers",
+            "number_list",
+            name="Обязательные числа",
+            is_required=True,
+        ),
+        _definition("optional_strings", "string_list", name="Список по желанию"),
+        _definition("optional_numbers", "number_list", name="Числа по желанию"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("code", "name"),
+    [
+        ("required_strings", "Обязательный список"),
+        ("required_numbers", "Обязательные числа"),
+    ],
+)
+def test_empty_required_list_is_rejected(code: str, name: str) -> None:
+    with pytest.raises(InvalidInputError) as error:
+        spec_service.resolve_values(_list_definitions(), {}, {code: []})
+    assert "Missing required characteristics" in str(error.value)
+    assert name in str(error.value)
+
+
+def test_required_lists_that_are_not_submitted_are_rejected() -> None:
+    values = {
+        "required_strings": ["pcie-8pin"],
+        "required_numbers": [60],
+        "optional_strings": ["pcie-8pin"],
+        "optional_numbers": [80],
+    }
+    with pytest.raises(InvalidInputError, match="Missing required characteristics"):
+        spec_service.resolve_values(_list_definitions(), {"optional_strings": []}, {})
+    # A complete payload (both required lists filled) is accepted.
+    assert spec_service.resolve_values(_list_definitions(), {}, values) == values
+
+
+def test_empty_optional_lists_stay_valid() -> None:
+    values = {
+        "required_strings": ["pcie-8pin"],
+        "required_numbers": [60],
+        "optional_strings": [],
+        "optional_numbers": [],
+    }
+    assert spec_service.resolve_values(_list_definitions(), {}, values) == values
+
+
+def test_required_list_cannot_be_emptied_by_an_update() -> None:
+    existing = {"required_strings": ["pcie-8pin"], "required_numbers": [60]}
+    with pytest.raises(InvalidInputError, match="Обязательный список"):
+        spec_service.resolve_values(
+            _list_definitions(), existing, {"required_strings": []}
+        )
+    # Removing a required list is rejected just like emptying it.
+    with pytest.raises(InvalidInputError, match="Missing required characteristics"):
+        spec_service.resolve_values(
+            _list_definitions(), existing, {}, ["required_numbers"]
+        )
+
+
+def test_required_scalars_accept_false_and_zero() -> None:
+    definitions = [
+        _definition("required_flag", "boolean", name="Флаг", is_required=True),
+        _definition("required_number", "number", name="Число", is_required=True),
+    ]
+    assert spec_service.resolve_values(
+        definitions, {}, {"required_flag": False, "required_number": 0}
+    ) == {"required_flag": False, "required_number": 0}
+    # …while a genuinely absent required value is still rejected.
+    with pytest.raises(InvalidInputError, match="Missing required characteristics"):
+        spec_service.resolve_values(definitions, {}, {"required_number": 0})
+
+
+def test_list_values_keep_order_duplicates_and_native_types() -> None:
+    values = {
+        "required_strings": ["pcie-8pin", "pcie-16pin", "pcie-8pin"],
+        "required_numbers": [80, 60, 60],
+    }
+    merged = spec_service.resolve_values(_list_definitions(), {}, values)
+    assert merged["required_strings"] == ["pcie-8pin", "pcie-16pin", "pcie-8pin"]
+    assert merged["required_numbers"] == [80, 60, 60]
+
+
+def test_malformed_list_items_are_rejected() -> None:
+    for raw in (["pcie-8pin", ""], ["pcie-8pin", 5], "pcie-8pin"):
+        with pytest.raises(InvalidInputError):
+            spec_service.submitted_values(
+                _list_definitions(), [("required_strings", raw)]
+            )
+    for raw in ([60, "80"], [60, True], [60, float("inf")]):
+        with pytest.raises(InvalidInputError):
+            spec_service.submitted_values(
+                _list_definitions(), [("required_numbers", raw)]
+            )

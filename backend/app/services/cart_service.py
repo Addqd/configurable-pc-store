@@ -45,14 +45,21 @@ def get_cart(db: Session, user: User) -> Cart | None:
 
 
 def _products(db: Session, product_ids: list[int]) -> dict[int, Product]:
-    """Load the referenced products with their type and category in one query."""
+    """Load the referenced products with their images, type and category.
+
+    Images are eager-loaded because checkout serializes each product's cover URL;
+    without it every cart line triggered its own image query.
+    """
     wanted = list(dict.fromkeys(product_ids))
     if not wanted:
         return {}
     rows = db.scalars(
         select(Product)
         .where(Product.id.in_(wanted))
-        .options(selectinload(Product.product_type).selectinload(ProductType.category))
+        .options(
+            selectinload(Product.images),
+            selectinload(Product.product_type).selectinload(ProductType.category),
+        )
     ).all()
     return {product.id: product for product in rows}
 

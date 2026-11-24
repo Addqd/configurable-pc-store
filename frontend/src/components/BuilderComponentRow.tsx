@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
+import { characteristicLines } from '../i18n/characteristics'
 import { useBuilderStore, type BuilderCategory } from '../stores/builderStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
@@ -11,12 +12,15 @@ import { BuilderProductSelector } from './BuilderProductSelector'
 interface BuilderComponentRowProps { category: BuilderCategory; conflicts?: string[] }
 
 export function BuilderComponentRow({ category, conflicts = [] }: BuilderComponentRowProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [showSelector, setShowSelector] = useState(false)
   const selections = useBuilderStore((state) => state.selections)
   const product = selections[category]
   const removeProduct = useBuilderStore((state) => state.removeProduct)
   const label = t('builder.components.' + category)
+  const lines = characteristicLines(product?.characteristics, product?.specs ?? [], {
+    limit: 3, language: i18n.resolvedLanguage ?? 'ru',
+  })
 
   return (
     <>
@@ -37,7 +41,7 @@ export function BuilderComponentRow({ category, conflicts = [] }: BuilderCompone
                 className="h-14 w-16 shrink-0 rounded-md bg-surface object-contain" />
               <div className="min-w-0 flex-1">
                 <p className="break-words text-sm font-semibold text-text-primary">{catalogDisplay(product.name)}</p>
-                <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">{product.specs.slice(0, 3).map((part) => catalogDisplay(part)).join(', ')}</p>
+                <p className="mt-0.5 line-clamp-2 text-xs text-text-muted">{lines.join(', ')}</p>
               </div>
             </div>
             <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">

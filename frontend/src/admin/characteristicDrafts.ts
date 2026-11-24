@@ -30,8 +30,13 @@ export interface CharacteristicDraft {
   kind: CharacteristicFieldType
   /** Text of a `string`/`number` value, or the raw text of one list row. */
   text: string
-  /** Current state of a `boolean` value. */
-  checked: boolean
+  /**
+   * State of a `boolean` value: `true`, `false`, or `null` for "not set".
+   *
+   * A boolean has three distinct states in the database (absent, true, false),
+   * so an unchecked box must never be read as an explicit `false`.
+   */
+  checked: boolean | null
   /** Rows of a `string_list` / `number_list` value, in entered order. */
   items: string[]
 }
@@ -60,7 +65,7 @@ export function fieldTypeOf(dataType: string): CharacteristicFieldType {
 }
 
 export function emptyDraft(dataType: string): CharacteristicDraft {
-  return { kind: fieldTypeOf(dataType), text: '', checked: false, items: [] }
+  return { kind: fieldTypeOf(dataType), text: '', checked: null, items: [] }
 }
 
 /** Draft for a stored value coming back from the API. */
@@ -68,7 +73,7 @@ export function draftFromValue(dataType: string, value: unknown): Characteristic
   const kind = fieldTypeOf(dataType)
   const draft = emptyDraft(kind)
   if (value === null || value === undefined) return draft
-  if (kind === 'boolean') return { ...draft, checked: value === true }
+  if (kind === 'boolean') return { ...draft, checked: value === true ? true : value === false ? false : null }
   if (kind === 'number') return { ...draft, text: typeof value === 'number' ? String(value) : '' }
   if (kind === 'string') return { ...draft, text: typeof value === 'string' ? value : '' }
   return {
@@ -78,16 +83,20 @@ export function draftFromValue(dataType: string, value: unknown): Characteristic
 }
 
 /**
- * Locale-tolerant numeric parsing that never reinterprets digits.
+ * Strict numeric parsing that never changes the meaning of the input.
  *
- * A decimal comma is accepted (Russian input), thousands separators are not, and
- * anything that is not a plain finite decimal is rejected instead of rounded.
+ * Exactly two decimal separators are accepted — `.` and `,` — and neither may
+ * appear twice. Surrounding whitespace is ignored; whitespace *inside* a number,
+ * grouping separators (`1 234`, `1,234.5`), exponent notation, `NaN`/`Infinity`
+ * and any other notation are rejected instead of being guessed, because removing
+ * or reinterpreting a character would silently change the stored value.
  */
 export function parseNumberText(text: string): number | null {
-  const raw = text.trim().replace(/[\s\u00a0\u202f]/g, '').replace(',', '.')
+  const raw = text.trim()
   if (!raw) return null
-  if (!/^-?\d+(?:\.\d+)?$/.test(raw)) return null
-  const value = Number(raw)
+  // `-` is allowed; `+`, grouping and exponent notation are not plain decimals.
+  if (!/^-?\d+(?:[.,]\d+)?$/.test(raw)) return null
+  const value = Number(raw.replace(',', '.'))
   return Number.isFinite(value) ? value : null
 }
 
@@ -111,7 +120,11 @@ export function draftToValue(
   const blank = (): DraftResult | null =>
     definition.is_required ? { ok: false, issue: 'required' } : null
 
-  if (kind === 'boolean') return { ok: true, value: current.checked }
+  if (kind === 'boolean') {
+    // `null` is "not set": a required boolean needs an explicit true or false.
+    if (current.checked === null || current.checked === undefined) return blank()
+    return { ok: true, value: current.checked }
+  }
 
   if (kind === 'string') {
     const text = current.text.trim()
@@ -144,7 +157,7 @@ export function draftToValue(
 
 export function isDraftEmpty(draft: CharacteristicDraft | undefined): boolean {
   if (!draft) return true
-  if (draft.kind === 'boolean') return draft.checked === false
+  if (draft.kind === 'boolean') return draft.checked === null || draft.checked === undefined
   if (draft.kind === 'string' || draft.kind === 'number') return !draft.text.trim()
   return draft.items.every((row) => !row.trim())
 }
@@ -156,4 +169,82 @@ export function orphanCodes(
 ): string[] {
   const known = new Set(definitions.map((definition) => definition.code))
   return storedCodes.filter((code) => !known.has(code))
+}
+
+/** One submitted `characteristics` entry. */
+export interface CharacteristicValueDraft {
+  code: string
+  value: unknown
+}
+
+/**
+ * Outcome of converting every draft of a category into an API payload.
+ *
+ * The three states of a characteristic are kept apart:
+ *
+ * - never provided → neither submitted nor removed (the stored row, if any, is
+ *   impossible: nothing is stored for a code that was never provided);
+ * - a valid value → submitted through `values`;
+ * - an existing value cleared by the administrator → `removals`, which the API
+ *   deletes explicitly. Omission alone can never delete anything.
+ */
+export interface CharacteristicPayload {
+  /** Values to create or replace. */
+  values: CharacteristicValueDraft[]
+  /** Stored codes the administrator cleared on purpose. */
+  removals: string[]
+  /** Per-code issues that are not about a required value. */
+  issues: Record<string, DraftIssue>
+  /** Display names of required characteristics that carry no value. */
+  missing: string[]
+}
+
+/**
+ * Builds the `characteristics` / `remove_characteristics` payload pair.
+ *
+ * `stored` holds the values currently persisted by the API, keyed by code, and is
+ * never the same object as the editable drafts: only a code the server already
+ * stores can be "cleared", and clearing it produces an explicit removal instead
+ * of a silent omission. A code is never present in both arrays.
+ *
+ * `removeCodes` carries codes the caller decided to delete for another reason
+ * (the confirmed removal of a previous category's characteristics); those codes
+ * are not part of `definitions` and therefore can never collide with `values`.
+ */
+export function buildCharacteristicPayload(
+  definitions: readonly CharacteristicDefinitionLike[],
+  drafts: Record<string, CharacteristicDraft | undefined>,
+  stored: Readonly<Record<string, unknown>>,
+  { removeCodes = [] }: { removeCodes?: readonly string[] } = {},
+): CharacteristicPayload {
+  const values: CharacteristicValueDraft[] = []
+  const removals: string[] = []
+  const issues: Record<string, DraftIssue> = {}
+  const missing: string[] = []
+
+  for (const definition of definitions) {
+    const draft = drafts[definition.code]
+    // No draft at all means the field was never touched: an existing value must
+    // survive untouched, so this code is neither submitted nor removed.
+    if (draft === undefined && !definition.is_required) continue
+    const result = draftToValue(definition, draft)
+    if (result === null) {
+      // Absent by design: a stored optional value is an explicit removal, while
+      // a value that was never provided stays completely untouched.
+      if (Object.hasOwn(stored, definition.code)) removals.push(definition.code)
+      continue
+    }
+    if (!result.ok) {
+      if (result.issue === 'required') missing.push(definition.name)
+      else issues[definition.code] = result.issue
+      continue
+    }
+    values.push({ code: definition.code, value: result.value })
+  }
+
+  const valueCodes = new Set(values.map((entry) => entry.code))
+  for (const code of removeCodes) {
+    if (!valueCodes.has(code) && !removals.includes(code)) removals.push(code)
+  }
+  return { values, removals, issues, missing }
 }

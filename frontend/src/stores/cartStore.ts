@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import placeholder from '../assets/placeholder.jpg'
+import type { ProductCharacteristic } from '../data/product'
 
 export interface BuildComponent {
   category: string
@@ -31,6 +32,12 @@ export interface RegularCartItem {
   image: string
   specs: string[]
   category: string
+  /**
+   * Structured short characteristics of the product, when the API provides them.
+   * They are formatted for the active language at render time; `specs` stays the
+   * server's ready-to-render fallback.
+   */
+  characteristics?: ProductCharacteristic[]
 }
 
 export type CartItem = RegularCartItem | BuildCartItem

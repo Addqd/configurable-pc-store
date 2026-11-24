@@ -37,14 +37,19 @@ import {
 import {
   type CharacteristicDefinitionLike,
   type CharacteristicDraft,
+  buildCharacteristicPayload,
   draftFromValue,
-  draftToValue,
   emptyDraft,
   fieldTypeOf,
   MAX_LIST_ROWS,
   MAX_TEXT_LENGTH,
   orphanCodes,
 } from '../../admin/characteristicDrafts'
+import {
+  characteristicLabel,
+  translateCharacteristicLabel,
+  translateCharacteristicUnit,
+} from '../../i18n/characteristics'
 
 const MAX_IMAGES = 10
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -153,13 +158,27 @@ function formFromProduct(product: AdminProductDetailOut): ProductFormState {
     productTypeId: String(product.product_type.id),
     manufacturerId: String(product.manufacturer.id),
     color: product.color ?? '',
-    characteristics: Object.fromEntries(
-      (product.characteristics ?? []).map((row) => [
-        row.code,
-        draftFromValue(row.data_type, row.value),
-      ]),
-    ),
+    characteristics: draftsFrom(product),
   }
+}
+
+/** Values the API currently stores, keyed by characteristic code. */
+function storedValues(product: AdminProductDetailOut): Record<string, unknown> {
+  return Object.fromEntries(
+    (product.characteristics ?? []).map((row) => [row.code, row.value]),
+  )
+}
+
+/** Editable drafts of the values the API currently stores. */
+function draftsFrom(
+  product: AdminProductDetailOut,
+): Record<string, CharacteristicDraft> {
+  return Object.fromEntries(
+    (product.characteristics ?? []).map((row) => [
+      row.code,
+      draftFromValue(row.data_type, row.value),
+    ]),
+  )
 }
 
 /**
@@ -201,6 +220,15 @@ export function AdminProductFormPage() {
   const filterOptions = useGetFilterOptionsApiV1ProductsFiltersGet()
 
   const [form, setForm] = useState<ProductFormState>(EMPTY_FORM)
+  /**
+   * Values the API currently stores, keyed by characteristic code.
+   *
+   * Kept apart from the editable drafts because the two answer different
+   * questions: a draft says what the administrator wants the value to be, while
+   * this map says whether the product already has a row that clearing the field
+   * has to delete explicitly.
+   */
+  const [storedCharacteristics, setStoredCharacteristics] = useState<Record<string, unknown>>({})
   const [price, setPrice] = useState<PriceDraft>({ locale: activeLocale(), text: '', value: '' })
   const [items, setItems] = useState<GalleryItem[]>([])
   const formKey = isEdit ? `edit-${numericId}` : 'create'
@@ -267,6 +295,7 @@ export function AdminProductFormPage() {
   const definitions = useGetCharacteristicDefinitionsApiV1AdminCategoriesCategoryIdCharacteristicsGet(categoryId, {
     query: { enabled: categoryId > 0, retry: false },
   })
+  const definitionFields = definitions.data?.fields
 
   const createProduct = useCreateProductApiV1AdminProductsPost()
   const updateProduct = useUpdateProductApiV1AdminProductsProductIdPatch()
@@ -306,6 +335,7 @@ export function AdminProductFormPage() {
     setRemoveTarget(null)
     if (!isEdit) {
       setForm(EMPTY_FORM)
+      setStoredCharacteristics({})
       setPrice({ locale: activeLocale(), text: '', value: '' })
       setItems([])
       setLoadedKey(formKey)
@@ -315,6 +345,7 @@ export function AdminProductFormPage() {
     if (!data) return
     const images = data.images ?? []
     setForm(formFromProduct(data))
+    setStoredCharacteristics(storedValues(data))
     setPrice(priceDraftFromText(formatPriceInput(data.price), activeLocale()))
     setItems(images.map((image) => ({
       key: `image-${image.id}`,
@@ -706,8 +737,40 @@ export function AdminProductFormPage() {
 
   /** Stored codes of the product that the selected category no longer defines. */
   const storedCodes = (detail.data?.characteristics ?? []).map((row) => row.code)
-  const fields = definitions.data?.fields ?? []
+  const fields = definitionFields ?? []
   const orphans = isEdit ? orphanCodes(storedCodes, fields) : []
+
+  // Definitions arrive asynchronously, and a category change replaces them. A
+  // code that the target category shares with the product keeps showing the
+  // stored value instead of being silently treated as cleared.
+  // oxlint-disable react/set-state-in-effect
+  useEffect(() => {
+    if (!isEdit || !definitionFields?.length) return
+    setForm((current) => {
+      let changed = false
+      const characteristics = { ...current.characteristics }
+      for (const field of definitionFields) {
+        if (characteristics[field.code] !== undefined) continue
+        if (!Object.hasOwn(storedCharacteristics, field.code)) continue
+        characteristics[field.code] = draftFromValue(field.data_type, storedCharacteristics[field.code])
+        changed = true
+      }
+      return changed ? { ...current, characteristics } : current
+    })
+  }, [definitionFields, isEdit, storedCharacteristics])
+  // oxlint-enable react/set-state-in-effect
+
+  /**
+   * The three characteristic states of this submit: values to send, stored codes
+   * the administrator cleared, and validation problems. Codes of the previous
+   * category are only dropped when the administrator confirmed the transition.
+   */
+  const characteristicDrafts = () => buildCharacteristicPayload(
+    fields,
+    form.characteristics,
+    storedCharacteristics,
+    { removeCodes: confirmOrphanRemoval ? orphans : [] },
+  )
 
   const validation = (): boolean => {
     if (categoryId > 0 && definitions.isError) {
@@ -733,38 +796,23 @@ export function AdminProductFormPage() {
 
     // Per-field feedback: a required value must be present and every value must
     // match its declared data type before anything is sent to the server.
+    const draft = characteristicDrafts()
     const draftErrors: Record<string, string> = {}
-    const missing: string[] = []
-    for (const field of fields) {
-      const result = draftToValue(field, form.characteristics[field.code])
-      if (result === null || result.ok) continue
-      if (result.issue === 'required') missing.push(field.name)
-      else if (result.issue === 'number') draftErrors[field.code] = t('admin.form.char_number_error')
-      else draftErrors[field.code] = t('admin.form.char_too_long_error')
+    for (const [code, issue] of Object.entries(draft.issues)) {
+      draftErrors[code] = issue === 'number'
+        ? t('admin.form.char_number_error')
+        : t('admin.form.char_too_long_error')
     }
     setCharacteristicErrors(draftErrors)
-    setSpecsError(missing.length > 0 ? t('admin.form.specs_incomplete', { fields: missing.join(', ') }) : null)
+    setSpecsError(draft.missing.length > 0
+      ? t('admin.form.specs_incomplete', {
+        fields: draft.missing.map((name) => translateCharacteristicLabel(name, locale)).join(', '),
+      })
+      : null)
     return Object.keys(errors).length === 0
-      && missing.length === 0
+      && draft.missing.length === 0
       && Object.keys(draftErrors).length === 0
   }
-
-  /** Values of the selected category, typed and ready for the API. */
-  const characteristicPayload = (): CharacteristicValueIn[] => {
-    const values: CharacteristicValueIn[] = []
-    for (const field of fields) {
-      const result = draftToValue(field, form.characteristics[field.code])
-      if (result === null || !result.ok) continue
-      values.push({ code: field.code, value: result.value })
-    }
-    return values
-  }
-
-  /**
-   * Values of the previous category are only discarded on an explicit request:
-   * without it the server rejects the transition instead of losing data.
-   */
-  const removals = (): string[] => (confirmOrphanRemoval ? orphans : [])
 
   const payload = (amount: number): AdminProductCreate => ({
     name: form.name.trim(),
@@ -774,7 +822,7 @@ export function AdminProductFormPage() {
     stock_quantity: Number(form.stock),
     description: form.description,
     color: form.color || null,
-    characteristics: characteristicPayload(),
+    characteristics: characteristicDrafts().values as CharacteristicValueIn[],
     is_active: form.isActive,
   })
 
@@ -791,6 +839,10 @@ export function AdminProductFormPage() {
     }
 
     if (isEdit) {
+      // The same builder functions the validation step used: submitted values and
+      // explicit removals are always disjoint, and a code is only removed after
+      // the administrator cleared a value the product actually stores.
+      const draft = characteristicDrafts()
       const data: AdminProductUpdate = {
         name: form.name.trim(),
         product_type_id: Number(form.productTypeId),
@@ -799,13 +851,18 @@ export function AdminProductFormPage() {
         stock_quantity: Number(form.stock),
         description: form.description,
         color: form.color || null,
-        characteristics: characteristicPayload(),
+        characteristics: draft.values as CharacteristicValueIn[],
         is_active: form.isActive,
       }
-      if (removals().length > 0) data.remove_characteristics = removals()
+      if (draft.removals.length > 0) data.remove_characteristics = draft.removals
       try {
-        await updateProduct.mutateAsync({ productId: numericId, data })
+        const updated = await updateProduct.mutateAsync({ productId: numericId, data })
         invalidateCatalog()
+        // The server is the source of truth for the saved state: re-align the
+        // editor with it so a second save builds on the committed values (and a
+        // value just deleted cannot be "deleted" a second time).
+        setStoredCharacteristics(storedValues(updated))
+        setForm((current) => ({ ...current, characteristics: draftsFrom(updated) }))
         if (detail.data) void detail.refetch()
         setSaved(true)
       } catch (error) {
@@ -1334,13 +1391,18 @@ function CharacteristicFieldEditor({
   error?: string
   onChange: (patch: Partial<CharacteristicDraft>) => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const controlId = `characteristic-${field.code}`
   const kind = fieldTypeOf(field.data_type)
-  const unit = field.unit ? <span className="ml-1 whitespace-nowrap text-text-muted">{field.unit}</span> : null
+  const language = i18n.resolvedLanguage ?? 'ru'
+  // The stored definition label/unit are Russian; the English editor shows the
+  // same dictionary the storefront uses, keyed by the stable `code`.
+  const name = characteristicLabel(field, language)
+  const unitText = translateCharacteristicUnit(field.unit, language)
+  const unit = unitText ? <span className="ml-1 whitespace-nowrap text-text-muted">{unitText}</span> : null
   const label = (
     <label htmlFor={controlId} className="flex min-w-0 items-center text-sm text-text-primary">
-      <span className="truncate">{field.name}</span>
+      <span className="truncate">{name}</span>
       {unit}
       {field.is_required && <span className="ml-1 text-danger" aria-hidden="true">*</span>}
     </label>
@@ -1359,22 +1421,28 @@ function CharacteristicFieldEditor({
       </div>
       <div className="min-w-0">
         {kind === 'boolean' ? (
-          <label htmlFor={controlId} className="flex min-h-11 items-center gap-2 text-sm text-text-primary">
-            <input
-              id={controlId}
-              type="checkbox"
-              checked={draft.checked}
-              disabled={disabled}
-              onChange={(event) => onChange({ checked: event.target.checked })}
-            />
-            <span>{t('admin.form.char_boolean_value')}</span>
-          </label>
+          // Three states, because "never set", "true" and "false" are different
+          // facts: an unchecked box would silently turn "absent" into `false`.
+          <select
+            id={controlId}
+            value={draft.checked === null || draft.checked === undefined ? '' : draft.checked ? 'true' : 'false'}
+            disabled={disabled}
+            aria-invalid={Boolean(error)}
+            onChange={(event) => onChange({
+              checked: event.target.value === '' ? null : event.target.value === 'true',
+            })}
+            className={adminControl}
+          >
+            <option value="">{t('admin.form.char_boolean_unset')}</option>
+            <option value="true">{t('admin.form.char_boolean_true')}</option>
+            <option value="false">{t('admin.form.char_boolean_false')}</option>
+          </select>
         ) : kind === 'string' || kind === 'number' ? (
           <input
             id={controlId}
             type="text"
             inputMode={kind === 'number' ? 'decimal' : undefined}
-            aria-label={field.name}
+            aria-label={name}
             aria-invalid={Boolean(error)}
             value={draft.text}
             disabled={disabled}
@@ -1392,7 +1460,7 @@ function CharacteristicFieldEditor({
               <div key={index} className="flex items-center gap-2">
                 <input
                   type="text"
-                  aria-label={`${field.name} ${index + 1}`}
+                  aria-label={`${name} ${index + 1}`}
                   inputMode={kind === 'number_list' ? 'decimal' : undefined}
                   value={row}
                   disabled={disabled}

@@ -5,6 +5,7 @@ from __future__ import annotations
 import shutil
 from io import BytesIO
 from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -879,3 +880,145 @@ def test_legacy_stored_image_urls_are_normalized_in_api_responses(
     stored = list(test_db_session.scalars(query).all())
     assert stored == [legacy_url, current_url, external]
     assert api_client.get(legacy_url).status_code == 200
+
+
+# ── Required list characteristics ────────────────────────────────────────────
+
+
+@pytest.fixture()
+def gpu_required_list_definitions(
+    test_db_session: Session, sample_products: dict
+) -> tuple[Characteristic, Characteristic]:
+    """Required string-list and number-list definitions of the GPU category."""
+    category_id = sample_products["gpu"].product_type.category_id
+    strings = Characteristic(
+        category_id=category_id,
+        code="test_probe_connectors",
+        name="Тестовые разъёмы",
+        data_type="string_list",
+        sort_order=910,
+        is_required=True,
+    )
+    numbers = Characteristic(
+        category_id=category_id,
+        code="test_probe_lengths",
+        name="Тестовые длины",
+        data_type="number_list",
+        unit="мм",
+        sort_order=911,
+        is_required=True,
+    )
+    test_db_session.add_all([strings, numbers])
+    test_db_session.flush()
+    return strings, numbers
+
+
+def _list_payload(connectors: Any, lengths: Any) -> list[dict[str, Any]]:
+    return [
+        {"code": "test_probe_connectors", "value": connectors},
+        {"code": "test_probe_lengths", "value": lengths},
+    ]
+
+
+def test_create_rejects_empty_required_lists(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    gpu_required_list_definitions: tuple[Characteristic, Characteristic],
+):
+    empty_strings = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        name="Empty connectors",
+        characteristics=_list_payload([], [60, 80]),
+    )
+    assert empty_strings.status_code == 422, empty_strings.text
+    assert "Тестовые разъёмы" in empty_strings.json()["detail"]
+
+    empty_numbers = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        name="Empty lengths",
+        characteristics=_list_payload(["pcie-8pin"], []),
+    )
+    assert empty_numbers.status_code == 422, empty_numbers.text
+    assert "Тестовые длины" in empty_numbers.json()["detail"]
+
+    # Rejected requests persist nothing at all.
+    listing = api_client.get("/api/v1/products", params={"q": "Empty connectors"})
+    assert listing.status_code == 200, listing.text
+    assert listing.json()["total"] == 0
+
+
+def test_create_accepts_required_lists_with_real_values(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    gpu_required_list_definitions: tuple[Characteristic, Characteristic],
+):
+    created = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        characteristics=_list_payload(
+            ["pcie-8pin", "pcie-16pin", "pcie-8pin"], [80, 60, 60]
+        ),
+    )
+    assert created.status_code == 201, created.text
+    rows = {row["code"]: row for row in created.json()["characteristics"]}
+    assert rows["test_probe_connectors"]["value"] == [
+        "pcie-8pin",
+        "pcie-16pin",
+        "pcie-8pin",
+    ]
+    assert rows["test_probe_lengths"]["value"] == [80, 60, 60]
+    assert rows["test_probe_lengths"]["display_value"] == "80, 60, 60 мм"
+
+
+def test_update_cannot_empty_a_required_list_and_rolls_back(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    gpu_required_list_definitions: tuple[Characteristic, Characteristic],
+):
+    created = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        characteristics=_list_payload(["pcie-8pin"], [80]),
+    )
+    assert created.status_code == 201, created.text
+    product_id = created.json()["id"]
+    path = f"/api/v1/admin/products/{product_id}"
+    headers = admin_user["headers"]
+
+    rejected = api_client.patch(
+        path,
+        headers=headers,
+        json={
+            "name": "Renamed while invalid",
+            "characteristics": _list_payload([], [80]),
+        },
+    )
+    assert rejected.status_code == 422, rejected.text
+    assert "Тестовые разъёмы" in rejected.json()["detail"]
+
+    # The unrelated field of the rejected request was never committed either.
+    after = api_client.get(path, headers=headers)
+    assert after.status_code == 200, after.text
+    body = after.json()
+    assert body["name"] == created.json()["name"]
+    rows = {row["code"]: row for row in body["characteristics"]}
+    assert rows["test_probe_connectors"]["value"] == ["pcie-8pin"]
+
+    # Removing a required list is rejected the same way.
+    removal = api_client.patch(
+        path,
+        headers=headers,
+        json={"remove_characteristics": ["test_probe_lengths"]},
+    )
+    assert removal.status_code == 422, removal.text
+    unchanged = api_client.get(path, headers=headers)
+    assert unchanged.json()["characteristics"] != []

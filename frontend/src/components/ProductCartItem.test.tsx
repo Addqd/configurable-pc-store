@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ProductCartItem } from './ProductCartItem'
 import type { RegularCartItem } from '../stores/cartStore'
+import type { ProductCharacteristic } from '../data/product'
+import i18n from '../i18n'
 
 const item: RegularCartItem = {
   id: 8,
@@ -16,7 +18,7 @@ const item: RegularCartItem = {
 const specsParagraph = (container: HTMLElement) =>
   container.querySelector('h2')?.nextElementSibling as HTMLParagraphElement
 
-afterEach(() => cleanup())
+afterEach(async () => { cleanup(); await act(async () => { await i18n.changeLanguage('ru') }) })
 
 describe('cart product specifications', () => {
   it('separates specifications with a filled bullet and nothing else', () => {
@@ -84,5 +86,52 @@ describe('cart product specifications', () => {
     // `Intl` groups digits with non-breaking spaces; compare on a readable form.
     const total = document.querySelector('strong')?.textContent?.replace(/\u00a0|\u202f/g, ' ')
     expect(total).toBe('129 980 ₽')
+  })
+})
+
+const structured: ProductCharacteristic[] = [
+  {
+    code: 'vram_gb', name: 'Объём видеопамяти', dataType: 'number', unit: 'ГБ',
+    value: 12, displayValue: '12 ГБ', showInShort: true, showInDetails: true,
+  },
+  {
+    code: 'memory_bus_bits', name: 'Шина видеопамяти', dataType: 'number', unit: 'бит',
+    value: 192, displayValue: '192 бит', showInShort: true, showInDetails: true,
+  },
+]
+
+describe('cart product specification localization', () => {
+  it('renders the structured short characteristics in Russian', () => {
+    const { container } = render(
+      <ProductCartItem
+        item={{ ...item, characteristics: structured }}
+        onQuantityChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    )
+    expect(specsParagraph(container).textContent).toBe('12 ГБ•192 бит')
+  })
+
+  it('renders them in English without changing the stored values', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    const { container } = render(
+      <ProductCartItem
+        item={{ ...item, characteristics: structured }}
+        onQuantityChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    )
+    expect(specsParagraph(container).textContent).toBe('12 GB•192 bit')
+    // The row itself still carries the untouched native value.
+    expect(structured[0].value).toBe(12)
+    expect(structured[0].displayValue).toBe('12 ГБ')
+  })
+
+  it('falls back to the server lines when there are no structured rows', async () => {
+    await act(async () => { await i18n.changeLanguage('en') })
+    const { container } = render(
+      <ProductCartItem item={item} onQuantityChange={vi.fn()} onRemove={vi.fn()} />,
+    )
+    expect(specsParagraph(container).textContent).toBe('12 ГБ GDDR6X•192 бит•DLSS 3')
   })
 })

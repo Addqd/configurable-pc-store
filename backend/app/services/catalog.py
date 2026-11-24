@@ -86,13 +86,14 @@ def _characteristic_rows(
     ]
 
 
-def short_display_lines(
+def short_characteristics(
     db: Session, products: Sequence[Product]
-) -> dict[int, list[str]]:
-    """Short characteristic strings for cart lines and order snapshots.
+) -> dict[int, list[CharacteristicValueOut]]:
+    """Short `show_in_short` rows of every product, in `sort_order`.
 
     Bulk-loads the definitions of every involved category and the values of every
-    involved product, so a cart with many lines still costs three queries.
+    involved product, so a page or cart with many products still costs the same
+    two queries instead of one per product.
     """
     rows = list(products)
     if not rows:
@@ -102,11 +103,26 @@ def short_display_lines(
     )
     values = spec_service.load_values(db, [product.id for product in rows])
     return {
-        product.id: spec_service.display_lines(
+        product.id: _characteristic_rows(
             definitions.get(product.product_type.category.id, []),
             values.get(product.id, {}),
+            short_only=True,
         )
         for product in rows
+    }
+
+
+def short_display_lines(
+    db: Session, products: Sequence[Product]
+) -> dict[int, list[str]]:
+    """Short characteristic strings for cart lines and order snapshots.
+
+    Derived from `short_characteristics`, so both the ready-to-render strings and
+    the structured rows come from one bulk load.
+    """
+    return {
+        product_id: [row.display_value for row in rows]
+        for product_id, rows in short_characteristics(db, products).items()
     }
 
 

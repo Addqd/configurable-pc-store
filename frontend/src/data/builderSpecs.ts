@@ -1,5 +1,6 @@
 import { type BuilderSelections, estimateComponentPower } from '../stores/builderStore'
-import { characteristicText } from './product'
+import { characteristicOf } from './product'
+import { characteristicValue } from '../i18n/characteristics'
 
 export interface BuildSpec { label: string; value: string }
 
@@ -8,12 +9,21 @@ export interface BuildSpec { label: string; value: string }
  *
  * Every technical value is read from the product's structured characteristics by
  * its stable `code` — never inferred from display strings, file names or product
- * names. A value the catalog does not declare is simply not shown.
+ * names. A value the catalog does not declare is simply not shown. Values are
+ * formatted for `language`, while the labels stay Russian keys that the summary
+ * localizes with the shared characteristic dictionary.
  */
-export function deriveBuilderSpecs(selections: BuilderSelections): BuildSpec[] {
+export function deriveBuilderSpecs(
+  selections: BuilderSelections,
+  language = 'ru',
+): BuildSpec[] {
   const specs: BuildSpec[] = []
   const add = (label: string, value: string | null | undefined) => { if (value) specs.push({ label, value }) }
-  const text = (product: BuilderSelections[keyof BuilderSelections], code: string) => characteristicText(product, code)
+  // Structured value of one characteristic, formatted for the active language.
+  const text = (product: BuilderSelections[keyof BuilderSelections], code: string) => {
+    const row = characteristicOf(product, code)
+    return row ? characteristicValue(row, language) || null : null
+  }
   const first = (product: BuilderSelections[keyof BuilderSelections], ...codes: string[]) => {
     for (const code of codes) {
       const value = text(product, code)
@@ -59,7 +69,9 @@ export function deriveBuilderSpecs(selections: BuilderSelections): BuildSpec[] {
     add('Эффективность БП', text(psu, 'efficiency_rating'))
   }
   const power = estimateComponentPower(selections)
-  if (power !== null) add('Потребление CPU + GPU (минимум)', `≥ ${power} Вт`)
+  if (power !== null) {
+    add('Потребление CPU + GPU (минимум)', `≥ ${power} ${language.startsWith('en') ? 'W' : 'Вт'}`)
+  }
   if (chassis) add('Форм-фактор корпуса', text(chassis, 'form_factor'))
   if (cooling) add('Тип охлаждения', text(cooling, 'cooling_type'))
   return specs

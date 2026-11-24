@@ -31,6 +31,8 @@ MAX_STRING_LENGTH = 500
 # Upper bound for one list value (connector lists etc. are far below this).
 MAX_LIST_LENGTH = 50
 
+LIST_DATA_TYPES = ("string_list", "number_list")
+
 TRUE_LABEL = "Да"
 FALSE_LABEL = "Нет"
 
@@ -238,6 +240,19 @@ def removed_codes(
     return result
 
 
+def is_missing_value(definition: CharacteristicDefinition, value: Any) -> bool:
+    """Whether a resolved value fails the requirement of its definition.
+
+    `0`, `false` and any non-empty list are real values, so only an absent value
+    (``None``) and an empty required list count as missing.
+    """
+    if value is None:
+        return True
+    if definition.data_type in LIST_DATA_TYPES:
+        return not value
+    return False
+
+
 def resolve_values(
     definitions: Sequence[CharacteristicDefinition],
     existing: Mapping[str, Any],
@@ -285,10 +300,13 @@ def resolve_values(
         merged[code] = value
 
     if require_complete:
+        # A required value must be present *and* non-empty: an empty list is not
+        # a valid answer, while `0` and `false` are.
         missing = [
             definition.name
             for definition in definitions
-            if definition.is_required and merged.get(definition.code) is None
+            if definition.is_required
+            and is_missing_value(definition, merged.get(definition.code))
         ]
         if missing:
             raise InvalidInputError(

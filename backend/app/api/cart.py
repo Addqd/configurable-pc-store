@@ -21,13 +21,17 @@ from app.schemas.cart import (
     OrderOut,
 )
 from app.services import cart_service as svc
-from app.services.catalog import _images, short_display_lines
+from app.services.catalog import _images, short_characteristics
 
 router = APIRouter(prefix="/api/v1/cart", tags=["cart"])
 
 
 def _cart_products(db: Session, cart: Cart) -> dict[int, Product]:
-    """Load every catalog product referenced by the cart in one query."""
+    """Load every catalog product referenced by the cart in one query.
+
+    Images are eager-loaded together with the category chain: without it every
+    cart line lazily fetched its own images while serializing the cover URL.
+    """
     wanted = [
         item.product_id
         for item in cart.items
@@ -38,7 +42,10 @@ def _cart_products(db: Session, cart: Cart) -> dict[int, Product]:
     rows = db.scalars(
         select(Product)
         .where(Product.id.in_(list(dict.fromkeys(wanted))))
-        .options(selectinload(Product.product_type).selectinload(ProductType.category))
+        .options(
+            selectinload(Product.images),
+            selectinload(Product.product_type).selectinload(ProductType.category),
+        )
     ).all()
     return {product.id: product for product in rows}
 
@@ -55,7 +62,9 @@ def _cart_to_out(cart: Cart | None, db: Session) -> CartOut:
             updated_at=now,
         )
     products = _cart_products(db, cart)
-    specs = short_display_lines(db, list(products.values()))
+    # One bulk load feeds both the ready-to-render lines and the structured rows
+    # the client needs to present them in another language.
+    characteristics = short_characteristics(db, list(products.values()))
     items: list[dict] = []
     subtotal = Decimal("0.00")
     count = 0
@@ -66,12 +75,14 @@ def _cart_to_out(cart: Cart | None, db: Session) -> CartOut:
             product = products.get(item.product_id)
             if product and product.is_active:
                 price = product.price
+                rows = characteristics.get(product.id, [])
                 info = {
                     "id": product.id,
                     "slug": product.slug,
                     "name": product.name,
                     "category": product.product_type.category.name,
-                    "specs": specs.get(product.id, []),
+                    "specs": [row.display_value for row in rows],
+                    "short_characteristics": [row.model_dump() for row in rows],
                     "price": str(product.price),
                     "cover_image_url": _images(product)[1],
                 }

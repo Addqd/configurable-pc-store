@@ -1,5 +1,6 @@
 import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
+import { characteristicLines } from '../i18n/characteristics'
 import type { Product } from '../data/product'
 import { useServerCart } from '../api/useServerCart'
 import { formatPrice } from '../utils/formatPrice'
@@ -9,11 +10,16 @@ import { Skeleton } from './ui/skeleton'
 import { useImageLoadState } from './ui/useImageLoadState'
 
 export function CatalogProductCard({ product }: { product: Product }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const { addProduct, add } = useServerCart()
   const rating = product.rating
   const reviewCount = product.reviewCount
   const { state: imageState, imgRef, onLoad, onError } = useImageLoadState()
+  // Structured short characteristics are formatted for the active language;
+  // the pre-formatted demo lines are only a fallback.
+  const lines = characteristicLines(product.characteristics, product.shortSpecs ?? product.specs, {
+    limit: 2, language: i18n.resolvedLanguage ?? 'ru',
+  })
   const handleAdd = () => addProduct(product.id)
   return (
     <article className="group relative flex min-w-0 flex-col overflow-hidden rounded-lg border border-border bg-surface transition-colors hover:border-border-hover hover:shadow-md">
@@ -27,7 +33,7 @@ export function CatalogProductCard({ product }: { product: Product }) {
         <p className="mb-0.5 truncate text-[11px] text-text-muted" title={catalogDisplay(product.category)}>{catalogDisplay(product.category)}</p>
         <p className="mb-1 min-h-[2.5rem] text-xs font-semibold leading-snug text-text-primary line-clamp-2 transition-colors group-hover:text-primary" title={catalogDisplay(product.name)}>{catalogDisplay(product.name)}</p>
         <div className="mb-1 min-h-[2rem] text-[11px] leading-4 text-text-muted">
-          {(product.shortSpecs ?? product.specs).slice(0,2).map((spec,i) => <p key={`${i}-${spec}`} className="truncate" title={catalogDisplay(spec)}>{catalogDisplay(spec)}</p>)}
+          {lines.map((spec,i) => <p key={`${i}-${spec}`} className="truncate" title={spec}>{spec}</p>)}
         </div>
         <div className="mt-auto flex min-h-5 items-center gap-1 text-[11px]" aria-label={reviewCount ? t('product.rating_label', { rating, count: reviewCount }) : t('product.no_reviews')}>
           <span className="text-amber-400" aria-hidden="true">★</span>

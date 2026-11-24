@@ -4,9 +4,11 @@ from uuid import uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from app.models import CartItem
+from app.api.cart import _cart_to_out
+from app.models import Cart, CartItem, ProductImage, User
 from tests.conftest import apply_characteristics as conftest_apply_characteristics
 from tests.test_compatibility_engine import _parts
 
@@ -225,3 +227,114 @@ def test_build_order_name_uses_cart_snapshot(
     assert entry["name_snapshot"] == expected
     assert entry["quantity"] == 2
     assert len(entry["components_snapshot"]) == 8
+
+
+# ── Characteristic payload and query growth ──────────────────────────────────
+
+
+def test_cart_product_payload_carries_structured_short_characteristics(
+    api_client: TestClient,
+    registered_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """The cart exposes the same structured rows the storefront localizes."""
+    product = sample_products["gpu"]
+    conftest_apply_characteristics(
+        test_db_session, product, {"cart_probe_length_mm": 269.1}
+    )
+    add = api_client.post(
+        "/api/v1/cart/products",
+        headers=registered_user["headers"],
+        json={"product_id": product.id, "quantity": 1},
+    )
+    assert add.status_code == 200, add.text
+    info = add.json()["items"][0]["product"]
+
+    rows = info["short_characteristics"]
+    assert [row["code"] for row in rows] == ["cart_probe_length_mm"]
+    row = rows[0]
+    assert row["value"] == 269.1
+    assert isinstance(row["value"], float)
+    assert row["data_type"] == "number"
+    assert row["display_value"] == "269.1"
+    # `specs` stays the ready-to-render list derived from the same rows.
+    assert info["specs"] == ["269.1"]
+
+
+def _count_statements(db: Session, action) -> list[str]:
+    """Statements emitted while `action()` runs, including its flushes."""
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        action()
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    return statements
+
+
+def _cart_with_items(db: Session, user_id: int, products: list) -> Cart:
+    cart = Cart(user_id=user_id)
+    db.add(cart)
+    db.flush()
+    for product in products:
+        db.add(
+            CartItem(
+                cart_id=cart.id,
+                kind="product",
+                product_id=product.id,
+                quantity=1,
+                build_snapshot=None,
+            )
+        )
+    db.flush()
+    return cart
+
+
+def test_cart_serialization_query_count_does_not_grow_with_items(
+    registered_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """Images are eager-loaded once, not per cart line."""
+    everything = list(sample_products.values())
+    for product in everything:
+        test_db_session.add(
+            ProductImage(
+                product_id=product.id,
+                image_url=f"/media/probe-{product.id}.jpg",
+                sort_order=0,
+            )
+        )
+    test_db_session.flush()
+
+    user = test_db_session.get(User, registered_user["id"])
+    assert user is not None
+    small = _cart_with_items(test_db_session, user.id, everything[:2])
+    large = _cart_with_items(test_db_session, user.id, everything)
+
+    def serialization_statements(cart_id: int) -> list[str]:
+        # Start every measurement from an empty identity map so nothing is served
+        # from a collection loaded by a previous run.
+        test_db_session.expire_all()
+        loaded = _cart_to_out(test_db_session.get(Cart, cart_id), test_db_session)
+        assert loaded.items
+        return _count_statements(
+            test_db_session,
+            lambda: _cart_to_out(test_db_session.get(Cart, cart_id), test_db_session),
+        )
+
+    small_statements = serialization_statements(small.id)
+    large_statements = serialization_statements(large.id)
+
+    assert len(large_statements) == len(small_statements)
+    assert len([s for s in large_statements if "product_images" in s]) == 1
+    product_queries = [
+        s for s in large_statements if "FROM products" in s and "cart_items" not in s
+    ]
+    assert len(product_queries) == 1

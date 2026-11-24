@@ -143,7 +143,13 @@ describe('admin product creation', () => {
     const numeric = screen.getByLabelText('Шина памяти')
     expect((numeric as HTMLInputElement).type).toBe('text')
     expect(numeric.getAttribute('inputmode')).toBe('decimal')
-    expect((screen.getByLabelText('Подсветка') as HTMLInputElement).type).toBe('checkbox')
+    // An optional boolean gets a three-state control, not a checkbox that would
+    // turn the "not set" state into an explicit `false`.
+    const boolean = screen.getByLabelText('Подсветка') as HTMLSelectElement
+    expect(boolean.tagName).toBe('SELECT')
+    expect([...boolean.options].map((option) => option.value)).toEqual(['', 'true', 'false'])
+    expect(boolean.value).toBe('')
+    expect(boolean.options[boolean.selectedIndex].textContent).toBe('Не задано')
     // Only the fixed label column states the definition name and its unit.
     expect(screen.getByText('бит')).toBeTruthy()
     expect(screen.getByText('Объём памяти').textContent).toContain('Объём памяти')
@@ -1482,5 +1488,222 @@ describe('admin product gallery concurrency', () => {
     await waitFor(() => expect(screen.getByText('EDIT PAGE')).toBeTruthy())
     expect(uploadCalls).toBe(2)
     expect(callsTo(fetchMock, '/api/v1/admin/products').filter(([, init]) => init.method === 'POST')).toHaveLength(1)
+  })
+})
+
+/* ── Characteristic removal and tri-state booleans ─────────────────────────── */
+
+/** One API characteristic row of the GPU category fixture. */
+const characteristicRow = (overrides: Record<string, unknown>) => ({
+  code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null,
+  sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
+  value: '12 ГБ', display_value: '12 ГБ', ...overrides,
+})
+
+const memorySizeRow = () => characteristicRow({})
+const memoryBusRow = () => characteristicRow({
+  code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит',
+  sort_order: 1, is_required: true, show_in_short: false, value: 192, display_value: '192 бит',
+})
+const rgbRow = (value: boolean) => characteristicRow({
+  code: 'has_rgb', name: 'Подсветка', data_type: 'boolean', unit: null,
+  sort_order: 2, is_required: false, show_in_short: false, value, display_value: value ? 'Да' : 'Нет',
+})
+const connectorsRow = (value: string[]) => characteristicRow({
+  code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list', unit: null,
+  sort_order: 3, is_required: false, show_in_short: false, value, display_value: value.join(', '),
+})
+const chipsetRow = () => characteristicRow({
+  code: 'chipset', name: 'Чипсет', data_type: 'string', unit: null, sort_order: 0,
+  is_required: false, show_in_short: false, value: 'B650', display_value: 'B650',
+})
+
+/**
+ * Edit screen whose stored characteristics are known. The PATCH handler applies
+ * the submitted payload to the stored rows, so a re-render shows exactly what
+ * the server would return after the update.
+ */
+function setupEditCharacteristics(
+  rows: Array<Record<string, unknown>>,
+  definitions: Record<string, unknown> = characteristicDefinitionsFixture,
+) {
+  const detail = { ...productDetailFixture, characteristics: rows }
+  const fetchMock = stubAdminFetch({
+    handler: (url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+      if (url.pathname === '/api/v1/products/filters') {
+        return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+      }
+      if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(definitions)
+      if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
+      if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
+        const body = requestBody(init) as {
+          characteristics?: { code: string; value: unknown }[]
+          remove_characteristics?: string[]
+        }
+        const removed = new Set(body.remove_characteristics ?? [])
+        const submitted = new Map((body.characteristics ?? []).map((entry) => [entry.code, entry.value]))
+        const updated = rows
+          .filter((row) => !removed.has(String(row.code)))
+          .map((row) => (submitted.has(String(row.code)) ? { ...row, value: submitted.get(String(row.code)) } : row))
+        return jsonResponse({ ...detail, characteristics: updated })
+      }
+      return undefined
+    },
+  })
+  render(
+    <MemoryRouter initialEntries={['/admin/products/7/edit']}>
+      <Routes>
+        <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  return fetchMock
+}
+
+const patchBody = (fetchMock: ReturnType<typeof vi.fn>) => {
+  const patch = callsTo(fetchMock, '/api/v1/admin/products/7').find(([, init]) => init.method === 'PATCH')
+  return patch ? requestBody(patch[1]) as {
+    characteristics?: { code: string; value: unknown }[]
+    remove_characteristics?: string[]
+  } : null
+}
+
+const submittedValue = (
+  body: { characteristics?: { code: string; value: unknown }[] },
+  code: string,
+) => body.characteristics?.find((entry) => entry.code === code)
+
+describe('admin product characteristic removal', () => {
+  it('removes an optional stored characteristic that the administrator cleared', async () => {
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), rgbRow(true)])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    const toggle = (await screen.findByLabelText('Подсветка')) as HTMLSelectElement
+    expect(toggle.value).toBe('true')
+
+    // Clearing the field must delete the stored row, not just stop sending it.
+    fireEvent.change(toggle, { target: { value: '' } })
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toEqual(['has_rgb'])
+    expect(submittedValue(body, 'has_rgb')).toBeUndefined()
+    // Unrelated values are preserved and no code appears in both arrays.
+    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
+    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 192 })
+    const submitted = new Set((body.characteristics ?? []).map((entry) => entry.code))
+    expect((body.remove_characteristics ?? []).filter((code) => submitted.has(code))).toEqual([])
+
+    // The saved form reflects the server state: the value is gone.
+    await waitFor(() => expect((screen.getByLabelText('Подсветка') as HTMLSelectElement).value).toBe(''))
+  })
+
+  it('keeps an optional characteristic the product never stored out of both arrays', async () => {
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await screen.findByLabelText('Подсветка')
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toBeUndefined()
+    expect(submittedValue(body, 'has_rgb')).toBeUndefined()
+  })
+
+  it('submits an explicit false instead of omitting it', async () => {
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), rgbRow(true)])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.change(await screen.findByLabelText('Подсветка'), { target: { value: 'false' } })
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(submittedValue(body, 'has_rgb')).toEqual({ code: 'has_rgb', value: false })
+    expect(body.remove_characteristics).toBeUndefined()
+  })
+
+  it('preserves stored zero, false and list values when another field changes', async () => {
+    const fetchMock = setupEditCharacteristics([
+      memorySizeRow(), memoryBusRow(), rgbRow(false), connectorsRow(['pcie-8pin', 'pcie-8pin']),
+    ])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.change(await screen.findByLabelText('Шина памяти'), { target: { value: '256' } })
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 256 })
+    expect(submittedValue(body, 'has_rgb')).toEqual({ code: 'has_rgb', value: false })
+    expect(submittedValue(body, 'power_connectors')).toEqual({
+      code: 'power_connectors', value: ['pcie-8pin', 'pcie-8pin'],
+    })
+    expect(body.remove_characteristics).toBeUndefined()
+  })
+
+  it('blocks clearing a required characteristic', async () => {
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '   ' } })
+    await submitForm()
+
+    expect(await screen.findByText(/Заполните обязательные характеристики: Объём памяти/)).toBeTruthy()
+    expect(patchBody(fetchMock)).toBeNull()
+  })
+
+  it('drops values of the previous category only after the explicit confirmation', async () => {
+    const fetchMock = setupEditCharacteristics([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    const confirm = await screen.findByLabelText('Удалить эти характеристики при смене категории')
+    expect(screen.getByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+
+    fireEvent.click(confirm)
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toEqual(['chipset'])
+    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
+  })
+
+  it('does not remove previous-category values without the confirmation', async () => {
+    const fetchMock = setupEditCharacteristics([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await screen.findByText('Характеристики предыдущей категории: 1')
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    // The server rejects such a transition itself; the editor never discards it.
+    expect(body.remove_characteristics).toBeUndefined()
+  })
+
+  it('shows the characteristic labels and units in the active language', async () => {
+    const definitions = {
+      category_id: 8,
+      category_name: 'Видеокарты',
+      fields: [{
+        code: 'vram_gb', name: 'Объём видеопамяти', data_type: 'number', unit: 'ГБ',
+        sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
+      }],
+    }
+    const rows = [characteristicRow({
+      code: 'vram_gb', name: 'Объём видеопамяти', data_type: 'number', unit: 'ГБ',
+      sort_order: 0, value: 12, display_value: '12 ГБ',
+    })]
+    await act(async () => { await i18n.changeLanguage('en') })
+    setupEditCharacteristics(rows, definitions)
+
+    expect(await screen.findByLabelText('Video memory capacity')).toBeTruthy()
+    expect(screen.queryByText(/Объём видеопамяти/)).toBeNull()
+    // The stored unit is presented in English, the stored definition is untouched.
+    expect(document.body.textContent).toContain('GB')
   })
 })

@@ -1,6 +1,28 @@
 import type { CartOut, OrderOut } from './generated/model'
 import type { BuildComponent, CartItem, Order } from '../stores/cartStore'
+import type { ProductCharacteristic } from '../data/product'
 import placeholder from '../assets/placeholder.jpg'
+
+/** Structured short characteristics of a cart line, when the API sent them. */
+function shortCharacteristics(value: unknown): ProductCharacteristic[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const rows = value.flatMap((entry: unknown): ProductCharacteristic[] => {
+    if (!entry || typeof entry !== 'object') return []
+    const row = entry as Record<string, unknown>
+    if (typeof row.code !== 'string' || typeof row.name !== 'string') return []
+    return [{
+      code: row.code,
+      name: row.name,
+      dataType: typeof row.data_type === 'string' ? row.data_type : 'string',
+      unit: typeof row.unit === 'string' ? row.unit : null,
+      value: row.value,
+      displayValue: typeof row.display_value === 'string' ? row.display_value : '',
+      showInShort: row.show_in_short === true,
+      showInDetails: row.show_in_details === true,
+    }]
+  })
+  return rows.length > 0 ? rows : undefined
+}
 
 function components(value: unknown): BuildComponent[] {
   if (!Array.isArray(value)) return []
@@ -20,12 +42,14 @@ export function cartItems(cart: CartOut): CartItem[] {
       image: placeholder, description: '', components: components(item.build_snapshot?.components), isExpanded: true,
     }
     const product = item.product
+    const characteristics = shortCharacteristics(product?.short_characteristics)
     return {
       id: item.id, name: typeof product?.name === 'string' ? product.name : 'Товар недоступен',
       price: Number(item.unit_price), quantity: item.quantity,
       image: typeof product?.cover_image_url === 'string' ? product.cover_image_url : placeholder,
       category: typeof product?.category === 'string' ? product.category : '',
       specs: Array.isArray(product?.specs) ? product.specs.filter((spec): spec is string => typeof spec === 'string') : [],
+      ...(characteristics ? { characteristics } : {}),
     }
   })
 }
