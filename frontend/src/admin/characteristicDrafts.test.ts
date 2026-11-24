@@ -211,9 +211,10 @@ describe('characteristic payload with explicit removals', () => {
   it('turns a cleared stored value into an explicit removal', () => {
     const stored = { socket: 'AM5', cores: 6, has_igpu: true, connectors: ['pcie-8pin'] }
     const drafts = draftsFrom(stored)
-    drafts.cores = { ...emptyDraft('number'), text: '' }
-    drafts.has_igpu = { ...emptyDraft('boolean'), checked: null }
-    drafts.connectors = { ...emptyDraft('string_list'), items: [] }
+    // `edited` is what makes an empty draft a deletion: hydration alone never is.
+    drafts.cores = { ...emptyDraft('number'), edited: true }
+    drafts.has_igpu = { ...emptyDraft('boolean'), edited: true }
+    drafts.connectors = { ...emptyDraft('string_list'), items: [], edited: true }
 
     const payload = buildCharacteristicPayload(definitions, drafts, stored)
     expect(payload.removals).toEqual(['cores', 'has_igpu', 'connectors'])
@@ -221,6 +222,39 @@ describe('characteristic payload with explicit removals', () => {
     // A code can never be both replaced and removed.
     const submitted = new Set(payload.values.map((entry) => entry.code))
     expect(payload.removals.filter((code) => submitted.has(code))).toEqual([])
+  })
+
+  it('never deletes a stored value that was only hydrated into a draft', () => {
+    // The API stores an explicitly empty optional list; the hydrated draft has no
+    // rows, exactly like a field the administrator emptied. Only the recorded edit
+    // intent may tell those states apart.
+    const stored = { socket: 'AM5', connectors: [] }
+    const payload = buildCharacteristicPayload(definitions, draftsFrom(stored), stored)
+    expect(payload.removals).toEqual([])
+    expect(payload.unresolved).toEqual([])
+    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
+    expect(draftFromValue('string_list', []).edited).toBe(false)
+  })
+
+  it('submits entries that replace an empty stored list', () => {
+    const stored = { socket: 'AM5', connectors: [] }
+    const drafts = draftsFrom(stored)
+    drafts.connectors = { ...emptyDraft('string_list'), items: ['pcie-8pin'], edited: true }
+
+    const payload = buildCharacteristicPayload(definitions, drafts, stored)
+    expect(payload.values).toEqual([
+      { code: 'socket', value: 'AM5' },
+      { code: 'connectors', value: ['pcie-8pin'] },
+    ])
+    expect(payload.removals).toEqual([])
+  })
+
+  it('keeps an empty required list invalid even when it is stored', () => {
+    const required = [definition('connectors', 'string_list', true)]
+    const stored = { connectors: [] }
+    const payload = buildCharacteristicPayload(required, draftsFrom(stored), stored)
+    expect(payload.missing).toEqual(['connectors'])
+    expect(payload.removals).toEqual([])
   })
 
   it('never removes a characteristic that the product does not store', () => {
@@ -273,5 +307,99 @@ describe('characteristic payload with explicit removals', () => {
     const payload = buildCharacteristicPayload(definitions, drafts, {})
     expect(payload.issues).toEqual({ cores: 'number' })
     expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
+  })
+})
+
+describe('characteristic payload across a category transition', () => {
+  // `memory_size` is a `string` in the product's category and a `string_list` in
+  // the selected one: the stored value cannot be reused, so it needs a decision.
+  const transitionDefinitions = [
+    definition('socket', 'string', true),
+    definition('memory_size', 'string_list'),
+  ]
+  const stored = { socket: 'AM5', memory_size: '12 ГБ' }
+
+  it('never removes a transition code through an empty draft', () => {
+    // Entering a replacement and clearing it leaves the same empty draft a quiet
+    // hydration would create — neither may authorize a deletion on its own.
+    const drafts = {
+      socket: { ...emptyDraft('string'), text: 'AM5' },
+      memory_size: { ...emptyDraft('string_list'), edited: true },
+    }
+    const payload = buildCharacteristicPayload(transitionDefinitions, drafts, stored, {
+      transitionCodes: ['memory_size'],
+    })
+    expect(payload.removals).toEqual([])
+    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
+    expect(payload.unresolved).toEqual(['memory_size'])
+  })
+
+  it('reports a transition code that has no draft at all as unresolved', () => {
+    const payload = buildCharacteristicPayload(transitionDefinitions, {}, stored, {
+      transitionCodes: ['memory_size'],
+    })
+    expect(payload.removals).toEqual([])
+    expect(payload.unresolved).toEqual(['memory_size'])
+  })
+
+  it('removes a transition code only after the confirmation', () => {
+    const payload = buildCharacteristicPayload(transitionDefinitions, {}, stored, {
+      transitionCodes: ['memory_size'],
+      removeCodes: ['memory_size'],
+    })
+    expect(payload.removals).toEqual(['memory_size'])
+    expect(payload.unresolved).toEqual([])
+    const submitted = new Set(payload.values.map((entry) => entry.code))
+    expect(payload.removals.filter((code) => submitted.has(code))).toEqual([])
+  })
+
+  it('replaces a transition code with a valid value without a confirmation', () => {
+    const drafts = {
+      socket: { ...emptyDraft('string'), text: 'AM5' },
+      memory_size: { ...emptyDraft('string_list'), items: ['12 ГБ'], edited: true },
+    }
+    const payload = buildCharacteristicPayload(transitionDefinitions, drafts, stored, {
+      transitionCodes: ['memory_size'],
+    })
+    expect(payload.values).toEqual([
+      { code: 'socket', value: 'AM5' },
+      { code: 'memory_size', value: ['12 ГБ'] },
+    ])
+    expect(payload.removals).toEqual([])
+    expect(payload.unresolved).toEqual([])
+  })
+
+  it('never removes a transition code that also carries a valid value', () => {
+    const drafts = {
+      socket: { ...emptyDraft('string'), text: 'AM5' },
+      memory_size: { ...emptyDraft('string_list'), items: ['12 ГБ'], edited: true },
+    }
+    const payload = buildCharacteristicPayload(transitionDefinitions, drafts, stored, {
+      transitionCodes: ['memory_size'],
+      removeCodes: ['memory_size'],
+    })
+    expect(payload.removals).toEqual([])
+    expect(payload.values).toContainEqual({ code: 'memory_size', value: ['12 ГБ'] })
+  })
+
+  it('keeps a required transition code unsatisfiable instead of removing it', () => {
+    const requiredTransition = [definition('memory_size', 'string_list', true)]
+    const payload = buildCharacteristicPayload(requiredTransition, {}, stored, {
+      transitionCodes: ['memory_size'],
+      removeCodes: ['memory_size'],
+    })
+    expect(payload.missing).toEqual(['memory_size'])
+    expect(payload.removals).toEqual([])
+  })
+
+  it('rejects an invalid replacement instead of falling back to a removal', () => {
+    const numberTransition = [definition('memory_size', 'number_list')]
+    const drafts = { memory_size: { ...emptyDraft('number_list'), items: ['12 ГБ'], edited: true } }
+    const payload = buildCharacteristicPayload(numberTransition, drafts, stored, {
+      transitionCodes: ['memory_size'],
+    })
+    expect(payload.issues).toEqual({ memory_size: 'number' })
+    expect(payload.removals).toEqual([])
+    expect(payload.values).toEqual([])
   })
 })

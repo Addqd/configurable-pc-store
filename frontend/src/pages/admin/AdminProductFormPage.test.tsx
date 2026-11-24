@@ -1761,7 +1761,16 @@ const crossCategoryOptionsFixture = {
  */
 function setupEditTransition(
   rows: Array<Record<string, unknown>>,
-  { failFirstPatch = false, optionsPayload }: { failFirstPatch?: boolean; optionsPayload?: unknown } = {},
+  {
+    failFirstPatch = false,
+    optionsPayload,
+    cpuDefinitions = cpuDefinitionsFixture,
+  }: {
+    failFirstPatch?: boolean
+    optionsPayload?: unknown
+    /** Definitions of the CPU category the transition moves into. */
+    cpuDefinitions?: Record<string, unknown>
+  } = {},
 ) {
   const detail = { ...productDetailFixture, characteristics: rows }
   let committed = rows
@@ -1779,7 +1788,7 @@ function setupEditTransition(
         return jsonResponse(characteristicDefinitionsFixture)
       }
       if (url.pathname === '/api/v1/admin/categories/9/characteristics') {
-        return jsonResponse(cpuDefinitionsFixture)
+        return jsonResponse(cpuDefinitions)
       }
       if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') {
         return jsonResponse({ ...detail, characteristics: committed })
@@ -1999,5 +2008,367 @@ describe('admin product category transition confirmation', () => {
     expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: ['12 ГБ'] })
     expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 192 })
     expect(body.remove_characteristics).toBeUndefined()
+  })
+})
+
+/* ── Transitions the selected category cannot settle on its own ──────────────── */
+
+/** CPU category that declares the GPU `memory_size` with another data type. */
+const listMemoryDefinitionsFixture = {
+  category_id: 9,
+  category_name: 'Процессоры',
+  fields: [
+    cpuDefinitionsFixture.fields[0],
+    cpuDefinitionsFixture.fields[1],
+    {
+      code: 'memory_size', name: 'Объём памяти', data_type: 'string_list', unit: null,
+      sort_order: 2, is_required: false, show_in_short: false, show_in_details: true,
+    },
+  ],
+}
+
+/** Same as above, but the target category makes the code required. */
+const requiredMemoryDefinitionsFixture = {
+  ...listMemoryDefinitionsFixture,
+  fields: listMemoryDefinitionsFixture.fields.map((field) => (
+    field.code === 'memory_size' ? { ...field, is_required: true } : field
+  )),
+}
+
+/** Same as above, but the replacement has to be numeric. */
+const numberMemoryDefinitionsFixture = {
+  ...listMemoryDefinitionsFixture,
+  fields: listMemoryDefinitionsFixture.fields.map((field) => (
+    field.code === 'memory_size' ? { ...field, data_type: 'number_list' } : field
+  )),
+}
+
+/** Categories that share every stored code with the same data type. */
+const sharedCodesDefinitionsFixture = {
+  category_id: 9,
+  category_name: 'Процессоры',
+  fields: [
+    cpuDefinitionsFixture.fields[0],
+    {
+      code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null,
+      sort_order: 1, is_required: false, show_in_short: false, show_in_details: true,
+    },
+    cpuDefinitionsFixture.fields[1],
+    {
+      code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list', unit: null,
+      sort_order: 3, is_required: false, show_in_short: false, show_in_details: true,
+    },
+  ],
+}
+
+const unresolvedText = /Подтвердите удаление характеристик предыдущей категории/
+
+/** Clicks the form's submit button without waiting for any field. */
+const clickSubmit = () => {
+  fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
+}
+
+/** Types a `memory_size` replacement row into the CPU editor. */
+const typeMemorySizeReplacement = async (value: string) => {
+  fireEvent.click(await screen.findByRole('button', { name: 'Добавить значение' }))
+  fireEvent.change(await screen.findByLabelText('Объём памяти 1'), { target: { value } })
+}
+
+/** Clears the only `memory_size` row again. */
+const clearMemorySizeReplacement = () => {
+  fireEvent.click(screen.getByRole('button', { name: 'Удалить значение 1' }))
+}
+
+describe('admin product unresolved category transitions', () => {
+  it('never sends an unconfirmed removal when a replacement is cleared again', async () => {
+    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
+      cpuDefinitions: listMemoryDefinitionsFixture,
+    })
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+
+    // A replacement is typed and cleared again: the draft is empty again, but an
+    // empty draft is not a decision about a value the category cannot reuse.
+    await typeMemorySizeReplacement('12 ГБ')
+    expect(screen.queryByText('Характеристики предыдущей категории: 1')).toBeNull()
+    clearMemorySizeReplacement()
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    expect((await findConfirmationBox()).checked).toBe(false)
+
+    clickSubmit()
+    expect(await screen.findByText(unresolvedText)).toBeTruthy()
+    // Nothing was persisted: the removal was never confirmed for this transition.
+    expect(patchBody(fetchMock)).toBeNull()
+  })
+
+  it('removes the unusable value once the current transition is confirmed', async () => {
+    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
+      cpuDefinitions: listMemoryDefinitionsFixture,
+    })
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+    await typeMemorySizeReplacement('12 ГБ')
+    clearMemorySizeReplacement()
+
+    fireEvent.click(await findConfirmationBox())
+    await submitTransition('Сокет')
+
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toEqual(['memory_size'])
+    expect(submittedValue(body, 'memory_size')).toBeUndefined()
+    expect(submittedValue(body, 'socket')).toEqual({ code: 'socket', value: 'AM5' })
+    const submitted = new Set((body.characteristics ?? []).map((entry) => entry.code))
+    expect((body.remove_characteristics ?? []).filter((code) => submitted.has(code))).toEqual([])
+  })
+
+  it('accepts a valid replacement without any confirmation', async () => {
+    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
+      cpuDefinitions: listMemoryDefinitionsFixture,
+    })
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+    await typeMemorySizeReplacement('12 ГБ')
+
+    // Replacing the value is a decision of its own: no warning, no confirmation.
+    expect(screen.queryByText(/Характеристики предыдущей категории/)).toBeNull()
+    clickSubmit()
+
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: ['12 ГБ'] })
+    expect(body.remove_characteristics).toBeUndefined()
+    expect(screen.queryByText(unresolvedText)).toBeNull()
+  })
+
+  it('rejects an invalid replacement instead of deleting the stored value', async () => {
+    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
+      cpuDefinitions: numberMemoryDefinitionsFixture,
+    })
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+    await typeMemorySizeReplacement('12 ГБ')
+
+    clickSubmit()
+    expect(await screen.findByText('Введите число')).toBeTruthy()
+    expect(patchBody(fetchMock)).toBeNull()
+  })
+
+  it('keeps a required target characteristic from being removed', async () => {
+    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
+      cpuDefinitions: requiredMemoryDefinitionsFixture,
+    })
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+
+    // Even a confirmed removal cannot satisfy a required target characteristic.
+    fireEvent.click(await findConfirmationBox())
+    clickSubmit()
+
+    expect(await screen.findByText(/Заполните обязательные характеристики: Объём памяти/)).toBeTruthy()
+    expect(patchBody(fetchMock)).toBeNull()
+  })
+})
+
+describe('admin product removal confirmation invalidation', () => {
+  it('invalidates the confirmation permanently when a replacement appears and disappears', async () => {
+    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()], {
+      cpuDefinitions: listMemoryDefinitionsFixture,
+    })
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
+    // `chipset` is unknown to the CPU category, `memory_size` changed its type.
+    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
+    fireEvent.click(await findConfirmationBox())
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
+
+    // A replacement changes which codes need a decision, so the confirmation for
+    // the previous set is dropped — not kept for a later match.
+    await typeMemorySizeReplacement('12 ГБ')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+
+    // Clearing it restores the exact category and orphan set that were confirmed.
+    clearMemorySizeReplacement()
+    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+    clickSubmit()
+    expect(await screen.findByText(unresolvedText)).toBeTruthy()
+    expect(patchBody(fetchMock)).toBeNull()
+
+    // Only a fresh confirmation resolves the transition.
+    fireEvent.click(await findConfirmationBox())
+    clickSubmit()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect([...(body.remove_characteristics ?? [])].sort()).toEqual(['chipset', 'memory_size'])
+  })
+
+  it('keeps the confirmation while unrelated form fields change', async () => {
+    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await findConfirmationBox())
+
+    fireEvent.change(screen.getByLabelText(/Название товара/), { target: { value: 'Другой товар' } })
+    fireEvent.change(screen.getByLabelText(/Количество на складе/), { target: { value: '12' } })
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
+
+    await submitTransition('Объём памяти')
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toEqual(['chipset'])
+  })
+})
+
+/* ── Editing intent: untouched values survive a save ─────────────────────────── */
+
+/** GPU definitions plus an optional numeric list the API may store empty. */
+const listDefinitionsFixture = {
+  ...characteristicDefinitionsFixture,
+  fields: [
+    ...characteristicDefinitionsFixture.fields,
+    {
+      code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', unit: 'мм',
+      sort_order: 4, is_required: false, show_in_short: false, show_in_details: true,
+    },
+  ],
+}
+
+const dimensionsRow = (value: number[]) => characteristicRow({
+  code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', unit: 'мм',
+  sort_order: 4, is_required: false, show_in_short: false, value,
+  display_value: value.join(', '),
+})
+
+/** Every PATCH body sent for the edited product, in order. */
+const patchBodies = (fetchMock: ReturnType<typeof vi.fn>) => callsTo(fetchMock, '/api/v1/admin/products/7')
+  .filter(([, init]) => init.method === 'PATCH')
+  .map(([, init]) => requestBody(init) as {
+    characteristics?: { code: string; value: unknown }[]
+    remove_characteristics?: string[]
+  })
+
+const renameProduct = () => {
+  fireEvent.change(screen.getByLabelText(/Название товара/), { target: { value: 'Другой товар' } })
+}
+
+describe('admin product characteristic editing intent', () => {
+  it('preserves a stored empty string list during an unrelated edit', async () => {
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), connectorsRow([])])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    // The definitions are loaded: the empty list renders no rows at all.
+    await screen.findByLabelText('Объём памяти')
+    expect(screen.getByText('Значений пока нет.')).toBeTruthy()
+
+    renameProduct()
+    await submitForm()
+    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
+    const [body] = patchBodies(fetchMock)
+    // The stored row is neither re-submitted nor deleted: it was never touched.
+    expect(body.remove_characteristics).toBeUndefined()
+    expect(submittedValue(body, 'power_connectors')).toBeUndefined()
+  })
+
+  it('preserves a stored empty number list during an unrelated edit', async () => {
+    const fetchMock = setupEditCharacteristics(
+      [memorySizeRow(), memoryBusRow(), dimensionsRow([])],
+      listDefinitionsFixture,
+    )
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await screen.findByLabelText('Объём памяти')
+    // `power_connectors` holds no value, so it renders as an empty list too.
+    expect(screen.getAllByText('Значений пока нет.')).toHaveLength(2)
+
+    renameProduct()
+    await submitForm()
+    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
+    const [body] = patchBodies(fetchMock)
+    expect(body.remove_characteristics).toBeUndefined()
+    expect(submittedValue(body, 'dimensions_mm')).toBeUndefined()
+  })
+
+  it('replaces an empty stored list with valid entries', async () => {
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), connectorsRow([])])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Добавить значение' }))
+    fireEvent.change(await screen.findByLabelText('Разъёмы питания 1'), { target: { value: 'pcie-8pin' } })
+    await submitForm()
+
+    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
+    const [body] = patchBodies(fetchMock)
+    expect(submittedValue(body, 'power_connectors')).toEqual({
+      code: 'power_connectors', value: ['pcie-8pin'],
+    })
+    expect(body.remove_characteristics).toBeUndefined()
+    // The saved form shows the committed value.
+    expect(await screen.findByLabelText('Разъёмы питания 1')).toBeTruthy()
+  })
+
+  it('removes a populated optional list the administrator cleared', async () => {
+    const fetchMock = setupEditCharacteristics([
+      memorySizeRow(), memoryBusRow(), connectorsRow(['pcie-8pin', 'pcie-16pin']),
+    ])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Удалить значение 1' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить значение 1' }))
+    await submitForm()
+
+    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
+    const [body] = patchBodies(fetchMock)
+    expect(body.remove_characteristics).toEqual(['power_connectors'])
+    expect(submittedValue(body, 'power_connectors')).toBeUndefined()
+    // Unrelated values stay untouched.
+    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
+  })
+
+  it('keeps an untouched empty list across repeated saves', async () => {
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), connectorsRow([])])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await submitForm()
+    expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
+
+    await submitForm()
+    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(2))
+    for (const body of patchBodies(fetchMock)) {
+      expect(body.remove_characteristics).toBeUndefined()
+      expect(submittedValue(body, 'power_connectors')).toBeUndefined()
+    }
+  })
+
+  it('does not treat a hydrated empty list as cleared by a category change', async () => {
+    const fetchMock = setupEditTransition(
+      [memorySizeRow(), memoryBusRow(), connectorsRow([])],
+      { cpuDefinitions: sharedCodesDefinitionsFixture },
+    )
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+
+    // Every stored code exists in the CPU category with the same data type, so no
+    // removal confirmation is involved — the shared empty list must survive.
+    await selectCategory('9', '10')
+    expect(screen.queryByText(/Характеристики предыдущей категории/)).toBeNull()
+    fireEvent.change(await screen.findByLabelText('Сокет'), { target: { value: 'AM5' } })
+    clickSubmit()
+
+    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
+    const [body] = patchBodies(fetchMock)
+    expect(body.remove_characteristics).toBeUndefined()
+    expect(submittedValue(body, 'power_connectors')).toBeUndefined()
+    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
   })
 })

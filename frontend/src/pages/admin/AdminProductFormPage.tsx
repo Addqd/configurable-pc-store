@@ -254,6 +254,17 @@ export function AdminProductFormPage() {
    * orphan set can ever match it again.
    */
   const [removalConfirmation, setRemovalConfirmation] = useState<string | null>(null)
+  /**
+   * Transition signature the confirmation was last evaluated for, or `null` while
+   * no transition was evaluated at all.
+   *
+   * Compared during render (not in an effect) so a stale confirmation is *reset*
+   * before it can authorize anything: a confirmation for one transition must not
+   * survive an edit that changes which codes need a decision. Merely comparing a
+   * stored signature with the current one would reactivate an outdated
+   * confirmation as soon as the very same category and orphan set reappear.
+   */
+  const [evaluatedTransition, setEvaluatedTransition] = useState<string | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   const [galleryError, setGalleryError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -428,7 +439,11 @@ export function AdminProductFormPage() {
       ...current,
       characteristics: {
         ...current.characteristics,
-        [code]: { ...(current.characteristics[code] ?? emptyDraft(dataType)), ...patch },
+        // The edit intent is recorded here and only here: hydrating a value from
+        // the API (or re-hydrating it after a category change or a save) leaves
+        // the draft unedited, so an empty draft only deletes what the
+        // administrator actually cleared.
+        [code]: { ...(current.characteristics[code] ?? emptyDraft(dataType)), ...patch, edited: true },
       },
     }))
     setCharacteristicErrors((current) => ({ ...current, [code]: '' }))
@@ -790,6 +805,16 @@ export function AdminProductFormPage() {
   const confirmOrphanRemoval = blockedCodes.length > 0
     && removalConfirmation === removalConfirmationKey
 
+  // Any change of the transition invalidates the confirmation permanently: the
+  // state is reset instead of only failing a comparison, so a later transition
+  // with the exact same signature cannot reuse it. The update happens during
+  // render, before React commits the render that would read it.
+  if (evaluatedTransition !== removalConfirmationKey) {
+    setEvaluatedTransition(removalConfirmationKey)
+    // The very first evaluation has nothing to invalidate.
+    if (evaluatedTransition !== null) setRemovalConfirmation(null)
+  }
+
   // Definitions arrive asynchronously, and a category change replaces them. A
   // code the target category shares with the product *with the same data type*
   // keeps showing the stored value instead of being silently treated as cleared.
@@ -815,15 +840,21 @@ export function AdminProductFormPage() {
   // oxlint-enable react/set-state-in-effect
 
   /**
-   * The three characteristic states of this submit: values to send, stored codes
-   * the administrator cleared, and validation problems. Codes of the previous
-   * category are only dropped when the administrator confirmed *this* transition.
+   * The characteristic states of this submit: values to send, stored codes the
+   * administrator cleared, unresolved transition codes, and validation problems.
+   * Codes of the previous category are only dropped when the administrator
+   * confirmed *this* transition.
    */
   const characteristicDrafts = () => buildCharacteristicPayload(
     fields,
     form.characteristics,
     storedValueMap(storedCharacteristics),
-    { removeCodes: confirmOrphanRemoval ? blockedCodes : [] },
+    {
+      removeCodes: confirmOrphanRemoval ? blockedCodes : [],
+      // An incompatible stored value needs a decision: the payload builder never
+      // reads a blank field as a removal of such a code.
+      transitionCodes: blockedCodes,
+    },
   )
 
   const validation = (): boolean => {
@@ -858,13 +889,16 @@ export function AdminProductFormPage() {
         : t('admin.form.char_too_long_error')
     }
     setCharacteristicErrors(draftErrors)
-    setSpecsError(draft.missing.length > 0
-      ? t('admin.form.specs_incomplete', {
-        fields: draft.missing.map((name) => translateCharacteristicLabel(name, locale)).join(', '),
-      })
-      : null)
+    setSpecsError(draft.unresolved.length > 0
+      ? t('admin.form.char_orphans_unresolved')
+      : draft.missing.length > 0
+        ? t('admin.form.specs_incomplete', {
+          fields: draft.missing.map((name) => translateCharacteristicLabel(name, locale)).join(', '),
+        })
+        : null)
     return Object.keys(errors).length === 0
       && draft.missing.length === 0
+      && draft.unresolved.length === 0
       && Object.keys(draftErrors).length === 0
   }
 

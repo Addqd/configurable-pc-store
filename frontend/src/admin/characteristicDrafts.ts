@@ -39,6 +39,17 @@ export interface CharacteristicDraft {
   checked: boolean | null
   /** Rows of a `string_list` / `number_list` value, in entered order. */
   items: string[]
+  /**
+   * Whether the administrator actually edited this characteristic.
+   *
+   * The draft alone cannot answer that: a stored value is hydrated into a draft
+   * that looks exactly like a cleared field (an explicitly stored empty list `[]`
+   * hydrates to zero rows, just like a field the administrator emptied). Only an
+   * edit intent recorded here may turn an empty draft into a deletion, so
+   * hydrating, switching category or editing an unrelated field never deletes a
+   * stored value.
+   */
+  edited: boolean
 }
 
 export type DraftIssue = 'required' | 'number' | 'too_long'
@@ -65,10 +76,15 @@ export function fieldTypeOf(dataType: string): CharacteristicFieldType {
 }
 
 export function emptyDraft(dataType: string): CharacteristicDraft {
-  return { kind: fieldTypeOf(dataType), text: '', checked: null, items: [] }
+  return { kind: fieldTypeOf(dataType), text: '', checked: null, items: [], edited: false }
 }
 
-/** Draft for a stored value coming back from the API. */
+/**
+ * Draft for a stored value coming back from the API.
+ *
+ * The result is never `edited`: hydrating a value is not an action of the
+ * administrator and must not authorize a removal.
+ */
 export function draftFromValue(dataType: string, value: unknown): CharacteristicDraft {
   const kind = fieldTypeOf(dataType)
   const draft = emptyDraft(kind)
@@ -206,13 +222,15 @@ export interface CharacteristicValueDraft {
 /**
  * Outcome of converting every draft of a category into an API payload.
  *
- * The three states of a characteristic are kept apart:
+ * The states of a characteristic are kept apart:
  *
- * - never provided → neither submitted nor removed (the stored row, if any, is
- *   impossible: nothing is stored for a code that was never provided);
+ * - never provided and never stored → neither submitted nor removed;
  * - a valid value → submitted through `values`;
- * - an existing value cleared by the administrator → `removals`, which the API
- *   deletes explicitly. Omission alone can never delete anything.
+ * - an existing value the administrator cleared → `removals`, which the API
+ *   deletes explicitly. Omission alone can never delete anything, and hydration
+ *   alone never counts as clearing;
+ * - an unusable value of a previous category without a decision → `unresolved`,
+ *   which blocks submission until the administrator replaces or confirms it.
  */
 export interface CharacteristicPayload {
   /** Values to create or replace. */
@@ -223,6 +241,37 @@ export interface CharacteristicPayload {
   issues: Record<string, DraftIssue>
   /** Display names of required characteristics that carry no value. */
   missing: string[]
+  /**
+   * Transition codes that still need a decision.
+   *
+   * The selected category cannot reuse the stored value and the administrator
+   * neither submitted a valid replacement nor confirmed the removal, so the
+   * transition is unresolved and must block submission.
+   */
+  unresolved: string[]
+}
+
+/**
+ * Removal decisions the payload builder cannot make on its own.
+ */
+export interface CharacteristicPayloadOptions {
+  /**
+   * Stored codes whose removal the administrator confirmed for *this* transition.
+   *
+   * The caller owns the confirmation scope: a code listed here is removed, but
+   * `transitionCodes` still decides whether a blank field may delete anything.
+   */
+  removeCodes?: readonly string[]
+  /**
+   * Stored codes a category transition makes unusable (the selected category
+   * either does not define the code or declares another data type for it).
+   *
+   * Such a code is frozen until the transition is resolved: only a valid
+   * replacement value or a confirmed removal may touch it, because an empty
+   * field says nothing about a value the administrator never saw in this
+   * category.
+   */
+  transitionCodes?: readonly string[]
 }
 
 /**
@@ -233,44 +282,65 @@ export interface CharacteristicPayload {
  * stores can be "cleared", and clearing it produces an explicit removal instead
  * of a silent omission. A code is never present in both arrays.
  *
- * `removeCodes` carries codes the caller decided to delete for another reason
- * (the confirmed removal of a previous category's characteristics); those codes
- * are not part of `definitions` and therefore can never collide with `values`.
+ * `removeCodes` carries the removals the administrator confirmed for the current
+ * category transition. A confirmed code that the selected category still defines
+ * is removed here; a confirmed code outside `definitions` is added below.
+ *
+ * `transitionCodes` carries the stored codes that need such a confirmation. Their
+ * empty draft is *not* a deletion request: it either becomes a confirmed removal
+ * or an unresolved transition, never a silent deletion.
  */
 export function buildCharacteristicPayload(
   definitions: readonly CharacteristicDefinitionLike[],
   drafts: Record<string, CharacteristicDraft | undefined>,
   stored: Readonly<Record<string, unknown>>,
-  { removeCodes = [] }: { removeCodes?: readonly string[] } = {},
+  { removeCodes = [], transitionCodes = [] }: CharacteristicPayloadOptions = {},
 ): CharacteristicPayload {
   const values: CharacteristicValueDraft[] = []
   const removals: string[] = []
   const issues: Record<string, DraftIssue> = {}
   const missing: string[] = []
+  const unresolved: string[] = []
+  const confirmed = new Set(removeCodes)
+  const needsTransition = new Set(transitionCodes)
 
   for (const definition of definitions) {
-    const draft = drafts[definition.code]
-    // No draft at all means the field was never touched: an existing value must
-    // survive untouched, so this code is neither submitted nor removed.
-    if (draft === undefined && !definition.is_required) continue
+    const code = definition.code
+    const draft = drafts[code]
+    // An absent draft behaves exactly like an empty one (nothing typed yet), so
+    // both are judged by the same rules below.
     const result = draftToValue(definition, draft)
     if (result === null) {
-      // Absent by design: a stored optional value is an explicit removal, while
-      // a value that was never provided stays completely untouched.
-      if (Object.hasOwn(stored, definition.code)) removals.push(definition.code)
+      if (!Object.hasOwn(stored, code)) continue
+      if (needsTransition.has(code)) {
+        // The stored value cannot be reused by the selected category. A blank
+        // field is not a decision: either the removal was confirmed for this
+        // transition, or the transition stays unresolved and blocks submission.
+        if (confirmed.has(code)) removals.push(code)
+        else unresolved.push(code)
+        continue
+      }
+      // Only an edit of the administrator may delete a stored row — including a
+      // value the category still accepts. A hydrated draft the user never touched
+      // (a stored empty list, for example) keeps its stored value.
+      if (draft?.edited === true) removals.push(code)
       continue
     }
     if (!result.ok) {
       if (result.issue === 'required') missing.push(definition.name)
-      else issues[definition.code] = result.issue
+      else issues[code] = result.issue
       continue
     }
-    values.push({ code: definition.code, value: result.value })
+    values.push({ code, value: result.value })
   }
 
-  const valueCodes = new Set(values.map((entry) => entry.code))
+  // A confirmed code the selected category still defines was decided per definition
+  // above: either it carries a valid replacement, or it is reported as missing /
+  // unresolved. Only codes outside the target definitions are removed here, so a
+  // confirmation can never delete a value the target category requires.
+  const definitionCodes = new Set(definitions.map((definition) => definition.code))
   for (const code of removeCodes) {
-    if (!valueCodes.has(code) && !removals.includes(code)) removals.push(code)
+    if (!definitionCodes.has(code) && !removals.includes(code)) removals.push(code)
   }
-  return { values, removals, issues, missing }
+  return { values, removals, issues, missing, unresolved }
 }

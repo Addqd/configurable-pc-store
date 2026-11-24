@@ -190,7 +190,8 @@
       "char_list_add": "Add value",
       "char_list_remove": "Remove value {{index}}",
       "char_orphans_title": "Characteristics of the previous category: {{count}}",
-      "char_orphans_confirm": "Remove these characteristics when switching category"
+      "char_orphans_confirm": "Remove these characteristics when switching category",
+      "char_orphans_unresolved": "Confirm removing the characteristics of the previous category or provide a suitable replacement"
     },
     "reviews": {
       "title": "Product reviews",
