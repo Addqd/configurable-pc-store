@@ -1,4 +1,4 @@
-{
+﻿{
   "builder": {
     "compatibility_checks": {
       "form_factor_detail_match": "{{boardForm}}: совпадает с форм-фактором корпуса"
@@ -7,7 +7,7 @@
     "replace_named": "Заменить {{label}}",
     "delete_named": "Удалить {{label}}",
     "select_missing": "Выберите комплектующие: {{components}}.",
-    "unknown_checks": "Не удалось проверить: {{count}}",
+    "unknown_checks": "Недостаточно данных: {{count}}",
     "selected": "Выбрано",
     "saved_build_missing": "Сохранённая сборка не найдена. Возможно, она была удалена.",
     "saved_build_forbidden": "Нет доступа к этой сохранённой сборке. Войдите в аккаунт её владельца."

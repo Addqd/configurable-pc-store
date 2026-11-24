@@ -1,4 +1,4 @@
-{
+﻿{
   "builder": {
     "compatibility_checks": {
       "form_factor_detail_match": "{{boardForm}}"
@@ -7,7 +7,7 @@
     "replace_named": "Replace {{label}}",
     "delete_named": "Remove {{label}}",
     "select_missing": "Select components: {{components}}.",
-    "unknown_checks": "Could not verify: {{count}}",
+    "unknown_checks": "Missing data: {{count}} check(s)",
     "selected": "Selected",
     "saved_build_missing": "This saved build no longer exists. It may have been deleted.",
     "saved_build_forbidden": "You do not have access to this saved build. Sign in as its owner."

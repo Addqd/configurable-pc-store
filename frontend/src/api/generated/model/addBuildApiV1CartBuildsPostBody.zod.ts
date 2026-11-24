@@ -6,16 +6,24 @@
  */
 import * as zod from 'zod';
 
-export const addBuildApiV1CartBuildsPostBodySavedBuildIdExclusiveMin = 0;
+export const addBuildApiV1CartBuildsPostBodySavedBuildIdOneExclusiveMin = 0;
+
+export const addBuildApiV1CartBuildsPostBodyItemsOneItemProductIdExclusiveMin = 0;
+
+export const addBuildApiV1CartBuildsPostBodyItemsOneMax = 8;
 
 export const addBuildApiV1CartBuildsPostBodyQuantityDefault = 1;
 export const addBuildApiV1CartBuildsPostBodyQuantityExclusiveMin = 0;
 
 
 export const AddBuildApiV1CartBuildsPostBody = zod.object({
-  "saved_build_id": zod.int().gt(addBuildApiV1CartBuildsPostBodySavedBuildIdExclusiveMin),
+  "saved_build_id": zod.union([zod.int().gt(addBuildApiV1CartBuildsPostBodySavedBuildIdOneExclusiveMin),zod.null()]).optional(),
+  "items": zod.union([zod.array(zod.object({
+  "slot": zod.enum(['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling']),
+  "product_id": zod.int().gt(addBuildApiV1CartBuildsPostBodyItemsOneItemProductIdExclusiveMin)
+})).max(addBuildApiV1CartBuildsPostBodyItemsOneMax),zod.null()]).optional(),
   "quantity": zod.int().gt(addBuildApiV1CartBuildsPostBodyQuantityExclusiveMin).default(addBuildApiV1CartBuildsPostBodyQuantityDefault)
-})
+}).describe('Add a saved build or a directly configured, never-saved build.\n\nExactly one source is required: `saved_build_id` for an existing private\nsaved build, or `items` for a configuration submitted from the configurator.')
 
 export type AddBuildApiV1CartBuildsPostBody = zod.input<typeof AddBuildApiV1CartBuildsPostBody>;
 export type AddBuildApiV1CartBuildsPostBodyOutput = zod.output<typeof AddBuildApiV1CartBuildsPostBody>;

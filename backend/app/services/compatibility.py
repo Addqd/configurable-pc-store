@@ -4,14 +4,36 @@ Only values of the normalized `product_characteristics` tables are considered,
 addressed by characteristic `code`. A missing, malformed, or unverified dimension
 gives ``unknown``, never a false positive. Nothing is inferred from product names
 or marketing strings.
+
+The approved rule set is the ``RULES`` table below. It contains only comparisons
+that the current characteristic definitions genuinely support:
+
+* ``equal`` — two text identifiers must be identical (CPU and motherboard socket);
+* ``member`` — a value must appear in a documented supported list (form factors,
+  interfaces, NVMe lengths, cooler sockets, supported CPU memory types);
+* ``limit`` — a documented maximum must not be exceeded (memory capacity, module
+  count, recommended PSU wattage vs rated wattage);
+* ``connectors`` — the documented set of available connectors must cover the
+  documented required set, counting duplicates.
+
+Rules whose evidence does not exist in the normalized model are deliberately
+absent instead of being guessed: CPU/BIOS model support lists, cooler thermal
+capacity, cooler/GPU/PSU physical clearances inside a case, SATA drive bays,
+radiator mounting, RAM heat-spreader clearance and a full system power budget.
+``thermal_design_power_w`` is a thermal design power, not a maximum electrical
+draw, so it is never compared with a PSU rating (see ``POWER_NOTE``).
+
+A rule that cannot be resolved for one product is reported as ``unknown`` for that
+product, which is different from a rule that does not exist at all. A verified
+conflict always wins over an unknown check.
 """
 
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
-from typing import Any
+from typing import Any, Literal
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -30,9 +52,141 @@ SLOT_CATEGORIES: dict[str, frozenset[str]] = {
     "cooling": frozenset({"cooling"}),
 }
 
-# Conservative engineering margin over *documented maximum DC loads*.
-# It does not invent component power usage; missing load data remains unknown.
-POWER_MARGIN = Decimal("1.20")
+CheckKind = Literal["equal", "member", "limit", "connectors"]
+
+
+@dataclass(frozen=True, slots=True)
+class Field:
+    """One characteristic of one component slot, addressed by its code."""
+
+    slot: str
+    code: str
+
+
+@dataclass(frozen=True, slots=True)
+class Rule:
+    """One comparison of the approved basic compatibility assessment."""
+
+    code: str
+    """Stable identifier, e.g. ``cpu+mobo_socket``; the client localizes it."""
+    kind: CheckKind
+    left: Field
+    right: Field
+    when_field: Field | None = None
+    """The rule only applies when this text field has the documented value."""
+    when_value: str | None = None
+    when_numeric: bool = False
+    """The rule only applies when this field holds a usable number."""
+
+
+RULES: tuple[Rule, ...] = (
+    Rule("cpu+mobo_socket", "equal", Field("cpu", "socket"), Field("mobo", "socket")),
+    Rule(
+        "cpu+ram_type",
+        "member",
+        Field("ram", "memory_type"),
+        Field("cpu", "memory_type"),
+    ),
+    Rule(
+        "ram+mobo_type",
+        "equal",
+        Field("ram", "memory_type"),
+        Field("mobo", "memory_type"),
+    ),
+    Rule(
+        "ram+mobo_capacity",
+        "limit",
+        Field("ram", "capacity_gb"),
+        Field("mobo", "max_memory_gb"),
+    ),
+    Rule(
+        "ram+mobo_slots",
+        "limit",
+        Field("ram", "module_count"),
+        Field("mobo", "ram_slots"),
+    ),
+    Rule(
+        "mobo+case_form_factor",
+        "member",
+        Field("mobo", "form_factor"),
+        Field("case", "supported_motherboard_form_factors"),
+    ),
+    Rule(
+        "cpu+cooling_socket",
+        "member",
+        Field("cpu", "socket"),
+        Field("cooling", "supported_sockets"),
+    ),
+    Rule(
+        "gpu+mobo_slot",
+        "member",
+        Field("gpu", "interface"),
+        Field("mobo", "gpu_interfaces"),
+    ),
+    Rule(
+        "storage+mobo_interface",
+        "member",
+        Field("storage", "interface"),
+        Field("mobo", "storage_interfaces"),
+    ),
+    # An M.2 slot only accepts the drive lengths the board documents.
+    Rule(
+        "storage+mobo_length",
+        "member",
+        Field("storage", "length_mm"),
+        Field("mobo", "supported_nvme_lengths_mm"),
+        when_field=Field("storage", "interface"),
+        when_value="nvme",
+    ),
+    Rule(
+        "psu+case_form_factor",
+        "member",
+        Field("psu", "form_factor"),
+        Field("case", "supported_psu_form_factors"),
+    ),
+    Rule(
+        "psu+gpu_connectors",
+        "connectors",
+        Field("gpu", "required_power_connectors"),
+        Field("psu", "available_gpu_power_connectors"),
+    ),
+    Rule(
+        "psu+mobo_main_connector",
+        "connectors",
+        Field("mobo", "required_board_power_connectors"),
+        Field("psu", "available_board_power_connectors"),
+    ),
+    Rule(
+        "psu+mobo_connectors",
+        "connectors",
+        Field("mobo", "required_cpu_power_connectors"),
+        Field("psu", "available_cpu_power_connectors"),
+    ),
+    # Only compared when the GPU documents a vendor recommendation at all.
+    Rule(
+        "psu+gpu_recommended_power",
+        "limit",
+        Field("gpu", "recommended_psu_w"),
+        Field("psu", "wattage_w"),
+        when_field=Field("gpu", "recommended_psu_w"),
+        when_numeric=True,
+    ),
+)
+
+
+@dataclass
+class Evidence:
+    """One characteristic that took part in a check."""
+
+    slot: str
+    product_id: int
+    product_name: str
+    code: str
+    name: str
+    data_type: str
+    unit: str | None
+    value: Any
+    display_value: str | None
 
 
 @dataclass
@@ -43,6 +197,7 @@ class CompatibilityResult:
     message: str | None = None
     items: list[CompatibilityResult] | None = None
     product_name: str = ""
+    details: list[Evidence] = field(default_factory=list)
 
     @property
     def is_compatible(self) -> bool:
@@ -120,11 +275,14 @@ def _text(values: Values, code: str) -> str | None:
     return None
 
 
-def _values(
-    values: Values, code: str, *, allow_empty: bool = False
-) -> list[str] | None:
+def _values(values: Values, code: str) -> list[str] | None:
+    """A non-empty list of texts, normalized the same way as `_text`.
+
+    An empty list is *not* a verified "nothing supported": in this catalog it is
+    indistinguishable from "not filled in", so it stays unresolved.
+    """
     value = _raw(values, code)
-    if not isinstance(value, list) or (not value and not allow_empty):
+    if not isinstance(value, list) or not value:
         return None
     if any(not isinstance(x, str) or not x.strip() for x in value):
         return None
@@ -147,12 +305,6 @@ def _number(values: Values, code: str) -> Decimal | None:
     return result if result is not None and result > 0 else None
 
 
-def _nonnegative(values: Values, code: str) -> Decimal | None:
-    """Allow documented zero draw for passive cooling or unpowered cases."""
-    result = _decimal(_raw(values, code))
-    return result if result is not None and result >= 0 else None
-
-
 def _size_list(values: Values, code: str) -> list[Decimal] | None:
     raw = _raw(values, code)
     if not isinstance(raw, list) or not raw:
@@ -166,95 +318,142 @@ def _size_list(values: Values, code: str) -> list[Decimal] | None:
     return sizes
 
 
+def _display(
+    definition: spec_service.CharacteristicDefinition | None, value: Any
+) -> tuple[str, str | None, str | None]:
+    """Definition label, unit and server rendering of one characteristic."""
+    if definition is None:
+        return ("", None, None)
+    if value is None:
+        return (definition.name, definition.unit, None)
+    try:
+        rendered = spec_service.format_value(definition, value)
+    except TypeError, ValueError:  # pragma: no cover - malformed stored value
+        return (definition.name, definition.unit, None)
+    return (definition.name, definition.unit, rendered)
+
+
+@dataclass
+class _Context:
+    """Everything one evaluation needs, loaded in three bulk queries."""
+
+    products: dict[str, Product]
+    values: dict[str, Values]
+    definitions: dict[tuple[int, str], spec_service.CharacteristicDefinition]
+
+    def data_type(self, reference: Field) -> str:
+        """Declared data type of a referenced characteristic."""
+        category_id = self.products[reference.slot].product_type.category_id
+        definition = self.definitions.get((category_id, reference.code))
+        return definition.data_type if definition else "string"
+
+    def evidence(self, reference: Field) -> Evidence:
+        product = self.products[reference.slot]
+        category_id = product.product_type.category_id
+        definition = self.definitions.get((category_id, reference.code))
+        value = _raw(self.values[reference.slot], reference.code)
+        name, unit, rendered = _display(definition, value)
+        return Evidence(
+            slot=reference.slot,
+            product_id=product.id,
+            product_name=product.name,
+            code=reference.code,
+            name=name or reference.code,
+            data_type=definition.data_type if definition else "string",
+            unit=unit,
+            value=value,
+            display_value=rendered,
+        )
+
+
 def _record(
     results: list[CompatibilityResult],
-    label: str,
+    rule: Rule,
     ok: bool | None,
-    detail: str,
+    message: str,
+    details: list[Evidence],
 ) -> None:
-    if ok is None:
-        status = "unknown"
-    else:
-        status = "compatible" if ok else "incompatible"
-    results.append(CompatibilityResult(0, label, status, detail))
+    status = "unknown" if ok is None else ("compatible" if ok else "incompatible")
+    results.append(CompatibilityResult(0, rule.code, status, message, details=details))
 
 
-def _equals(
-    results: list[CompatibilityResult],
-    label: str,
-    left: str | None,
-    right: str | None,
+def _applies(rule: Rule, context: _Context) -> bool:
+    if rule.when_field is None:
+        return True
+    values = context.values[rule.when_field.slot]
+    if rule.when_numeric:
+        return _number(values, rule.when_field.code) is not None
+    return _text(values, rule.when_field.code) == rule.when_value
+
+
+def _evaluate_rule(
+    rule: Rule, context: _Context, results: list[CompatibilityResult]
 ) -> None:
-    ok = None if left is None or right is None else left == right
-    _record(results, label, ok, f"{label}: matching values required")
-
-
-def _member(
-    results: list[CompatibilityResult],
-    label: str,
-    item: str | None,
-    supported: list[str] | None,
-) -> None:
-    ok = None if item is None or supported is None else item in supported
-    _record(results, label, ok, f"{label}: explicit supported list required")
-
-
-def _fits(
-    results: list[CompatibilityResult],
-    label: str,
-    requirement: Decimal | None,
-    limit: Decimal | None,
-) -> None:
-    ok = None if requirement is None or limit is None else requirement <= limit
-    _record(results, label, ok, f"{label}: verified numeric limits required")
-
-
-def _connectors(
-    results: list[CompatibilityResult],
-    label: str,
-    required: list[str] | None,
-    available: list[str] | None,
-) -> None:
-    ok = (
-        None
-        if required is None or available is None
-        else not (Counter(required) - Counter(available))
-    )
-    _record(results, label, ok, f"{label}: connector counts and types must match")
-
-
-def _power(products: dict[str, Values], results: list[CompatibilityResult]) -> None:
-    """Compare complete documented maximum loads against the PSU output budget."""
-    capacity = _number(products["psu"], "wattage_w")
-    slots = ("cpu", "mobo", "gpu", "ram", "storage", "cooling", "case")
-    loads = [
-        _nonnegative(products[slot], "max_power_draw_w")
-        if slot in ("case", "cooling")
-        else _number(products[slot], "max_power_draw_w")
-        for slot in slots
-    ]
-    if capacity is None or any(load is None for load in loads):
-        _record(
-            results,
-            "psu+system_power",
-            None,
-            "Verified maximum DC power for every non-PSU part and PSU output required",
-        )
-        return
-    total = sum((load for load in loads if load is not None), Decimal(0))
-    required = total * POWER_MARGIN
-    _record(
-        results,
-        "psu+system_power",
-        required <= capacity,
-        f"Maximum DC draw {total} W; with 20% margin {required} W; PSU {capacity} W",
-    )
+    left_values = context.values[rule.left.slot]
+    right_values = context.values[rule.right.slot]
+    match rule.kind:
+        case "equal":
+            left = _text(left_values, rule.left.code)
+            right = _text(right_values, rule.right.code)
+            _record(
+                results,
+                rule,
+                None if left is None or right is None else left == right,
+                f"{rule.left.slot}.{rule.left.code} must equal "
+                f"{rule.right.slot}.{rule.right.code}",
+                [context.evidence(rule.left), context.evidence(rule.right)],
+            )
+        case "member":
+            # The declared definition decides whether this is a numeric list.
+            if context.data_type(rule.right) == "number_list":
+                size = _number(left_values, rule.left.code)
+                sizes = _size_list(right_values, rule.right.code)
+                hit = None if size is None or sizes is None else size in sizes
+            else:
+                item = _text(left_values, rule.left.code)
+                supported = _values(right_values, rule.right.code)
+                hit = None if item is None or supported is None else item in supported
+            _record(
+                results,
+                rule,
+                hit,
+                f"{rule.left.slot}.{rule.left.code} must be listed in "
+                f"{rule.right.slot}.{rule.right.code}",
+                [context.evidence(rule.left), context.evidence(rule.right)],
+            )
+        case "limit":
+            requirement = _number(left_values, rule.left.code)
+            limit = _number(right_values, rule.right.code)
+            _record(
+                results,
+                rule,
+                None if requirement is None or limit is None else requirement <= limit,
+                f"{rule.left.slot}.{rule.left.code} must not exceed "
+                f"{rule.right.slot}.{rule.right.code}",
+                [context.evidence(rule.left), context.evidence(rule.right)],
+            )
+        case "connectors":
+            required = _values(left_values, rule.left.code)
+            available = _values(right_values, rule.right.code)
+            ok = (
+                None
+                if required is None or available is None
+                else not (Counter(required) - Counter(available))
+            )
+            _record(
+                results,
+                rule,
+                ok,
+                f"{rule.right.slot}.{rule.right.code} must cover "
+                f"{rule.left.slot}.{rule.left.code}",
+                [context.evidence(rule.left), context.evidence(rule.right)],
+            )
 
 
 def check_selections(
     db: Session, selections: dict[str, int], build_id: int = 0
 ) -> CompatibilityResult:
-    """Return compatible only if all eight parts and every modeled check pass."""
+    """Return compatible only if all eight parts and every approved check pass."""
     results: list[CompatibilityResult] = []
     products = _load_products(db, list(dict.fromkeys(selections.values())))
     selected_products: dict[str, Product] = {}
@@ -264,175 +463,47 @@ def check_selections(
         results.append(result)
         if result.is_compatible and product is not None:
             selected_products[slot] = product
-    # One bulk query for all values: definitions are never fetched per rule.
-    values = spec_service.load_values(
-        db, list({product.id for product in selected_products.values()})
-    )
-    selected: dict[str, Values] = {
-        slot: values.get(product.id, {}) for slot, product in selected_products.items()
+
+    product_ids = list({product.id for product in selected_products.values()})
+    # Two bulk queries for the whole build: values once, definitions once.
+    values = spec_service.load_values(db, product_ids)
+    category_ids = {
+        product.product_type.category_id for product in selected_products.values()
     }
+    definitions = {
+        (category_id, definition.code): definition
+        for category_id, rows in spec_service.load_definitions(db, category_ids).items()
+        for definition in rows
+    }
+    context = _Context(
+        products=selected_products,
+        values={
+            slot: values.get(product.id, {})
+            for slot, product in selected_products.items()
+        },
+        definitions=definitions,
+    )
 
     for slot in sorted(set(SLOT_CATEGORIES) - set(selections)):
-        _record(results, slot, None, "Required component is missing")
+        results.append(
+            CompatibilityResult(0, slot, "unknown", "Required component is missing")
+        )
 
     # A malformed/incorrect selection is incompatible, even if other data is missing.
-    if len(selected) == len(SLOT_CATEGORIES):
-        cpu = selected["cpu"]
-        board = selected["mobo"]
-        memory = selected["ram"]
-        gpu = selected["gpu"]
-        storage = selected["storage"]
-        psu = selected["psu"]
-        chassis = selected["case"]
-        cooler = selected["cooling"]
-
-        _equals(
-            results, "cpu+mobo_socket", _text(cpu, "socket"), _text(board, "socket")
-        )
-        _member(
-            results,
-            "cpu+mobo_bios_support",
-            _text(cpu, "model_id"),
-            _values(board, "supported_cpu_models"),
-        )
-        _equals(
-            results,
-            "ram+mobo_type",
-            _text(memory, "memory_type"),
-            _text(board, "memory_type"),
-        )
-        _fits(
-            results,
-            "ram+mobo_capacity",
-            _number(memory, "capacity_gb"),
-            _number(board, "max_memory_gb"),
-        )
-        _fits(
-            results,
-            "ram+mobo_slots",
-            _number(memory, "module_count"),
-            _number(board, "ram_slots"),
-        )
-        _member(
-            results,
-            "mobo+case_form_factor",
-            _text(board, "form_factor"),
-            _values(chassis, "supported_motherboard_form_factors"),
-        )
-        _member(
-            results,
-            "cpu+cooling_socket",
-            _text(cpu, "socket"),
-            _values(cooler, "supported_sockets"),
-        )
-        _fits(
-            results,
-            "cpu+cooling_thermal",
-            _number(cpu, "thermal_design_power_w"),
-            _number(cooler, "cooling_capacity_w"),
-        )
-        cooling_type = _text(cooler, "cooling_type")
-        if cooling_type == "air":
-            _fits(
-                results,
-                "cooling+case_height",
-                _number(cooler, "height_mm"),
-                _number(chassis, "max_cooler_height_mm"),
-            )
-        elif cooling_type == "liquid":
-            size = _number(cooler, "radiator_size_mm")
-            supported = _size_list(chassis, "supported_radiator_sizes_mm")
-            ok = None if size is None or supported is None else size in supported
-            _record(
-                results,
-                "cooling+case_radiator",
-                ok,
-                "Explicit radiator mounting support is required",
-            )
-        else:
-            _record(results, "cooling+case_mount", None, "Unknown cooling type")
-        if cooling_type == "air":
-            _fits(
-                results,
-                "ram+cooling_clearance",
-                _number(memory, "height_mm"),
-                _number(cooler, "ram_clearance_mm"),
-            )
-        _fits(
-            results,
-            "gpu+case_length",
-            _number(gpu, "length_mm"),
-            _number(chassis, "max_gpu_length_mm"),
-        )
-        _fits(
-            results,
-            "gpu+case_thickness",
-            _number(gpu, "thickness_slots"),
-            _number(chassis, "max_gpu_thickness_slots"),
-        )
-        _member(
-            results,
-            "gpu+mobo_slot",
-            _text(gpu, "interface"),
-            _values(board, "gpu_interfaces"),
-        )
-        _member(
-            results,
-            "storage+mobo_interface",
-            _text(storage, "interface"),
-            _values(board, "storage_interfaces"),
-        )
-        storage_type = _text(storage, "interface")
-        if storage_type == "nvme":
-            length = _number(storage, "length_mm")
-            supported = _size_list(board, "supported_nvme_lengths_mm")
-            ok = None if length is None or supported is None else length in supported
-            _record(results, "storage+mobo_length", ok, "Verified M.2 lengths required")
-        elif storage_type == "sata":
-            _member(
-                results,
-                "storage+case_bay",
-                _text(storage, "drive_form_factor"),
-                _values(chassis, "supported_drive_form_factors"),
-            )
-        elif storage_type is None:
-            _record(results, "storage+physical_fit", None, "Storage type unknown")
-        _member(
-            results,
-            "psu+case_form_factor",
-            _text(psu, "form_factor"),
-            _values(chassis, "supported_psu_form_factors"),
-        )
-        _fits(
-            results,
-            "psu+case_length",
-            _number(psu, "length_mm"),
-            _number(chassis, "max_psu_length_mm"),
-        )
-        _connectors(
-            results,
-            "psu+gpu_connectors",
-            _values(gpu, "required_power_connectors", allow_empty=True),
-            _values(psu, "available_gpu_power_connectors", allow_empty=True),
-        )
-        _connectors(
-            results,
-            "psu+mobo_main_connector",
-            _values(board, "required_board_power_connectors", allow_empty=True),
-            _values(psu, "available_board_power_connectors", allow_empty=True),
-        )
-        _connectors(
-            results,
-            "psu+mobo_connectors",
-            _values(board, "required_cpu_power_connectors", allow_empty=True),
-            _values(psu, "available_cpu_power_connectors", allow_empty=True),
-        )
-        _power(selected, results)
+    if len(selected_products) == len(SLOT_CATEGORIES):
+        for rule in RULES:
+            if rule.left.slot not in selected_products:
+                continue
+            if rule.right.slot not in selected_products:
+                continue
+            if not _applies(rule, context):
+                continue
+            _evaluate_rule(rule, context, results)
 
     if any(item.is_incompatible for item in results):
         status = "incompatible"
         message = "A verified incompatibility was found"
-    elif len(selected) != len(SLOT_CATEGORIES) or any(
+    elif len(selected_products) != len(SLOT_CATEGORIES) or any(
         item.status == "unknown" for item in results
     ):
         status = "unknown"

@@ -7,7 +7,9 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
+
+from app.schemas.build import BuildItemCreate
 
 
 class CartItemOut(BaseModel):
@@ -43,8 +45,23 @@ class BuyNowRequest(CartAddProductRequest):
 
 
 class CartAddBuildRequest(BaseModel):
-    saved_build_id: int = Field(gt=0)
+    """Add a saved build or a directly configured, never-saved build.
+
+    Exactly one source is required: `saved_build_id` for an existing private
+    saved build, or `items` for a configuration submitted from the configurator.
+    """
+
+    saved_build_id: int | None = Field(default=None, gt=0)
+    items: list[BuildItemCreate] | None = Field(default=None, max_length=8)
     quantity: int = Field(gt=0, default=1)
+
+    @model_validator(mode="after")
+    def _exactly_one_source(self) -> CartAddBuildRequest:
+        if (self.saved_build_id is None) == (self.items is None):
+            raise ValueError(
+                "Provide either saved_build_id or the selected component items"
+            )
+        return self
 
 
 class CartUpdateQuantityRequest(BaseModel):

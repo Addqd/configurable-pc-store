@@ -11,6 +11,7 @@ from app.schemas.build import (
     BuildItemOut,
     BuildTotalOut,
     BuildUpdateItemsRequest,
+    CompatibilityEvidence,
     CompatibilityStatus,
     SavedBuildCreate,
     SavedBuildOut,
@@ -18,6 +19,7 @@ from app.schemas.build import (
 )
 from app.services import build_service as svc
 from app.services import compatibility as compatibility_svc
+from app.services.compatibility import CompatibilityResult
 
 router = APIRouter(prefix="/api/v1/builds", tags=["builds"])
 
@@ -50,6 +52,40 @@ def _owned(db: Session, user: User, build_id: int) -> SavedBuild:
     if found is None:
         raise HTTPException(status_code=404, detail="Build not found")
     return found
+
+
+def _compatibility_out(
+    result: CompatibilityResult, build_id: int
+) -> BuildCompatibilityOut:
+    """Serialize the verdict with its structured per-check evidence."""
+    return BuildCompatibilityOut(
+        build_id=build_id,
+        overall_status=result.status,
+        items=[
+            CompatibilityStatus(
+                product_id=item.product_id,
+                product_name=item.product_name,
+                slot=item.slot,
+                status=item.status,
+                message=item.message,
+                details=[
+                    CompatibilityEvidence(
+                        slot=evidence.slot,
+                        product_id=evidence.product_id,
+                        product_name=evidence.product_name,
+                        code=evidence.code,
+                        name=evidence.name,
+                        data_type=evidence.data_type,
+                        unit=evidence.unit,
+                        value=evidence.value,
+                        display_value=evidence.display_value,
+                    )
+                    for evidence in item.details
+                ],
+            )
+            for item in result.items or []
+        ],
+    )
 
 
 @router.get("", response_model=list[SavedBuildOut])
@@ -88,20 +124,7 @@ def check_current_compatibility(
     if len(selections) != len(body.items):
         raise HTTPException(status_code=422, detail="Duplicate component slot")
     result = compatibility_svc.check_selections(db, selections)
-    return BuildCompatibilityOut(
-        build_id=0,
-        overall_status=result.status,
-        items=[
-            CompatibilityStatus(
-                product_id=item.product_id,
-                product_name=item.product_name,
-                slot=item.slot,
-                status=item.status,
-                message=item.message,
-            )
-            for item in result.items or []
-        ],
-    )
+    return _compatibility_out(result, 0)
 
 
 @router.get("/{build_id}", response_model=SavedBuildOut)
@@ -170,20 +193,7 @@ def check_compatibility(
 ) -> BuildCompatibilityOut:
     build = _owned(db, current_user, build_id)
     result = compatibility_svc.check_build_compatibility(db, build)
-    return BuildCompatibilityOut(
-        build_id=build.id,
-        overall_status=result.status,
-        items=[
-            CompatibilityStatus(
-                product_id=item.product_id,
-                product_name=item.product_name,
-                slot=item.slot,
-                status=item.status,
-                message=item.message,
-            )
-            for item in result.items or []
-        ],
-    )
+    return _compatibility_out(result, build.id)
 
 
 @router.get("/{build_id}/total", response_model=BuildTotalOut)

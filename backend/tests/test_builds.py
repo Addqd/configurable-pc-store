@@ -3,6 +3,17 @@
 from secrets import token_hex
 
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.orm import Session
+
+from app.models import (
+    Characteristic,
+    ProductCharacteristic,
+    SavedBuild,
+    User,
+)
+from app.services import build_service
+from tests.conftest import apply_compatible_build, create_account
 
 
 def test_build_rejects_wrong_category(
@@ -143,4 +154,239 @@ def test_unsaved_compatibility_and_duplicate_slots(
             "/api/v1/builds/compatibility", json={"items": [item, item]}
         ).status_code
         == 422
+    )
+
+
+def test_compatibility_reports_structured_conflicts(
+    api_client: TestClient, test_db_session: Session, sample_products: dict
+):
+    apply_compatible_build(test_db_session, sample_products)
+    test_db_session.flush()
+    items = [
+        {"slot": slot, "product_id": product.id}
+        for slot, product in sample_products.items()
+    ]
+    assert (
+        api_client.post("/api/v1/builds/compatibility", json={"items": items}).json()[
+            "overall_status"
+        ]
+        == "compatible"
+    )
+
+    # A verified socket conflict is reported with both values, not a generic text.
+    test_db_session.flush()
+    cpu_id = sample_products["cpu"].id
+    socket_id = (
+        test_db_session.query(Characteristic.id)
+        .filter(
+            Characteristic.category_id
+            == sample_products["cpu"].product_type.category_id,
+            Characteristic.code == "socket",
+        )
+        .scalar()
+    )
+    row = test_db_session.get(ProductCharacteristic, (cpu_id, socket_id))
+    row.value = "LGA1700"
+    test_db_session.flush()
+
+    report = api_client.post(
+        "/api/v1/builds/compatibility", json={"items": items}
+    ).json()
+    assert report["overall_status"] == "incompatible"
+    conflict = next(row for row in report["items"] if row["slot"] == "cpu+mobo_socket")
+    assert conflict["status"] == "incompatible"
+    assert {detail["slot"] for detail in conflict["details"]} == {"cpu", "mobo"}
+    values = {detail["slot"]: detail["value"] for detail in conflict["details"]}
+    assert values["cpu"] == "LGA1700"
+    assert values["mobo"] == "AM5"
+    assert all(detail["product_name"] for detail in conflict["details"])
+
+
+def test_incomplete_and_incompatible_builds_can_be_saved(
+    api_client: TestClient,
+    test_db_session: Session,
+    registered_user: dict,
+    sample_products: dict,
+):
+    headers = registered_user["headers"]
+    # Incomplete but valid: only two correctly categorized parts.
+    incomplete = api_client.post(
+        "/api/v1/builds",
+        headers=headers,
+        json={
+            "name": "Partial",
+            "items": [
+                {"slot": "cpu", "product_id": sample_products["cpu"].id},
+                {"slot": "mobo", "product_id": sample_products["mobo"].id},
+            ],
+        },
+    )
+    assert incomplete.status_code == 201, incomplete.text
+
+    # Incompatible but structurally valid: a conflicting socket is still saved.
+    apply_compatible_build(test_db_session, sample_products)
+    test_db_session.flush()
+    cpu = sample_products["cpu"]
+    socket_id = (
+        test_db_session.query(Characteristic.id)
+        .filter(
+            Characteristic.category_id == cpu.product_type.category_id,
+            Characteristic.code == "socket",
+        )
+        .scalar()
+    )
+    test_db_session.get(ProductCharacteristic, (cpu.id, socket_id)).value = "LGA1700"
+    test_db_session.flush()
+
+    incompatible = api_client.post(
+        "/api/v1/builds",
+        headers=headers,
+        json={
+            "name": "Conflicting",
+            "items": [
+                {"slot": slot, "product_id": product.id}
+                for slot, product in sample_products.items()
+            ],
+        },
+    )
+    assert incompatible.status_code == 201, incompatible.text
+    report = api_client.get(
+        f"/api/v1/builds/{incompatible.json()['id']}/compatibility", headers=headers
+    ).json()
+    assert report["overall_status"] == "incompatible"
+    # Saving never required a passing verdict, and never consumed a slot twice.
+    assert len(api_client.get("/api/v1/builds", headers=headers).json()) == 2
+
+
+def test_five_saved_build_limit_and_editing(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    headers = registered_user["headers"]
+    item = {"slot": "cpu", "product_id": sample_products["cpu"].id}
+    ids = []
+    for number in range(build_service.SAVED_BUILD_LIMIT):
+        created = api_client.post(
+            "/api/v1/builds",
+            headers=headers,
+            json={"name": f"Build {number}", "items": [item]},
+        )
+        assert created.status_code == 201, created.text
+        ids.append(created.json()["id"])
+
+    rejected = api_client.post(
+        "/api/v1/builds", headers=headers, json={"name": "Sixth", "items": [item]}
+    )
+    assert rejected.status_code == 409, rejected.text
+    assert str(build_service.SAVED_BUILD_LIMIT) in rejected.json()["detail"]
+    assert len(api_client.get("/api/v1/builds", headers=headers).json()) == 5
+
+    # Editing remains allowed while the limit is reached.
+    assert (
+        api_client.put(
+            f"/api/v1/builds/{ids[0]}", headers=headers, json={"name": "Renamed"}
+        ).status_code
+        == 200
+    )
+
+    # Deleting one build releases exactly one slot.
+    assert (
+        api_client.delete(f"/api/v1/builds/{ids[0]}", headers=headers).status_code
+        == 204
+    )
+    replacement = api_client.post(
+        "/api/v1/builds", headers=headers, json={"name": "Replacement", "items": [item]}
+    )
+    assert replacement.status_code == 201, replacement.text
+    assert (
+        api_client.post(
+            "/api/v1/builds",
+            headers=headers,
+            json={"name": "Sixth again", "items": [item]},
+        ).status_code
+        == 409
+    )
+    # The limit also blocks a build without components.
+    assert (
+        api_client.post(
+            "/api/v1/builds", headers=headers, json={"name": "Empty", "items": []}
+        ).status_code
+        == 409
+    )
+
+
+def test_saved_build_limit_is_per_user(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    item = {"slot": "cpu", "product_id": sample_products["cpu"].id}
+    for number in range(build_service.SAVED_BUILD_LIMIT):
+        assert (
+            api_client.post(
+                "/api/v1/builds",
+                headers=registered_user["headers"],
+                json={"name": f"Mine {number}", "items": [item]},
+            ).status_code
+            == 201
+        )
+    assert (
+        api_client.post(
+            "/api/v1/builds",
+            headers=registered_user["headers"],
+            json={"name": "Over", "items": [item]},
+        ).status_code
+        == 409
+    )
+
+    other = create_account(api_client)
+    assert (
+        api_client.post(
+            "/api/v1/builds",
+            headers=other["headers"],
+            json={"name": "Other", "items": [item]},
+        ).status_code
+        == 201
+    )
+
+
+def test_create_serializes_the_limit_through_the_user_row(
+    test_db_session: Session, registered_user: dict, sample_products: dict
+):
+    """The count check runs under a row lock of the owning user.
+
+    Two concurrent creates of one user cannot both observe a free slot: the second
+    waits for the first transaction to commit.
+    """
+    statements: list[str] = []
+
+    def record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    engine = test_db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        build_service.create_build(
+            test_db_session,
+            test_db_session.get(User, registered_user["id"]),
+            "Locked",
+            "",
+            [{"slot": "cpu", "product_id": sample_products["cpu"].id}],
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+
+    lock_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if "FROM users" in statement and "FOR UPDATE" in statement
+    )
+    count_index = next(
+        index
+        for index, statement in enumerate(statements)
+        if "FROM saved_builds" in statement and "count(" in statement
+    )
+    assert lock_index < count_index
+    assert (
+        test_db_session.query(SavedBuild)
+        .filter_by(user_id=registered_user["id"])
+        .count()
+        == 1
     )

@@ -14,7 +14,18 @@ export const BuildCompatibilityOut = zod.object({
   "product_name": zod.string(),
   "slot": zod.string(),
   "status": zod.enum(['compatible', 'incompatible', 'unknown']),
-  "message": zod.union([zod.string(),zod.null()]).optional()
+  "message": zod.union([zod.string(),zod.null()]).optional(),
+  "details": zod.array(zod.object({
+  "slot": zod.string(),
+  "product_id": zod.int(),
+  "product_name": zod.string(),
+  "code": zod.string(),
+  "name": zod.string(),
+  "data_type": zod.string(),
+  "unit": zod.union([zod.string(),zod.null()]).optional(),
+  "value": zod.unknown().optional(),
+  "display_value": zod.union([zod.string(),zod.null()]).optional()
+}).describe('One characteristic that took part in a compatibility check.\n\n`value` is the stored native JSON value (``None`` when the product has no\nvalue for that code); `display_value` is the server rendering in the stored\nlanguage. Clients localize from the structured fields, never by parsing\n`message`.')).optional()
 }))
 })
 

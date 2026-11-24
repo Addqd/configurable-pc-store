@@ -5,12 +5,20 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Product, SavedBuild, SavedBuildItem, User
 from app.services import event_service
 from app.services.compatibility import SLOT_CATEGORIES, check_slot_compatibility
+from app.services.errors import ConflictError, InvalidInputError
+
+# A user may keep five saved configurations; the sixth create is rejected.
+SAVED_BUILD_LIMIT = 5
+
+
+def _fail(message: str) -> InvalidInputError:
+    return InvalidInputError(message)
 
 
 def list_builds(db: Session, user_id: int) -> list[SavedBuild]:
@@ -33,16 +41,16 @@ def get_build(db: Session, build_id: int, user_id: int) -> SavedBuild | None:
 
 def validate_items(db: Session, items: list[dict]) -> None:
     if len(items) > len(SLOT_CATEGORIES):
-        raise ValueError("Too many component slots")
+        raise _fail("Too many component slots")
     seen: set[str] = set()
     for item in items:
         slot, pid = item["slot"], item["product_id"]
         if slot in seen:
-            raise ValueError(f"Duplicate slot: {slot}")
+            raise _fail(f"Duplicate slot: {slot}")
         seen.add(slot)
         result = check_slot_compatibility(db, pid, slot)
         if result.status != "compatible":
-            raise ValueError(f"{slot}: {result.message}")
+            raise _fail(f"{slot}: {result.message}")
 
 
 def _store_items(db: Session, build: SavedBuild, items: list[dict]) -> None:
@@ -65,6 +73,20 @@ def create_build(
     db: Session, user: User, name: str, description: str, items: list[dict]
 ) -> SavedBuild:
     validate_items(db, items)
+    # Lock the owning user row for the rest of the transaction: two concurrent
+    # creates of the same user are serialized, so both cannot pass the count check
+    # and exceed the limit.
+    db.scalar(select(User.id).where(User.id == user.id).with_for_update())
+    saved = db.scalar(
+        select(func.count())
+        .select_from(SavedBuild)
+        .where(SavedBuild.user_id == user.id)
+    )
+    if saved is not None and saved >= SAVED_BUILD_LIMIT:
+        raise ConflictError(
+            f"Saved build limit of {SAVED_BUILD_LIMIT} reached; "
+            "delete a saved build before creating another one"
+        )
     build = SavedBuild(
         user_id=user.id, name=name.strip(), description=description.strip()
     )
@@ -93,7 +115,7 @@ def update_build(
 ) -> SavedBuild:
     if name is not None:
         if not name.strip():
-            raise ValueError("Build name must not be empty")
+            raise _fail("Build name must not be empty")
         build.name = name.strip()
     if description is not None:
         build.description = description.strip()

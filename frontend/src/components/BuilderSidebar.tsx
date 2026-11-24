@@ -8,19 +8,19 @@ import { formatPrice } from '../utils/formatPrice'
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiShoppingCart } from 'react-icons/fi'
 import { BuilderCompatibilitySkeleton } from './skeletons/BuilderSkeletons'
 
-interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[]; canAdd?: boolean; loading?: boolean; error?: boolean; savedPending?: boolean }
+interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' | 'incompatible' | 'unknown'; checked?: boolean; messages?: string[]; canAdd?: boolean; loading?: boolean; error?: boolean; submitting?: boolean }
 
-export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [], canAdd = true, loading = false, error = false, savedPending = false }: BuilderSidebarProps) {
+export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [], canAdd = true, loading = false, error = false, submitting = false }: BuilderSidebarProps) {
   const { t } = useTranslation()
   const selections = useBuilderStore((state) => state.selections)
   const count = countSelected(selections)
   const total = BUILDER_CATEGORIES.length
   const price = calculateBuilderPrice(selections)
   const power = estimateComponentPower(selections)
-  const eligible = status === 'compatible' && count === total && canAdd && !loading && !error
-  // A validation text is shown only when it says something that is actually known:
-  // with the saved build still loading, its match status is not known yet.
-  const cartHint = count < total || status === 'incompatible' || (status === 'compatible' && !canAdd && !savedPending)
+  // `canAdd` means "these exact selections were explicitly verified as compatible".
+  // A submission in flight keeps the button disabled until it settles.
+  const eligible = status === 'compatible' && count === total && canAdd && !loading && !error && !submitting
+  const cartHint = count < total || status === 'incompatible'
 
   return (
     <aside className="rounded-2xl border border-border bg-surface p-5 shadow-[0_5px_24px_var(--color-shadow)] lg:sticky lg:top-24">
@@ -37,7 +37,7 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
           ) : status === 'compatible' ? (
             <span className="inline-flex items-center gap-1.5 font-medium text-emerald-500"><FiCheckCircle /> {t('builder.compatible')}</span>
           ) : (
-            <span className="font-medium text-amber-600 dark:text-amber-400">{checked ? t('builder.partially_checked') : t('builder.not_checked')}</span>
+            <span className="font-medium text-amber-600 dark:text-amber-400">{checked ? t('builder.unknown_status') : t('builder.not_checked')}</span>
           )}
         </div>
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
@@ -69,7 +69,7 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
         <strong className="text-2xl text-text-primary">{formatPrice(price)}</strong>
       </div>
       {/* The description is referenced only when the element that carries the id is
-          actually rendered: a pending saved build shows a skeleton, not a text. */}
+          actually rendered: a pending check shows a skeleton, not a text. */}
       <button type="button" onClick={onAddToCart} disabled={!eligible}
         aria-describedby={!eligible && cartHint ? 'builder-cart-validation' : undefined}
         className="flex w-full items-center justify-center gap-2 rounded-xl bg-primary px-3 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-primary-hover disabled:cursor-default disabled:opacity-50 disabled:hover:bg-primary dark:text-[#08090C]">
@@ -83,19 +83,9 @@ export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = fals
           {status === 'incompatible' && (
             <span className="block">{t('builder.resolve_conflicts')}</span>
           )}
-          {status === 'compatible' && !canAdd && !savedPending && (
-            <span className="block">{t('builder.save_build')}</span>
-          )}
         </p>
       )}
-      {!eligible && savedPending && !cartHint && (
-        <div id="builder-cart-validation" className="mt-2">
-          {/* The saved build is still loading: whether the current selection matches it
-              cannot be known yet, so no validation text may claim it was never saved. */}
-          <BuilderCompatibilitySkeleton testId="builder-saved-build-skeleton" />
-        </div>
-      )}
-      {count === total && status === 'unknown' && (
+      {count === total && (status === 'unknown' || error || loading) && (
         <p className="mt-2 text-xs text-amber-600 dark:text-amber-400" role="status">
           {t('builder.partial_check')}
         </p>

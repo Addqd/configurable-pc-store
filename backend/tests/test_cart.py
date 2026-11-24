@@ -1,5 +1,6 @@
 """Rollback-safe demo checkout integration tests."""
 
+from decimal import Decimal
 from uuid import uuid4
 
 import pytest
@@ -8,8 +9,18 @@ from sqlalchemy import event
 from sqlalchemy.orm import Session
 
 from app.api.cart import _cart_to_out
-from app.models import Cart, CartItem, ProductImage, User
+from app.models import (
+    Cart,
+    CartItem,
+    Manufacturer,
+    Product,
+    ProductImage,
+    SavedBuild,
+    User,
+)
+from tests.conftest import COMPATIBLE_SPECS
 from tests.conftest import apply_characteristics as conftest_apply_characteristics
+from tests.conftest import apply_compatible_build as conftest_apply_compatible_build
 from tests.test_compatibility_engine import _parts
 
 
@@ -260,6 +271,280 @@ def test_cart_product_payload_carries_structured_short_characteristics(
     assert row["display_value"] == "269.1"
     # `specs` stays the ready-to-render list derived from the same rows.
     assert info["specs"] == ["269.1"]
+
+
+# ── Direct configurator purchases ────────────────────────────────────────────
+
+
+def _configured_items(products: dict) -> list[dict]:
+    return [
+        {"slot": slot, "product_id": product.id} for slot, product in products.items()
+    ]
+
+
+def _clone_product(db: Session, source: Product, suffix: str) -> Product:
+    """A second in-stock product of the same type, for a different configuration."""
+    maker = db.query(Manufacturer).filter_by(id=source.manufacturer_id).one()
+    assert maker is not None
+    clone = Product(
+        product_type_id=source.product_type_id,
+        manufacturer_id=source.manufacturer_id,
+        slug=f"{source.slug}-{suffix}",
+        sku=f"{source.sku}-{suffix}",
+        name=f"{source.name} {suffix}",
+        description=source.description,
+        price=source.price,
+        stock_quantity=source.stock_quantity,
+        on_sale=False,
+        is_active=True,
+    )
+    db.add(clone)
+    db.flush()
+    return clone
+
+
+def test_direct_build_addition_needs_no_saved_build(
+    api_client: TestClient,
+    test_db_session: Session,
+    registered_user: dict,
+    sample_products: dict,
+):
+    conftest_apply_compatible_build(test_db_session, sample_products)
+    test_db_session.flush()
+    headers = registered_user["headers"]
+
+    added = api_client.post(
+        "/api/v1/cart/builds",
+        headers=headers,
+        json={"items": _configured_items(sample_products)},
+    )
+    assert added.status_code == 200, added.text
+    item = added.json()["items"][0]
+    assert item["kind"] == "custom_build"
+    assert item["saved_build_id"] is None
+    assert len(item["build_snapshot"]["components"]) == 8
+    # Prices come from the database, never from the client payload.
+    expected = sum(product.price for product in sample_products.values())
+    assert Decimal(item["unit_price"]) == expected
+
+    # No saved-build record was created and the five-build quota is untouched.
+    assert (
+        test_db_session.query(SavedBuild)
+        .filter_by(user_id=registered_user["id"])
+        .count()
+        == 0
+    )
+    for number in range(5):
+        created = api_client.post(
+            "/api/v1/builds",
+            headers=headers,
+            json={
+                "name": f"After cart {number}",
+                "items": [{"slot": "cpu", "product_id": sample_products["cpu"].id}],
+            },
+        )
+        assert created.status_code == 201, created.text
+
+
+def test_direct_addition_rejects_incomplete_and_incompatible_builds(
+    api_client: TestClient,
+    test_db_session: Session,
+    registered_user: dict,
+    sample_products: dict,
+):
+    headers = registered_user["headers"]
+    conftest_apply_compatible_build(test_db_session, sample_products)
+    test_db_session.flush()
+
+    incomplete = _configured_items(sample_products)[:7]
+    assert (
+        api_client.post(
+            "/api/v1/cart/builds", headers=headers, json={"items": incomplete}
+        ).status_code
+        == 422
+    )
+
+    cpu_item = {"slot": "cpu", "product_id": sample_products["cpu"].id}
+    assert (
+        api_client.post(
+            "/api/v1/cart/builds", headers=headers, json={"items": [cpu_item, cpu_item]}
+        ).status_code
+        == 422
+    )
+
+    wrong_slot = [{"slot": "cpu", "product_id": sample_products["gpu"].id}] + [
+        item for item in _configured_items(sample_products) if item["slot"] != "cpu"
+    ]
+    assert (
+        api_client.post(
+            "/api/v1/cart/builds", headers=headers, json={"items": wrong_slot}
+        ).status_code
+        == 422
+    )
+
+    conftest_apply_characteristics(
+        test_db_session, sample_products["cpu"], {"socket": "LGA1700"}
+    )
+    test_db_session.flush()
+    conflicting = api_client.post(
+        "/api/v1/cart/builds",
+        headers=headers,
+        json={"items": _configured_items(sample_products)},
+    )
+    assert conflicting.status_code == 422, conflicting.text
+    assert api_client.get("/api/v1/cart", headers=headers).json()["items"] == []
+
+    assert (
+        api_client.post(
+            "/api/v1/cart/builds", json={"items": _configured_items(sample_products)}
+        ).status_code
+        == 401
+    )
+
+
+def test_direct_addition_aggregates_only_identical_configurations(
+    api_client: TestClient,
+    test_db_session: Session,
+    registered_user: dict,
+    sample_products: dict,
+):
+    conftest_apply_compatible_build(test_db_session, sample_products)
+    other_storage = _clone_product(test_db_session, sample_products["storage"], "alt")
+    conftest_apply_characteristics(
+        test_db_session, other_storage, dict(COMPATIBLE_SPECS["storage"])
+    )
+    test_db_session.flush()
+    headers = registered_user["headers"]
+    items = _configured_items(sample_products)
+
+    assert (
+        api_client.post(
+            "/api/v1/cart/builds", headers=headers, json={"items": items}
+        ).status_code
+        == 200
+    )
+    again = api_client.post(
+        "/api/v1/cart/builds", headers=headers, json={"items": items}
+    )
+    assert again.status_code == 200
+    lines = again.json()["items"]
+    assert len(lines) == 1
+    assert lines[0]["quantity"] == 2
+
+    # A different storage drive is a different configuration, not a quantity bump.
+    different = [
+        {"slot": item["slot"], "product_id": item["product_id"]}
+        for item in items
+        if item["slot"] != "storage"
+    ] + [{"slot": "storage", "product_id": other_storage.id}]
+    separate = api_client.post(
+        "/api/v1/cart/builds", headers=headers, json={"items": different}
+    )
+    assert separate.status_code == 200, separate.text
+    lines = separate.json()["items"]
+    assert len(lines) == 2
+    assert sorted(line["quantity"] for line in lines) == [1, 2]
+
+
+def test_unsaved_build_quantity_and_checkout_keep_snapshots(
+    api_client: TestClient,
+    test_db_session: Session,
+    registered_user: dict,
+    sample_products: dict,
+):
+    conftest_apply_compatible_build(test_db_session, sample_products)
+    test_db_session.flush()
+    headers = registered_user["headers"]
+    added = api_client.post(
+        "/api/v1/cart/builds",
+        headers=headers,
+        json={"items": _configured_items(sample_products)},
+    )
+    item_id = added.json()["items"][0]["id"]
+
+    updated = api_client.patch(
+        f"/api/v1/cart/{item_id}", headers=headers, json={"quantity": 2}
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["items"][0]["quantity"] == 2
+
+    # The catalogue price changes after the line was added: the cart re-reads the
+    # authoritative price instead of trusting the stored snapshot.
+    gpu = sample_products["gpu"]
+    gpu.price = gpu.price + 100
+    test_db_session.flush()
+    refreshed = api_client.get("/api/v1/cart", headers=headers).json()["items"][0]
+    assert Decimal(refreshed["unit_price"]) == sum(
+        product.price for product in sample_products.values()
+    )
+
+    checkout = api_client.post("/api/v1/cart/checkout", headers=headers)
+    assert checkout.status_code == 200, checkout.text
+    entry = checkout.json()["order"]["items"][0]
+    assert entry["kind"] == "custom_build"
+    assert entry["saved_build_id"] is None
+    assert entry["quantity"] == 2
+    assert len(entry["components_snapshot"]) == 8
+    assert api_client.get("/api/v1/cart", headers=headers).json()["items"] == []
+
+    # The stored order snapshot is historical: renaming the product and changing
+    # its price does not rewrite what was purchased.
+    gpu.name = "Renamed after purchase"
+    gpu.price = gpu.price + 500
+    test_db_session.flush()
+    orders = api_client.get("/api/v1/cart/orders", headers=headers).json()
+    snapshot = orders[0]["items"][0]["components_snapshot"]
+    assert "Renamed after purchase" not in {row["product_name"] for row in snapshot}
+    assert orders[0]["items"][0]["saved_build_id"] is None
+
+
+def test_direct_addition_validates_stock(
+    api_client: TestClient,
+    test_db_session: Session,
+    registered_user: dict,
+    sample_products: dict,
+):
+    conftest_apply_compatible_build(test_db_session, sample_products)
+    sample_products["cpu"].stock_quantity = 1
+    test_db_session.flush()
+    headers = registered_user["headers"]
+
+    first = api_client.post(
+        "/api/v1/cart/builds",
+        headers=headers,
+        json={"items": _configured_items(sample_products)},
+    )
+    assert first.status_code == 200, first.text
+    # A second identical configuration would need two units of a single-stock part.
+    refused = api_client.post(
+        "/api/v1/cart/builds",
+        headers=headers,
+        json={"items": _configured_items(sample_products)},
+    )
+    assert refused.status_code == 422, refused.text
+
+
+def test_direct_addition_requires_exactly_one_source(
+    api_client: TestClient, registered_user: dict, sample_products: dict
+):
+    headers = registered_user["headers"]
+    assert (
+        api_client.post("/api/v1/cart/builds", headers=headers, json={}).status_code
+        == 422
+    )
+    created = api_client.post(
+        "/api/v1/builds", headers=headers, json={"name": "Mine", "items": []}
+    )
+    assert created.status_code == 201
+    both = api_client.post(
+        "/api/v1/cart/builds",
+        headers=headers,
+        json={
+            "saved_build_id": created.json()["id"],
+            "items": _configured_items(sample_products),
+        },
+    )
+    assert both.status_code == 422
 
 
 def _count_statements(db: Session, action) -> list[str]:

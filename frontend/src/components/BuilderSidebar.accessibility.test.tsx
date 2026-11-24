@@ -68,6 +68,15 @@ describe('add-to-cart accessibility description', () => {
     expect(resolvableDescriptions()).toEqual([])
   })
 
+  it('keeps the button disabled while a submission is pending', () => {
+    act(() => useBuilderStore.setState({ selections: complete() }))
+    render(<BuilderSidebar onAddToCart={() => {}} status="compatible" checked canAdd submitting />)
+    expect(cartButton().disabled).toBe(true)
+    // A pending submission is not a validation problem: nothing to describe.
+    expect(cartButton().getAttribute('aria-describedby')).toBeNull()
+    expect(resolvableDescriptions()).toEqual([])
+  })
+
   it('describes an incompatible configuration', () => {
     act(() => useBuilderStore.setState({ selections: complete() }))
     render(<BuilderSidebar onAddToCart={() => {}} status="incompatible" checked messages={['Мощность блока питания недостаточна']} />)
@@ -76,21 +85,21 @@ describe('add-to-cart accessibility description', () => {
     expect(document.getElementById('builder-cart-validation')?.textContent).toMatch(/устран/i)
   })
 
-  it('does not reference the loading placeholder of a saved build that is still loading', () => {
+  it('explains a complete configuration whose check found no supported evidence', () => {
     act(() => useBuilderStore.setState({ selections: complete() }))
-    render(<BuilderSidebar onAddToCart={() => {}} status="compatible" checked canAdd={false} savedPending />)
+    render(<BuilderSidebar onAddToCart={() => {}} status="unknown" checked />)
     expect(cartButton().disabled).toBe(true)
     expect(cartButton().getAttribute('aria-describedby')).toBeNull()
-    expect(screen.getByTestId('builder-saved-build-skeleton')).toBeTruthy()
-    expect(document.querySelectorAll('#builder-cart-validation')).toHaveLength(1)
+    expect(resolvableDescriptions()).toEqual([])
+    expect(screen.getByRole('status').textContent).toMatch(/Создать сборку/i)
   })
 
-  it('describes a verified saved build that has not been saved with the current parts', () => {
+  it('no longer requires saving the build before adding it to the cart', () => {
     act(() => useBuilderStore.setState({ selections: complete() }))
-    render(<BuilderSidebar onAddToCart={() => {}} status="compatible" checked canAdd={false} />)
-    expect(cartButton().disabled).toBe(true)
-    expect(resolvableDescriptions()).toEqual(['builder-cart-validation'])
-    expect(document.getElementById('builder-cart-validation')?.textContent).toMatch(/сохран/i)
+    render(<BuilderSidebar onAddToCart={() => {}} status="compatible" checked canAdd />)
+    // A verified configuration is cart-eligible even when nothing was saved.
+    expect(cartButton().disabled).toBe(false)
+    expect(document.getElementById('builder-cart-validation')).toBeNull()
   })
 
   it('does not reference a description when a failed check leaves nothing to explain', () => {

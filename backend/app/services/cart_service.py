@@ -22,7 +22,7 @@ from app.models import (
 )
 from app.services import event_service
 from app.services.catalog import _images, short_display_lines
-from app.services.compatibility import check_selections
+from app.services.compatibility import SLOT_CATEGORIES, check_selections
 
 
 def get_or_create_cart(db: Session, user: User) -> Cart:
@@ -95,6 +95,45 @@ def _build_snapshot(db: Session, selections: dict[str, int], quantity: int) -> d
     return {"components": components, "total_price": str(total)}
 
 
+def selections_from_items(items: list[dict]) -> dict[str, int]:
+    """Validate the submitted eight-slot configuration before touching the cart.
+
+    Every cart build is a complete configuration: the same compatibility rules
+    that produce the cart snapshot require all eight slots.
+    """
+    selections: dict[str, int] = {}
+    for item in items:
+        slot, product_id = item["slot"], item["product_id"]
+        if slot in selections:
+            raise ValueError(f"Duplicate slot: {slot}")
+        selections[slot] = product_id
+    missing = sorted(set(SLOT_CATEGORIES) - set(selections))
+    if missing:
+        raise ValueError("Incomplete configuration: " + ", ".join(missing))
+    return selections
+
+
+def _same_configuration(snapshot: dict | None, selections: dict[str, int]) -> bool:
+    """Whether an existing cart line holds exactly the submitted components."""
+    try:
+        return _selections(snapshot) == selections
+    except TypeError, ValueError:
+        # A malformed legacy snapshot never matches a valid configuration.
+        return False
+
+
+def _unsaved_build_items(db: Session, cart: Cart) -> list[CartItem]:
+    return list(
+        db.scalars(
+            select(CartItem).where(
+                CartItem.cart_id == cart.id,
+                CartItem.kind == "custom_build",
+                CartItem.saved_build_id.is_(None),
+            )
+        ).all()
+    )
+
+
 def add_product_to_cart(
     db: Session, user: User, product_id: int, quantity: int = 1
 ) -> CartItem:
@@ -162,6 +201,47 @@ def add_build_to_cart(
             cart_id=cart.id,
             kind="custom_build",
             saved_build_id=build.id,
+            build_snapshot=snapshot,
+            quantity=quantity,
+        )
+        db.add(item)
+    item.updated_at = datetime.now(UTC)
+    db.flush()
+    db.refresh(item)
+    return item
+
+
+def add_configuration_to_cart(
+    db: Session, user: User, items: list[dict], quantity: int = 1
+) -> CartItem:
+    """Add an explicitly configured build that was never saved.
+
+    The build is stored only as a self-contained cart snapshot: no ``SavedBuild``
+    row is created, so a direct purchase never consumes the saved-build quota.
+    Adding the same configuration twice raises the quantity of one line; a
+    different configuration always becomes its own line.
+    """
+    selections = selections_from_items(items)
+    cart = get_or_create_cart(db, user)
+    existing = next(
+        (
+            item
+            for item in _unsaved_build_items(db, cart)
+            if _same_configuration(item.build_snapshot, selections)
+        ),
+        None,
+    )
+    new_qty = quantity + (existing.quantity if existing else 0)
+    snapshot = _build_snapshot(db, selections, new_qty)
+    if existing:
+        existing.quantity = new_qty
+        existing.build_snapshot = snapshot
+        item = existing
+    else:
+        item = CartItem(
+            cart_id=cart.id,
+            kind="custom_build",
+            saved_build_id=None,
             build_snapshot=snapshot,
             quantity=quantity,
         )

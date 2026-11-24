@@ -182,8 +182,21 @@ def add_build(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db_session, scope="function"),
 ) -> CartOut:
+    """Add a saved build or a directly configured build to the cart.
+
+    The server re-validates the configuration itself: the client is never
+    authoritative about compatibility, prices, stock or component names.
+    """
     try:
-        svc.add_build_to_cart(db, current_user, body.saved_build_id, body.quantity)
+        if body.saved_build_id is not None:
+            svc.add_build_to_cart(db, current_user, body.saved_build_id, body.quantity)
+        else:
+            svc.add_configuration_to_cart(
+                db,
+                current_user,
+                [item.model_dump() for item in body.items or []],
+                body.quantity,
+            )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     db.expire_all()
