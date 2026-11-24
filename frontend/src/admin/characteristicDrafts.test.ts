@@ -8,6 +8,7 @@ import {
   isDraftEmpty,
   orphanCodes,
   parseNumberText,
+  storedValueMap,
   type CharacteristicDefinitionLike,
 } from './characteristicDrafts'
 
@@ -145,10 +146,36 @@ describe('characteristic editor drafts', () => {
     })
   })
 
-  it('reports codes that the target category does not define', () => {
+  it('reports stored codes the target category cannot reuse as-is', () => {
     const definitions = [definition('socket', 'string'), definition('cores', 'number')]
-    expect(orphanCodes(['socket', 'chipset', 'cores'], definitions)).toEqual(['chipset'])
-    expect(orphanCodes([], definitions)).toEqual([])
+    const stored = {
+      socket: { value: 'AM5', dataType: 'string' },
+      chipset: { value: 'B650', dataType: 'string' },
+      cores: { value: 8, dataType: 'number' },
+    }
+    // `chipset` is not defined by the target category.
+    expect(orphanCodes(stored, definitions)).toEqual(['chipset'])
+    expect(orphanCodes({}, definitions)).toEqual([])
+  })
+
+  it('reports a stored value whose data type changed in the target category', () => {
+    // `memory_type` is a `string_list` for CPUs and a `string` for motherboards.
+    const boardDefinitions = [definition('memory_type', 'string')]
+    const cpuValue = { memory_type: { value: ['ddr5'], dataType: 'string_list' } }
+    expect(orphanCodes(cpuValue, boardDefinitions)).toEqual(['memory_type'])
+    // The motherboard's own value is reusable, so nothing has to be decided.
+    expect(orphanCodes(
+      { memory_type: { value: 'ddr5', dataType: 'string' } },
+      boardDefinitions,
+    )).toEqual([])
+  })
+
+  it('keeps stored values addressable as the payload builder map', () => {
+    const stored = {
+      memory_type: { value: 'ddr5', dataType: 'string' },
+      cores: { value: 0, dataType: 'number' },
+    }
+    expect(storedValueMap(stored)).toEqual({ memory_type: 'ddr5', cores: 0 })
   })
 })
 

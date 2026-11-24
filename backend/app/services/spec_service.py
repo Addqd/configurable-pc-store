@@ -263,14 +263,22 @@ def resolve_values(
 ) -> dict[str, Any]:
     """Merge stored and submitted values into the value set to persist.
 
-    Existing values are preserved unless the code is explicitly removed or a new
-    value replaces it. A stored characteristic that the target category does not
-    define is never dropped silently: the caller has to remove it explicitly,
-    otherwise the whole change is rejected.
+    Order matters on a category transition: an explicitly submitted value
+    *replaces* the stored one, so the stored value is never validated against the
+    target definition it is about to be replaced by. Categories legitimately
+    declare the same code with a different data type (`memory_type` is a
+    ``string_list`` for CPUs and a ``string`` for motherboards), and the old value
+    must not block a transition the administrator resolved explicitly.
+
+    A stored value without a replacement is preserved only when it matches the
+    target definition, and a stored code the target category does not define at
+    all is never dropped silently: the caller has to remove it explicitly,
+    otherwise the whole change is rejected. Required values are checked against
+    the final resolved set.
     """
     by_code = {definition.code: definition for definition in definitions}
     explicit_removals = removed_codes(definitions, removed, also_known=list(existing))
-    merged: dict[str, Any] = {}
+    replacements = dict(submitted or {})
 
     orphans = sorted(
         code
@@ -284,8 +292,13 @@ def resolve_values(
             + ". Remove them explicitly before changing the category."
         )
 
+    merged: dict[str, Any] = {}
     for code, value in existing.items():
-        if code in explicit_removals or code not in by_code:
+        # Explicitly removed or explicitly replaced: the old value is never
+        # validated against the target definition.
+        if code in explicit_removals or code in replacements:
+            continue
+        if code not in by_code:  # pragma: no cover - rejected by `orphans` above
             continue
         definition = by_code[code]
         try:
@@ -293,11 +306,13 @@ def resolve_values(
         except InvalidInputError as exc:
             raise InvalidInputError(
                 f"Stored characteristic '{definition.name}' does not match the "
-                "target category definition; remove it explicitly to continue"
+                "target category definition; submit a valid value or remove it "
+                "explicitly to continue"
             ) from exc
 
-    for code, value in (submitted or {}).items():
-        merged[code] = value
+    # The submitted values are already validated against the target definitions by
+    # `submitted_values()`; they take precedence over anything stored.
+    merged.update(replacements)
 
     if require_complete:
         # A required value must be present *and* non-empty: an empty list is not

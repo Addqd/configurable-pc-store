@@ -162,13 +162,39 @@ export function isDraftEmpty(draft: CharacteristicDraft | undefined): boolean {
   return draft.items.every((row) => !row.trim())
 }
 
-/** Codes that a stored product keeps but the target category no longer defines. */
+/** A characteristic value exactly as the API currently stores it. */
+export interface StoredCharacteristic {
+  value: unknown
+  /** Data type declared by the definition the stored row belongs to. */
+  dataType: string
+}
+
+/** Server-confirmed values keyed by characteristic code. */
+export type StoredCharacteristics = Readonly<Record<string, StoredCharacteristic>>
+
+/** Plain value map of `stored`, as the payload builder expects it. */
+export function storedValueMap(
+  stored: StoredCharacteristics,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(stored).map(([code, entry]) => [code, entry.value]),
+  )
+}
+
+/** Codes that a stored product keeps but the target category cannot reuse as-is. */
 export function orphanCodes(
-  storedCodes: readonly string[],
+  stored: StoredCharacteristics,
   definitions: readonly CharacteristicDefinitionLike[],
 ): string[] {
-  const known = new Set(definitions.map((definition) => definition.code))
-  return storedCodes.filter((code) => !known.has(code))
+  const types = new Map(
+    definitions.map((definition) => [definition.code, definition.data_type]),
+  )
+  // A code the target category does not define at all, and a code it defines with
+  // another data type (`string_list` in the previous category, `string` in the new
+  // one), are both unusable: neither is dropped nor reinterpreted silently.
+  return Object.entries(stored)
+    .filter(([code, entry]) => types.get(code) !== entry.dataType)
+    .map(([code]) => code)
 }
 
 /** One submitted `characteristics` entry. */

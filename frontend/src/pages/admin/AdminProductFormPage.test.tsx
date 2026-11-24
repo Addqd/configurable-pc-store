@@ -1707,3 +1707,297 @@ describe('admin product characteristic removal', () => {
     expect(document.body.textContent).toContain('GB')
   })
 })
+
+/* ── Category transitions and removal confirmation scope ─────────────────────── */
+
+/**
+ * Definitions of the CPU category (id 9).
+ *
+ * `memory_bus` is shared with the GPU category *with the same data type*, so a
+ * stored value survives the transition; `memory_size` and `chipset` are not
+ * defined here and therefore need an explicit decision by the administrator.
+ */
+const cpuDefinitionsFixture = {
+  category_id: 9,
+  category_name: 'Процессоры',
+  fields: [
+    {
+      code: 'socket', name: 'Сокет', data_type: 'string', unit: null,
+      sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
+    },
+    {
+      code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит',
+      sort_order: 1, is_required: false, show_in_short: false, show_in_details: true,
+    },
+  ],
+}
+
+/**
+ * The GPU *category group* also offers a CPU type. The real API keeps every type
+ * inside its own category; this is the one shape in which choosing a type moves
+ * the editor into another category, which is exactly what must reset the removal
+ * confirmation.
+ */
+const crossCategoryOptionsFixture = {
+  ...productOptionsFixture,
+  categories: [
+    {
+      category: productOptionsFixture.categories[0].category,
+      product_types: [
+        ...productOptionsFixture.categories[0].product_types,
+        { id: 10, category_id: 9, slug: 'desktop', name: 'Desktop' },
+      ],
+    },
+    productOptionsFixture.categories[1],
+  ],
+}
+
+/**
+ * Edit screen for a category transition.
+ *
+ * The PATCH handler stores what it accepts, so a refetch and the next save both
+ * see the committed state, and `failPatch` can reject the first update to check
+ * that a failed save neither reports success nor loses the confirmation.
+ */
+function setupEditTransition(
+  rows: Array<Record<string, unknown>>,
+  { failFirstPatch = false, optionsPayload }: { failFirstPatch?: boolean; optionsPayload?: unknown } = {},
+) {
+  const detail = { ...productDetailFixture, characteristics: rows }
+  let committed = rows
+  let patchAttempts = 0
+  const fetchMock = stubAdminFetch({
+    handler: (url, init) => {
+      const method = init.method ?? 'GET'
+      if (url.pathname === '/api/v1/admin/product-options') {
+        return jsonResponse(optionsPayload ?? productOptionsFixture)
+      }
+      if (url.pathname === '/api/v1/products/filters') {
+        return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+      }
+      if (url.pathname === '/api/v1/admin/categories/8/characteristics') {
+        return jsonResponse(characteristicDefinitionsFixture)
+      }
+      if (url.pathname === '/api/v1/admin/categories/9/characteristics') {
+        return jsonResponse(cpuDefinitionsFixture)
+      }
+      if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') {
+        return jsonResponse({ ...detail, characteristics: committed })
+      }
+      if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
+        patchAttempts += 1
+        if (failFirstPatch && patchAttempts === 1) {
+          return jsonResponse({ detail: 'Характеристика не подходит категории' }, 422)
+        }
+        const body = requestBody(init) as {
+          characteristics?: { code: string; value: unknown }[]
+          remove_characteristics?: string[]
+        }
+        const removed = new Set(body.remove_characteristics ?? [])
+        const submitted = new Map((body.characteristics ?? []).map((entry) => [entry.code, entry.value]))
+        committed = committed
+          .filter((row) => !removed.has(String(row.code)))
+          .map((row) => (submitted.has(String(row.code)) ? { ...row, value: submitted.get(String(row.code)) } : row))
+        return jsonResponse({ ...detail, characteristics: committed })
+      }
+      return undefined
+    },
+  })
+  render(
+    <MemoryRouter initialEntries={['/admin/products/7/edit']}>
+      <Routes>
+        <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+  return fetchMock
+}
+
+/** Submits the form once the given field proves the definitions have loaded. */
+const submitTransition = async (label: string) => {
+  await screen.findByLabelText(label)
+  fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
+}
+
+const confirmLabel = 'Удалить эти характеристики при смене категории'
+
+const confirmationBox = () => screen.queryByLabelText(confirmLabel) as HTMLInputElement | null
+
+/** The warning only renders once the target category's definitions are loaded. */
+const findConfirmationBox = async () =>
+  (await screen.findByLabelText(confirmLabel)) as HTMLInputElement
+
+const selectCategory = async (categoryId: string, typeId: string) => {
+  fireEvent.change(screen.getByLabelText('Категория'), { target: { value: categoryId } })
+  fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: typeId } })
+}
+
+describe('admin product category transition confirmation', () => {
+  it('resets the confirmation when the selected category changes', async () => {
+    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    const first = await findConfirmationBox()
+    fireEvent.click(first)
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
+
+    // The target category no longer defines `chipset` and `memory_size`.
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+
+    // A confirmation for the GPU transition cannot authorize the CPU one.
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+    await submitTransition('Сокет')
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toBeUndefined()
+    // The value both categories share with the same data type is preserved.
+    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 192 })
+  })
+
+  it('resets the confirmation when a type selection moves to another category', async () => {
+    setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()], {
+      optionsPayload: crossCategoryOptionsFixture,
+    })
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await findConfirmationBox())
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
+
+    fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '10' } })
+    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+    expect((screen.getByLabelText('Категория') as HTMLSelectElement).value).toBe('9')
+  })
+
+  it('never reuses a confirmation when the category is switched back', async () => {
+    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await findConfirmationBox())
+
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
+    // Back to the very same orphan set that was confirmed before.
+    await selectCategory('8', '8')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+
+    await submitTransition('Объём памяти')
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toBeUndefined()
+  })
+
+  it('requires a fresh confirmation for the transition after a confirmed save', async () => {
+    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await findConfirmationBox())
+    await submitTransition('Объём памяти')
+
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const first = patchBody(fetchMock)
+    if (!first) throw new Error('PATCH body missing')
+    expect(first.remove_characteristics).toEqual(['chipset'])
+    // The save is committed: the value is gone and the warning with it.
+    expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
+    await waitFor(() => expect(confirmationBox()).toBeNull())
+
+    // The next transition starts unconfirmed even though the previous one was
+    // confirmed and saved.
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+  })
+
+  it('does not report a rejected save as saved and keeps the confirmation', async () => {
+    const fetchMock = setupEditTransition(
+      [chipsetRow(), memorySizeRow(), memoryBusRow()],
+      { failFirstPatch: true },
+    )
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await findConfirmationBox())
+    await submitTransition('Объём памяти')
+
+    expect(await screen.findByText(/Характеристика не подходит категории/)).toBeTruthy()
+    expect(screen.queryByText('Изменения сохранены')).toBeNull()
+    // Nothing was persisted, so the confirmed transition is still pending.
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
+
+    fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
+    await waitFor(() => expect(callsTo(fetchMock, '/api/v1/admin/products/7')
+      .filter(([, init]) => init.method === 'PATCH')).toHaveLength(2))
+    const attempts = callsTo(fetchMock, '/api/v1/admin/products/7')
+      .filter(([, init]) => init.method === 'PATCH')
+    expect((requestBody(attempts[1][1]) as { remove_characteristics?: string[] }).remove_characteristics)
+      .toEqual(['chipset'])
+    expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
+  })
+
+  it('does not offer an incompatible stored value for implicit deletion', async () => {
+    // The target category declares `memory_size` as a list while the product stores
+    // a string: the value cannot be reused, so it needs a replacement or a
+    // confirmed removal instead of being cleared behind the administrator's back.
+    const changedTypeDefinitions = {
+      category_id: 9,
+      category_name: 'Процессоры',
+      fields: [
+        ...cpuDefinitionsFixture.fields,
+        {
+          code: 'memory_size', name: 'Объём памяти', data_type: 'string_list',
+          unit: null, sort_order: 2, is_required: false, show_in_short: false, show_in_details: true,
+        },
+      ],
+    }
+    const rows = [memorySizeRow(), memoryBusRow()]
+    const fetchMock = stubAdminFetch({
+      handler: (url, init) => {
+        const method = init.method ?? 'GET'
+        if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+        if (url.pathname === '/api/v1/products/filters') {
+          return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+        }
+        if (url.pathname === '/api/v1/admin/categories/8/characteristics') {
+          return jsonResponse(characteristicDefinitionsFixture)
+        }
+        if (url.pathname === '/api/v1/admin/categories/9/characteristics') {
+          return jsonResponse(changedTypeDefinitions)
+        }
+        if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') {
+          return jsonResponse({ ...productDetailFixture, characteristics: rows })
+        }
+        if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
+          return jsonResponse({ ...productDetailFixture, characteristics: rows })
+        }
+        return undefined
+      },
+    })
+    render(
+      <MemoryRouter initialEntries={['/admin/products/7/edit']}>
+        <Routes>
+          <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+
+    await selectCategory('9', '10')
+    // `memory_bus` keeps its number type and survives; only `memory_size` needs a
+    // decision, and it is not silently turned into a removal.
+    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+
+    // A typed replacement replaces the stored value instead of deleting it.
+    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Добавить значение' }))
+    fireEvent.change(screen.getByLabelText('Объём памяти 1'), { target: { value: '12 ГБ' } })
+    await submitTransition('Объём памяти 1')
+
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: ['12 ГБ'] })
+    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 192 })
+    expect(body.remove_characteristics).toBeUndefined()
+  })
+})

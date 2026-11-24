@@ -354,3 +354,110 @@ def test_malformed_list_items_are_rejected() -> None:
             spec_service.submitted_values(
                 _list_definitions(), [("required_numbers", raw)]
             )
+
+
+# ── Category transitions with explicitly replaced values ─────────────────────
+
+
+def _cpu_definitions() -> list[CharacteristicDefinition]:
+    """Source category: `memory_type` is a list, like a CPU's memory type."""
+    return [
+        _definition("socket", "string", name="Сокет", is_required=True),
+        _definition("memory_type", "string_list", name="Тип памяти"),
+    ]
+
+
+def _board_definitions() -> list[CharacteristicDefinition]:
+    """Target category: the same code is a plain string, like a motherboard's."""
+    return [
+        _definition("memory_type", "string", name="Тип памяти"),
+        _definition("form_factor", "string", name="Форм-фактор"),
+    ]
+
+
+def test_a_stored_list_is_replaced_by_a_valid_string() -> None:
+    merged = spec_service.resolve_values(
+        _board_definitions(), {"memory_type": ["ddr5"]}, {"memory_type": "ddr5"}
+    )
+    assert merged == {"memory_type": "ddr5"}
+
+
+def test_a_stored_string_is_replaced_by_a_valid_list() -> None:
+    merged = spec_service.resolve_values(
+        _cpu_definitions(),
+        {"memory_type": "ddr5", "socket": "AM5"},
+        {"memory_type": ["ddr5"]},
+    )
+    assert merged == {"memory_type": ["ddr5"], "socket": "AM5"}
+
+
+def test_an_incompatible_stored_value_without_a_replacement_is_rejected() -> None:
+    with pytest.raises(InvalidInputError, match="does not match the target category"):
+        spec_service.resolve_values(_board_definitions(), {"memory_type": ["ddr5"]}, {})
+
+
+def test_an_incompatible_stored_value_can_still_be_removed_explicitly() -> None:
+    assert (
+        spec_service.resolve_values(
+            _board_definitions(), {"memory_type": ["ddr5"]}, {}, ["memory_type"]
+        )
+        == {}
+    )
+
+
+def test_a_replacement_must_match_the_target_definition() -> None:
+    with pytest.raises(InvalidInputError, match="text value is required"):
+        spec_service.submitted_values(_board_definitions(), [("memory_type", ["ddr5"])])
+    with pytest.raises(InvalidInputError, match="list value is required"):
+        spec_service.submitted_values(_cpu_definitions(), [("memory_type", "ddr5")])
+
+
+def test_a_replacement_leaves_valid_unrelated_values_untouched() -> None:
+    definitions = [
+        *_board_definitions(),
+        _definition("socket", "string", name="Сокет", is_required=True),
+    ]
+    merged = spec_service.resolve_values(
+        definitions,
+        {"memory_type": ["ddr5"], "socket": "AM5"},
+        {"memory_type": "ddr5"},
+    )
+    assert merged == {"memory_type": "ddr5", "socket": "AM5"}
+
+
+def test_a_transition_with_a_replacement_still_requires_the_target_values() -> None:
+    definitions = [
+        *_board_definitions(),
+        _definition("socket", "string", name="Сокет", is_required=True),
+    ]
+    with pytest.raises(InvalidInputError, match="Сокет"):
+        spec_service.resolve_values(
+            definitions, {"memory_type": ["ddr5"]}, {"memory_type": "ddr5"}
+        )
+    assert spec_service.resolve_values(
+        definitions,
+        {"memory_type": ["ddr5"]},
+        {"memory_type": "ddr5", "socket": "AM5"},
+    ) == {"memory_type": "ddr5", "socket": "AM5"}
+
+
+def test_a_replacement_list_keeps_order_and_duplicates() -> None:
+    merged = spec_service.resolve_values(
+        _cpu_definitions(),
+        {"memory_type": "ddr5", "socket": "AM5"},
+        {"memory_type": ["ddr5", "ddr4", "ddr5"]},
+    )
+    assert merged["memory_type"] == ["ddr5", "ddr4", "ddr5"]
+
+
+def test_replaced_false_and_zero_are_not_treated_as_absences() -> None:
+    definitions = [
+        _definition("memory_type", "boolean", name="Тип памяти"),
+        _definition("slots", "number", name="Слоты"),
+    ]
+    merged = spec_service.resolve_values(
+        definitions,
+        {"memory_type": ["ddr5"], "slots": "n/a"},
+        {"memory_type": False, "slots": 0},
+    )
+    assert merged == {"memory_type": False, "slots": 0}

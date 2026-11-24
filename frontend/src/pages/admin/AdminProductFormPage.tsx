@@ -37,13 +37,16 @@ import {
 import {
   type CharacteristicDefinitionLike,
   type CharacteristicDraft,
+  type StoredCharacteristic,
   buildCharacteristicPayload,
   draftFromValue,
   emptyDraft,
   fieldTypeOf,
+  isDraftEmpty,
   MAX_LIST_ROWS,
   MAX_TEXT_LENGTH,
   orphanCodes,
+  storedValueMap,
 } from '../../admin/characteristicDrafts'
 import {
   characteristicLabel,
@@ -163,9 +166,14 @@ function formFromProduct(product: AdminProductDetailOut): ProductFormState {
 }
 
 /** Values the API currently stores, keyed by characteristic code. */
-function storedValues(product: AdminProductDetailOut): Record<string, unknown> {
+function storedCharacteristicsOf(
+  product: AdminProductDetailOut,
+): Record<string, StoredCharacteristic> {
   return Object.fromEntries(
-    (product.characteristics ?? []).map((row) => [row.code, row.value]),
+    (product.characteristics ?? []).map((row) => [
+      row.code,
+      { value: row.value, dataType: row.data_type },
+    ]),
   )
 }
 
@@ -228,7 +236,7 @@ export function AdminProductFormPage() {
    * this map says whether the product already has a row that clearing the field
    * has to delete explicitly.
    */
-  const [storedCharacteristics, setStoredCharacteristics] = useState<Record<string, unknown>>({})
+  const [storedCharacteristics, setStoredCharacteristics] = useState<Record<string, StoredCharacteristic>>({})
   const [price, setPrice] = useState<PriceDraft>({ locale: activeLocale(), text: '', value: '' })
   const [items, setItems] = useState<GalleryItem[]>([])
   const formKey = isEdit ? `edit-${numericId}` : 'create'
@@ -236,8 +244,16 @@ export function AdminProductFormPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [specsError, setSpecsError] = useState<string | null>(null)
   const [characteristicErrors, setCharacteristicErrors] = useState<Record<string, string>>({})
-  /** Explicit confirmation to drop values of a previous category on a transition. */
-  const [confirmOrphanRemoval, setConfirmOrphanRemoval] = useState(false)
+  /**
+   * Signature of the category transition the administrator explicitly confirmed.
+   *
+   * A plain boolean would authorize a removal for *any* later transition: a
+   * confirmation given for one category would then delete characteristics during
+   * the next one. The signature binds a single confirmation to one target category
+   * and one exact set of stored codes, so neither a category change nor a changed
+   * orphan set can ever match it again.
+   */
+  const [removalConfirmation, setRemovalConfirmation] = useState<string | null>(null)
   const [serverError, setServerError] = useState<string | null>(null)
   const [galleryError, setGalleryError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
@@ -328,7 +344,7 @@ export function AdminProductFormPage() {
     setFieldErrors({})
     setSpecsError(null)
     setCharacteristicErrors({})
-    setConfirmOrphanRemoval(false)
+    setRemovalConfirmation(null)
     setServerError(null)
     setGalleryError(null)
     setSaved(false)
@@ -345,7 +361,7 @@ export function AdminProductFormPage() {
     if (!data) return
     const images = data.images ?? []
     setForm(formFromProduct(data))
-    setStoredCharacteristics(storedValues(data))
+    setStoredCharacteristics(storedCharacteristicsOf(data))
     setPrice(priceDraftFromText(formatPriceInput(data.price), activeLocale()))
     setItems(images.map((image) => ({
       key: `image-${image.id}`,
@@ -376,6 +392,9 @@ export function AdminProductFormPage() {
       // can only discard them after an explicit confirmation.
       characteristics: {},
     }))
+    // A confirmation given for the previous target category must never authorize
+    // a removal in the newly selected one.
+    setRemovalConfirmation(null)
     setFieldErrors((current) => ({ ...current, categoryId: '' }))
     setSpecsError(null)
     setSaved(false)
@@ -383,9 +402,12 @@ export function AdminProductFormPage() {
 
   const changeProductType = (value: string) => {
     const nextType = (options.data?.categories ?? [])
-      .flatMap((group) => (group.product_types ?? []).map((type) => ({ type, categoryId: group.category.id })))
-      .find((entry) => String(entry.type.id) === value)
-    const nextCategoryId = nextType ? String(nextType.categoryId) : form.categoryId
+      .flatMap((group) => group.product_types ?? [])
+      .find((type) => String(type.id) === value)
+    // A product type declares its own category. Reading it from the type instead
+    // of the option group keeps the definitions right when the server scoped the
+    // type to another category after the options were loaded.
+    const nextCategoryId = nextType ? String(nextType.category_id) : form.categoryId
     const categoryChanged = nextCategoryId !== form.categoryId
     setForm((current) => ({
       ...current,
@@ -393,6 +415,9 @@ export function AdminProductFormPage() {
       categoryId: nextCategoryId,
       characteristics: categoryChanged ? {} : current.characteristics,
     }))
+    // Only a category change invalidates the confirmation: a type of the same
+    // category keeps the same definitions, so the confirmed orphan set is intact.
+    if (categoryChanged) setRemovalConfirmation(null)
     setFieldErrors((current) => ({ ...current, productTypeId: '', categoryId: '' }))
     setSpecsError(null)
     setSaved(false)
@@ -735,14 +760,41 @@ export function AdminProductFormPage() {
     return Number.isFinite(amount) && amount >= 0 ? amount : null
   }
 
-  /** Stored codes of the product that the selected category no longer defines. */
-  const storedCodes = (detail.data?.characteristics ?? []).map((row) => row.code)
   const fields = definitionFields ?? []
-  const orphans = isEdit ? orphanCodes(storedCodes, fields) : []
+  /**
+   * Whether the definitions belong to the currently selected category.
+   *
+   * While another category's definitions are still loading, `fields` is empty and
+   * *every* stored code would look orphaned. No orphan set — and therefore no
+   * confirmation — is derived from definitions that do not describe the target
+   * category yet.
+   */
+  const definitionsReady = form.categoryId !== ''
+    && definitions.data?.category_id === Number(form.categoryId)
+  /** Codes the selected category renders a control for. */
+  const editableCodes = new Set(fields.map((field) => field.code))
+  /**
+   * Server-confirmed codes the selected category cannot reuse as-is: it either
+   * does not define them or declares another data type for the same code. A code
+   * the administrator already typed a replacement into no longer needs a decision,
+   * but only a code the category renders can be typed into at all — a stored value
+   * without a control keeps requiring an explicit confirmation.
+   */
+  const blockedCodes = isEdit && definitionsReady
+    ? orphanCodes(storedCharacteristics, fields).filter(
+      (code) => !editableCodes.has(code) || isDraftEmpty(form.characteristics[code]),
+    )
+    : []
+  /** Identity of the one transition a removal confirmation is valid for. */
+  const removalConfirmationKey = `${form.categoryId}:${[...blockedCodes].sort().join(',')}`
+  const confirmOrphanRemoval = blockedCodes.length > 0
+    && removalConfirmation === removalConfirmationKey
 
   // Definitions arrive asynchronously, and a category change replaces them. A
-  // code that the target category shares with the product keeps showing the
-  // stored value instead of being silently treated as cleared.
+  // code the target category shares with the product *with the same data type*
+  // keeps showing the stored value instead of being silently treated as cleared.
+  // A code whose data type changed is never reinterpreted into the new type: the
+  // administrator either submits a valid replacement or confirms the removal.
   // oxlint-disable react/set-state-in-effect
   useEffect(() => {
     if (!isEdit || !definitionFields?.length) return
@@ -751,8 +803,10 @@ export function AdminProductFormPage() {
       const characteristics = { ...current.characteristics }
       for (const field of definitionFields) {
         if (characteristics[field.code] !== undefined) continue
-        if (!Object.hasOwn(storedCharacteristics, field.code)) continue
-        characteristics[field.code] = draftFromValue(field.data_type, storedCharacteristics[field.code])
+        const stored = storedCharacteristics[field.code]
+        if (stored === undefined) continue
+        if (stored.dataType !== field.data_type) continue
+        characteristics[field.code] = draftFromValue(field.data_type, stored.value)
         changed = true
       }
       return changed ? { ...current, characteristics } : current
@@ -763,13 +817,13 @@ export function AdminProductFormPage() {
   /**
    * The three characteristic states of this submit: values to send, stored codes
    * the administrator cleared, and validation problems. Codes of the previous
-   * category are only dropped when the administrator confirmed the transition.
+   * category are only dropped when the administrator confirmed *this* transition.
    */
   const characteristicDrafts = () => buildCharacteristicPayload(
     fields,
     form.characteristics,
-    storedCharacteristics,
-    { removeCodes: confirmOrphanRemoval ? orphans : [] },
+    storedValueMap(storedCharacteristics),
+    { removeCodes: confirmOrphanRemoval ? blockedCodes : [] },
   )
 
   const validation = (): boolean => {
@@ -860,9 +914,12 @@ export function AdminProductFormPage() {
         invalidateCatalog()
         // The server is the source of truth for the saved state: re-align the
         // editor with it so a second save builds on the committed values (and a
-        // value just deleted cannot be "deleted" a second time).
-        setStoredCharacteristics(storedValues(updated))
+        // value just deleted cannot be "deleted" a second time). The confirmation
+        // belonged to the transition that is now committed, so the next one must
+        // be confirmed again.
+        setStoredCharacteristics(storedCharacteristicsOf(updated))
         setForm((current) => ({ ...current, characteristics: draftsFrom(updated) }))
+        setRemovalConfirmation(null)
         if (detail.data) void detail.refetch()
         setSaved(true)
       } catch (error) {
@@ -1305,18 +1362,20 @@ export function AdminProductFormPage() {
                         />
                       ))
                     )}
-                    {orphans.length > 0 && (
+                    {blockedCodes.length > 0 && (
                       <div role="alert" className="rounded-lg border border-danger-border bg-danger-surface px-4 py-3 text-sm text-text-primary">
                         <p className="font-medium text-danger">
-                          {t('admin.form.char_orphans_title', { count: orphans.length })}
+                          {t('admin.form.char_orphans_title', { count: blockedCodes.length })}
                         </p>
-                        <p className="mt-1 text-xs text-text-secondary">{orphans.join(', ')}</p>
+                        <p className="mt-1 text-xs text-text-secondary">{blockedCodes.join(', ')}</p>
                         <label className="mt-3 flex items-start gap-2 text-xs text-text-primary">
                           <input
                             type="checkbox"
                             checked={confirmOrphanRemoval}
                             disabled={locked}
-                            onChange={(event) => setConfirmOrphanRemoval(event.target.checked)}
+                            onChange={(event) => setRemovalConfirmation(
+                              event.target.checked ? removalConfirmationKey : null,
+                            )}
                             className="mt-0.5"
                           />
                           <span>{t('admin.form.char_orphans_confirm')}</span>

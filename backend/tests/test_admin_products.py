@@ -16,10 +16,12 @@ from sqlalchemy.orm import Session
 
 from app.core.security import get_settings
 from app.models import (
+    Category,
     Characteristic,
     Manufacturer,
     ProductCharacteristic,
     ProductImage,
+    ProductType,
     User,
 )
 from app.schemas.admin_products import AdminProductUpdate, CharacteristicValueIn
@@ -1022,3 +1024,309 @@ def test_update_cannot_empty_a_required_list_and_rolls_back(
     assert removal.status_code == 422, removal.text
     unchanged = api_client.get(path, headers=headers)
     assert unchanged.json()["characteristics"] != []
+
+
+# ── Category transitions with explicitly replaced values ─────────────────────
+
+
+@pytest.fixture()
+def transition_spec(test_db_session: Session) -> dict:
+    """Two throwaway categories that share one code with a different data type.
+
+    `test_probe_memory_type` is a ``string_list`` in the source category and a
+    plain ``string`` in the target one, exactly like the real `memory_type` of a
+    CPU (`string_list`) and of a motherboard (`string`). The categories are
+    created by this test, so the seeded definitions of the real categories cannot
+    influence the required-field checks.
+    """
+    suffix = uuid4().hex[:8]
+    source_category = Category(
+        slug=f"test-transition-source-{suffix}", name=f"Test source {suffix}"
+    )
+    target_category = Category(
+        slug=f"test-transition-target-{suffix}", name=f"Test target {suffix}"
+    )
+    test_db_session.add_all([source_category, target_category])
+    test_db_session.flush()
+    source_type = ProductType(
+        category_id=source_category.id,
+        slug=f"test-transition-source-type-{suffix}",
+        name=f"Test source type {suffix}",
+    )
+    target_type = ProductType(
+        category_id=target_category.id,
+        slug=f"test-transition-target-type-{suffix}",
+        name=f"Test target type {suffix}",
+    )
+    test_db_session.add_all([source_type, target_type])
+    test_db_session.flush()
+    source_memory = Characteristic(
+        category_id=source_category.id,
+        code="test_probe_memory_type",
+        name="Тестовый тип памяти",
+        data_type="string_list",
+        sort_order=0,
+    )
+    source_wattage = Characteristic(
+        category_id=source_category.id,
+        code="test_probe_source_wattage",
+        name="Мощность источника",
+        data_type="number",
+        sort_order=1,
+        is_required=True,
+    )
+    target_memory = Characteristic(
+        category_id=target_category.id,
+        code="test_probe_memory_type",
+        name="Тестовый тип памяти",
+        data_type="string",
+        sort_order=0,
+    )
+    target_socket = Characteristic(
+        category_id=target_category.id,
+        code="test_probe_target_socket",
+        name="Сокет цели",
+        data_type="string",
+        sort_order=1,
+        is_required=True,
+    )
+    test_db_session.add_all(
+        [source_memory, source_wattage, target_memory, target_socket]
+    )
+    test_db_session.flush()
+    return {
+        "suffix": suffix,
+        "source_type": source_type,
+        "target_type": target_type,
+        "source_memory": source_memory,
+        "source_wattage": source_wattage,
+        "target_memory": target_memory,
+        "target_socket": target_socket,
+    }
+
+
+def _transition_product(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    transition_spec: dict,
+) -> dict:
+    """Product of the source category storing a list value in the shared code."""
+    created = api_client.post(
+        "/api/v1/admin/products",
+        headers=admin_user["headers"],
+        json={
+            "name": f"Transition probe {transition_spec['suffix']}",
+            "product_type_id": transition_spec["source_type"].id,
+            "manufacturer_id": sample_products["gpu"].manufacturer_id,
+            "price": "199.99",
+            "stock_quantity": 3,
+            "description": "Переход категории",
+            "characteristics": [
+                {"code": "test_probe_source_wattage", "value": 250},
+                {"code": "test_probe_memory_type", "value": ["ddr5"]},
+            ],
+        },
+    )
+    assert created.status_code == 201, created.text
+    return created.json()
+
+
+def _stored_rows(isolated_connection, product_id: int) -> dict[int, Any]:
+    with _service_session(isolated_connection) as db:
+        return dict(
+            db.execute(
+                select(
+                    ProductCharacteristic.characteristic_id,
+                    ProductCharacteristic.value,
+                ).where(ProductCharacteristic.product_id == product_id)
+            ).all()
+        )
+
+
+def _patch_product(
+    api_client: TestClient, admin_user: dict, product_id: int, payload: dict
+):
+    return api_client.patch(
+        f"/api/v1/admin/products/{product_id}",
+        headers=admin_user["headers"],
+        json=payload,
+    )
+
+
+def _assert_transition_rejected(
+    api_client: TestClient,
+    admin_user: dict,
+    product_id: int,
+    payload: dict,
+    source_type_id: int,
+    expected: str,
+    stored: dict[str, Any],
+) -> None:
+    """Rejected transition: clear error, untouched category and untouched values."""
+    response = _patch_product(api_client, admin_user, product_id, payload)
+    assert response.status_code == 422, response.text
+    assert expected in response.json()["detail"]
+    current = api_client.get(
+        f"/api/v1/admin/products/{product_id}", headers=admin_user["headers"]
+    ).json()
+    assert current["product_type"]["id"] == source_type_id
+    assert {row["code"]: row["value"] for row in current["characteristics"]} == stored
+
+
+def test_category_transition_replaces_a_value_of_another_data_type(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    isolated_connection,
+    transition_spec: dict,
+):
+    """A stored list is replaced by the valid string of the target category."""
+    product = _transition_product(
+        api_client, admin_user, sample_products, transition_spec
+    )
+    product_id = product["id"]
+
+    response = _patch_product(
+        api_client,
+        admin_user,
+        product_id,
+        {
+            "product_type_id": transition_spec["target_type"].id,
+            "characteristics": [
+                {"code": "test_probe_memory_type", "value": "ddr5"},
+                {"code": "test_probe_target_socket", "value": "AM5"},
+            ],
+            "remove_characteristics": ["test_probe_source_wattage"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    updated = response.json()
+    assert updated["product_type"]["id"] == transition_spec["target_type"].id
+    assert {row["code"]: row["value"] for row in updated["characteristics"]} == {
+        "test_probe_memory_type": "ddr5",
+        "test_probe_target_socket": "AM5",
+    }
+
+    # The previous category's row is gone: the replacement belongs to the target
+    # category's definition of the same code.
+    assert _stored_rows(isolated_connection, product_id) == {
+        transition_spec["target_memory"].id: "ddr5",
+        transition_spec["target_socket"].id: "AM5",
+    }
+
+
+def test_category_transition_allows_an_explicit_removal(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    isolated_connection,
+    transition_spec: dict,
+):
+    """Explicit removal keeps working when the code changed its data type."""
+    product = _transition_product(
+        api_client, admin_user, sample_products, transition_spec
+    )
+    product_id = product["id"]
+
+    response = _patch_product(
+        api_client,
+        admin_user,
+        product_id,
+        {
+            "product_type_id": transition_spec["target_type"].id,
+            "characteristics": [
+                {"code": "test_probe_target_socket", "value": "AM5"},
+            ],
+            "remove_characteristics": [
+                "test_probe_source_wattage",
+                "test_probe_memory_type",
+            ],
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert _stored_rows(isolated_connection, product_id) == {
+        transition_spec["target_socket"].id: "AM5"
+    }
+
+
+def test_category_transition_rejects_an_incompatible_value_without_replacement(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    transition_spec: dict,
+):
+    """The stored list is never silently carried into a `string` category."""
+    product = _transition_product(
+        api_client, admin_user, sample_products, transition_spec
+    )
+    _assert_transition_rejected(
+        api_client,
+        admin_user,
+        product["id"],
+        {
+            "product_type_id": transition_spec["target_type"].id,
+            "characteristics": [
+                {"code": "test_probe_target_socket", "value": "AM5"},
+            ],
+            "remove_characteristics": ["test_probe_source_wattage"],
+        },
+        transition_spec["source_type"].id,
+        "does not match the target category",
+        {"test_probe_source_wattage": 250, "test_probe_memory_type": ["ddr5"]},
+    )
+
+
+def test_category_transition_rejects_an_invalid_replacement(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    transition_spec: dict,
+):
+    """A replacement has to match the *target* definition of the code."""
+    product = _transition_product(
+        api_client, admin_user, sample_products, transition_spec
+    )
+    _assert_transition_rejected(
+        api_client,
+        admin_user,
+        product["id"],
+        {
+            "product_type_id": transition_spec["target_type"].id,
+            "characteristics": [
+                {"code": "test_probe_memory_type", "value": ["ddr5"]},
+                {"code": "test_probe_target_socket", "value": "AM5"},
+            ],
+            "remove_characteristics": ["test_probe_source_wattage"],
+        },
+        transition_spec["source_type"].id,
+        "text value is required",
+        {"test_probe_source_wattage": 250, "test_probe_memory_type": ["ddr5"]},
+    )
+
+
+def test_category_transition_requires_the_target_characteristics(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    transition_spec: dict,
+):
+    """A valid replacement does not excuse a missing required target value."""
+    product = _transition_product(
+        api_client, admin_user, sample_products, transition_spec
+    )
+    _assert_transition_rejected(
+        api_client,
+        admin_user,
+        product["id"],
+        {
+            "product_type_id": transition_spec["target_type"].id,
+            "characteristics": [
+                {"code": "test_probe_memory_type", "value": "ddr5"},
+            ],
+            "remove_characteristics": ["test_probe_source_wattage"],
+        },
+        transition_spec["source_type"].id,
+        "Сокет цели",
+        {"test_probe_source_wattage": 250, "test_probe_memory_type": ["ddr5"]},
+    )

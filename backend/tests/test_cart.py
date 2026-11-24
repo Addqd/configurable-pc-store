@@ -278,10 +278,8 @@ def _count_statements(db: Session, action) -> list[str]:
     return statements
 
 
-def _cart_with_items(db: Session, user_id: int, products: list) -> Cart:
-    cart = Cart(user_id=user_id)
-    db.add(cart)
-    db.flush()
+def _add_product_items(db: Session, cart: Cart, products: list) -> None:
+    """Adds one line per product; a cart holds each product once."""
     for product in products:
         db.add(
             CartItem(
@@ -293,7 +291,21 @@ def _cart_with_items(db: Session, user_id: int, products: list) -> Cart:
             )
         )
     db.flush()
+
+
+def _cart_with_items(db: Session, user_id: int, products: list) -> Cart:
+    # One cart per user: `carts.user_id` is unique, so a second cart for the same
+    # user is a constraint violation. The number of *lines* is what varies here.
+    cart = Cart(user_id=user_id)
+    db.add(cart)
+    db.flush()
+    _add_product_items(db, cart, products)
     return cart
+
+
+def _statements_reading(statements: list[str], table: str) -> int:
+    """How many of the statements read `table`."""
+    return sum(1 for statement in statements if f"FROM {table}" in statement)
 
 
 def test_cart_serialization_query_count_does_not_grow_with_items(
@@ -301,7 +313,16 @@ def test_cart_serialization_query_count_does_not_grow_with_items(
     sample_products: dict,
     test_db_session: Session,
 ):
-    """Images are eager-loaded once, not per cart line."""
+    """Serializing one cart costs the same with 2 and with 8 product lines.
+
+    The same cart is serialized twice, first with two lines and then with all
+    eight, so both measurements see the same user and the unique
+    `carts.user_id` constraint stays untouched. Each measurement starts from an
+    unloaded ORM state: every attribute of every instance is expired, therefore a
+    relationship that is not eager-loaded has to emit its own statement instead of
+    being served from a collection a previous serialization warmed up. That is what
+    makes the test fail when `selectinload(Product.images)` is removed.
+    """
     everything = list(sample_products.values())
     for product in everything:
         test_db_session.add(
@@ -311,30 +332,47 @@ def test_cart_serialization_query_count_does_not_grow_with_items(
                 sort_order=0,
             )
         )
+        # Real characteristic rows, so the serialized payload is not empty. The
+        # category definitions are whatever the migration seeded plus this probe.
+        conftest_apply_characteristics(
+            test_db_session, product, {"cart_query_probe": 269.1}
+        )
     test_db_session.flush()
 
     user = test_db_session.get(User, registered_user["id"])
     assert user is not None
-    small = _cart_with_items(test_db_session, user.id, everything[:2])
-    large = _cart_with_items(test_db_session, user.id, everything)
+    cart = _cart_with_items(test_db_session, user.id, everything[:2])
 
-    def serialization_statements(cart_id: int) -> list[str]:
-        # Start every measurement from an empty identity map so nothing is served
-        # from a collection loaded by a previous run.
+    def serialization_statements() -> list[str]:
+        # Expire *before* counting and serialize only inside the counter: no
+        # unmeasured serialization may pre-load anything the counted run would
+        # otherwise skip.
         test_db_session.expire_all()
-        loaded = _cart_to_out(test_db_session.get(Cart, cart_id), test_db_session)
-        assert loaded.items
-        return _count_statements(
-            test_db_session,
-            lambda: _cart_to_out(test_db_session.get(Cart, cart_id), test_db_session),
+        loaded_cart = test_db_session.get(Cart, cart.id)
+        assert loaded_cart is not None
+        statements = _count_statements(
+            test_db_session, lambda: _cart_to_out(loaded_cart, test_db_session)
         )
+        assert statements
+        return statements
 
-    small_statements = serialization_statements(small.id)
-    large_statements = serialization_statements(large.id)
+    small_statements = serialization_statements()
 
+    _add_product_items(test_db_session, cart, everything[2:])
+
+    large_statements = serialization_statements()
+
+    for statements in (small_statements, large_statements):
+        # The serializer really loads the cart lines, their products, their
+        # images and their characteristics — nothing is served from a warm cache.
+        assert _statements_reading(statements, "cart_items") == 1
+        assert _statements_reading(statements, "products") == 1
+        assert _statements_reading(statements, "product_images") == 1
+        assert _statements_reading(statements, "characteristics") == 1
+        assert _statements_reading(statements, "product_characteristics") == 1
+
+    # The statement count is a small constant that does not grow with the number
+    # of lines: 8 lines cost exactly as many statements as 2. Lazy-loading the
+    # images alone would add one statement per line and break both this equality
+    # and the `product_images == 1` assertion above.
     assert len(large_statements) == len(small_statements)
-    assert len([s for s in large_statements if "product_images" in s]) == 1
-    product_queries = [
-        s for s in large_statements if "FROM products" in s and "cart_items" not in s
-    ]
-    assert len(product_queries) == 1
