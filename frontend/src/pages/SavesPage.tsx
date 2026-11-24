@@ -173,7 +173,8 @@ function SavesContent() {
         selections[item.slot as BuilderCategory] = productFromDetail(product)
       }))
       if (useAccountStore.getState().activeAccountId !== account.id) return
-      useBuilderStore.setState({ selections, editingBuildId: build.id })
+      // Restoring a saved configuration always starts an unverified draft.
+      useBuilderStore.getState().openSavedBuild(selections, build.id)
       navigate('/builder')
     } catch { setError(t('saved_builds.restore_error', { name: build.name })) }
   }

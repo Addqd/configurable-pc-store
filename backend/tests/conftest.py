@@ -164,6 +164,47 @@ def sample_products(test_db_session: Session) -> dict:
     return products
 
 
+# Every characteristic the approved compatibility rule set reads, with values
+# that agree with each other. Applied by `apply_compatible_build`.
+COMPATIBLE_SPECS: dict[str, dict[str, object]] = {
+    "cpu": {"socket": "AM5", "memory_type": ["DDR5"]},
+    "mobo": {
+        "socket": "AM5",
+        "memory_type": "DDR5",
+        "max_memory_gb": 128,
+        "ram_slots": 4,
+        "form_factor": "ATX",
+        "gpu_interfaces": ["pcie_x16"],
+        "storage_interfaces": ["nvme", "sata"],
+        "supported_nvme_lengths_mm": [60, 80],
+        "required_cpu_power_connectors": ["eps8"],
+        "required_board_power_connectors": ["atx24"],
+    },
+    "gpu": {"interface": "pcie_x16", "required_power_connectors": ["8pin"]},
+    "ram": {"memory_type": "DDR5", "capacity_gb": 32, "module_count": 2},
+    "storage": {"interface": "nvme", "length_mm": 80},
+    "psu": {
+        "wattage_w": 750,
+        "form_factor": "ATX",
+        "available_gpu_power_connectors": ["8pin", "8pin"],
+        "available_cpu_power_connectors": ["eps8", "eps8"],
+        "available_board_power_connectors": ["atx24"],
+    },
+    "case": {
+        "supported_motherboard_form_factors": ["ATX", "MATX"],
+        "supported_psu_form_factors": ["ATX"],
+    },
+    "cooling": {"supported_sockets": ["AM5"], "cooling_type": "air"},
+}
+
+
+def apply_compatible_build(db: Session, products: dict) -> dict[str, int]:
+    """Give every sample product a mutually compatible set of characteristics."""
+    for slot, values in COMPATIBLE_SPECS.items():
+        apply_characteristics(db, products[slot], dict(values))
+    return {slot: product.id for slot, product in products.items()}
+
+
 def apply_characteristics(
     db: Session, product: Product, values: dict[str, object]
 ) -> None:

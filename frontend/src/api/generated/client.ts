@@ -2962,6 +2962,10 @@ export const getAddBuildApiV1CartBuildsPostUrl = () => {
 }
 
 /**
+ * Add a saved build or a directly configured build to the cart.
+ *
+ * The server re-validates the configuration itself: the client is never
+ * authoritative about compatibility, prices, stock or component names.
  * @summary Add Build
  */
 export const addBuildApiV1CartBuildsPost = async (cartAddBuildRequest: CartAddBuildRequest, options?: Parameters<typeof apiFetch>[1]): Promise<CartOut> => {
@@ -3028,7 +3032,13 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type AddBuildApiV1CartBuildsPostMutationError = HTTPValidationError
     export type AddBuildApiV1CartBuildsPostMutationVariables = {data: CartAddBuildRequest}
 
-    /** @summary Add Build */
+    /**
+ * Add a saved build or a directly configured build to the cart.
+ *
+ * The server re-validates the configuration itself: the client is never
+ * authoritative about compatibility, prices, stock or component names.
+ * @summary Add Build
+ */
 export const useAddBuildApiV1CartBuildsPost = <TError = HTTPValidationError,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof addBuildApiV1CartBuildsPost>>, TError,AddBuildApiV1CartBuildsPostMutationVariables, TContext>, request?: SecondParameter<typeof apiFetch>}
  , queryClient?: QueryClient): UseMutationResult<

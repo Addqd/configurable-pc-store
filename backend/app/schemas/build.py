@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -54,12 +54,33 @@ class SavedBuildUpdate(BaseModel):
     items: list[BuildItemCreate] | None = Field(default=None, max_length=8)
 
 
+class CompatibilityEvidence(BaseModel):
+    """One characteristic that took part in a compatibility check.
+
+    `value` is the stored native JSON value (``None`` when the product has no
+    value for that code); `display_value` is the server rendering in the stored
+    language. Clients localize from the structured fields, never by parsing
+    `message`.
+    """
+
+    slot: str
+    product_id: int
+    product_name: str
+    code: str
+    name: str
+    data_type: str
+    unit: str | None = None
+    value: Any = None
+    display_value: str | None = None
+
+
 class CompatibilityStatus(BaseModel):
     product_id: int
     product_name: str
     slot: str
     status: Status
     message: str | None = None
+    details: list[CompatibilityEvidence] = Field(default_factory=list)
 
 
 class BuildCompatibilityOut(BaseModel):

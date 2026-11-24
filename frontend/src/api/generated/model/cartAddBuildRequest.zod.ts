@@ -6,16 +6,24 @@
  */
 import * as zod from 'zod';
 
-export const cartAddBuildRequestSavedBuildIdExclusiveMin = 0;
+export const cartAddBuildRequestSavedBuildIdOneExclusiveMin = 0;
+
+export const cartAddBuildRequestItemsOneItemProductIdExclusiveMin = 0;
+
+export const cartAddBuildRequestItemsOneMax = 8;
 
 export const cartAddBuildRequestQuantityDefault = 1;
 export const cartAddBuildRequestQuantityExclusiveMin = 0;
 
 
 export const CartAddBuildRequest = zod.object({
-  "saved_build_id": zod.int().gt(cartAddBuildRequestSavedBuildIdExclusiveMin),
+  "saved_build_id": zod.union([zod.int().gt(cartAddBuildRequestSavedBuildIdOneExclusiveMin),zod.null()]).optional(),
+  "items": zod.union([zod.array(zod.object({
+  "slot": zod.enum(['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling']),
+  "product_id": zod.int().gt(cartAddBuildRequestItemsOneItemProductIdExclusiveMin)
+})).max(cartAddBuildRequestItemsOneMax),zod.null()]).optional(),
   "quantity": zod.int().gt(cartAddBuildRequestQuantityExclusiveMin).default(cartAddBuildRequestQuantityDefault)
-})
+}).describe('Add a saved build or a directly configured, never-saved build.\n\nExactly one source is required: `saved_build_id` for an existing private\nsaved build, or `items` for a configuration submitted from the configurator.')
 
 export type CartAddBuildRequest = zod.input<typeof CartAddBuildRequest>;
 export type CartAddBuildRequestOutput = zod.output<typeof CartAddBuildRequest>;

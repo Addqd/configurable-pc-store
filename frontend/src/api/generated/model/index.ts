@@ -55,6 +55,7 @@ export * from './characteristicValueIn.zod';
 export * from './characteristicValueOut.zod';
 export * from './checkCurrentCompatibilityApiV1BuildsCompatibilityPostBody.zod';
 export * from './checkoutResponse.zod';
+export * from './compatibilityEvidence.zod';
 export * from './compatibilityStatus.zod';
 export * from './createBuildApiV1BuildsPostBody.zod';
 export * from './createProductApiV1AdminProductsPostBody.zod';

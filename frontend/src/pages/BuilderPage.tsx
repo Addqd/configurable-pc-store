@@ -1,7 +1,7 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { Header } from '../components/Header'
@@ -11,102 +11,117 @@ import { BuilderComponentRow } from '../components/BuilderComponentRow'
 import { BuilderSidebar } from '../components/BuilderSidebar'
 import { BuilderSpecsTable } from '../components/BuilderSpecsTable'
 import { BuilderActions } from '../components/BuilderActions'
+import { BuilderConflictsModal } from '../components/BuilderConflictsModal'
 import {
-  useBuilderStore, BUILDER_CATEGORIES, countSelected, type BuilderSelections,
+  useBuilderStore, BUILDER_CATEGORIES, countSelected, selectionSignature,
+  type BuilderSelections,
 } from '../stores/builderStore'
 import { createBuildApiV1BuildsPost, updateBuildApiV1BuildsBuildIdPut, addBuildApiV1CartBuildsPost, useGetBuildApiV1BuildsBuildIdGet, checkCurrentCompatibilityApiV1BuildsCompatibilityPost } from '../api/generated/client'
-import { FiCheckCircle } from 'react-icons/fi'
+import { FiCheckCircle, FiAlertTriangle } from 'react-icons/fi'
 import { checkTouchesComponent, compatibilityMessage } from '../data/compatibilityMessages'
 import { ApiError } from '../api/transport'
 import { BuilderCompatibilitySkeleton } from '../components/skeletons/BuilderSkeletons'
 
+/** Component items of one configuration, the exact payload the server checks. */
+function selectionItems(selections: BuilderSelections) {
+  return BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
+}
+
 export function BuilderPage() {
   const { t } = useTranslation()
   const [confirmAction, setConfirmAction] = useState<'clear' | null>(null)
-  const [addedToCartFor, setAddedToCartFor] = useState<BuilderSelections | null>(null)
-  const [createdFor, setCreatedFor] = useState<BuilderSelections | null>(null)
+  const [addedToCartFor, setAddedToCartFor] = useState<string | null>(null)
+  const [savedNotice, setSavedNotice] = useState<{ signature: string; message: string } | null>(null)
+  const [conflictModalFor, setConflictModalFor] = useState<string | null>(null)
+  const [cartError, setCartError] = useState('')
   const [saveOpen, setSaveOpen] = useState(false)
   const [saveName, setSaveName] = useState(t('builder.save_name_placeholder'))
   const [saveDescription, setSaveDescription] = useState('')
   const [saveError, setSaveError] = useState('')
-  const [savedNotice, setSavedNotice] = useState<{ selections: BuilderSelections; message: string } | null>(null)
   const openAuthModal = useUIStore((state) => state.openAuthModal)
   const activeAccountId = useAccountStore((state) => state.activeAccountId)
   const editingBuildId = useBuilderStore((state) => state.editingBuildId)
   const selections = useBuilderStore((state) => state.selections)
-  const addedToCart = addedToCartFor === selections
-  const created = createdFor === selections
-  const saveNotice = savedNotice?.selections === selections ? savedNotice.message : ''
+  const verification = useBuilderStore((state) => state.verification)
+  const startVerification = useBuilderStore((state) => state.startVerification)
+  const settleVerification = useBuilderStore((state) => state.settleVerification)
   const clearAll = useBuilderStore((state) => state.clearAll)
   const count = countSelected(selections)
+  const total = BUILDER_CATEGORIES.length
+  const complete = count === total
+  const signature = selectionSignature(selections)
+  // A verdict belongs to one exact configuration; anything else is not a result.
+  const current = verification && verification.signature === signature ? verification : null
+  const phase = current?.phase ?? 'idle'
+  const checks = current?.checks ?? []
+  const checking = phase === 'checking'
+  const compatible = phase === 'compatible'
+  const incompatible = phase === 'incompatible'
+  const conflicts = incompatible ? checks.filter(item => item.status === 'incompatible') : []
+  const unresolved = phase === 'unknown' ? checks.filter(item => item.status === 'unknown') : []
+  const addedToCart = addedToCartFor === signature
+  const saveNotice = savedNotice?.signature === signature ? savedNotice.message : ''
+  const showConflicts = conflictModalFor === signature && incompatible && conflicts.length > 0
   const client = useQueryClient()
   const saved = useGetBuildApiV1BuildsBuildIdGet(editingBuildId ?? 0, { query: { enabled: !!activeAccountId && editingBuildId !== null, retry: false } })
-  const matchesSaved = !!saved.data && (saved.data.items ?? []).length === count && BUILDER_CATEGORIES.every(slot =>
-    (selections[slot]?.id ?? null) === ((saved.data?.items ?? []).find(item => item.slot === slot)?.product_id ?? null))
-  const items = BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
-  const compatibility = useQuery({ queryKey: ['current-compatibility', items], enabled: count > 0, retry: false,
-    queryFn: ({ signal }) => checkCurrentCompatibilityApiV1BuildsCompatibilityPost({ items }, { signal }) })
-  // The query key contains the selected items, so cached data always belongs to the
-  // current configuration. `isFetching` alone is not a loading state: a background
-  // refetch of the same selection must keep its verdict instead of hiding it.
-  // A failed background refetch also keeps the cached verdict (TanStack Query keeps
-  // `data` in an error state), so the verdict follows data availability, not success.
-  const verdict = compatibility.data
-  const status = verdict ? verdict.overall_status : 'unknown'
-  const diagnostics = verdict ? verdict.items.filter(item => item.status !== 'compatible') : []
-  const compatibilityPending = count > 0 && compatibility.isPending
-  // Only a check without any result for the current configuration may show an error.
-  const compatibilityFailed = compatibility.isError && verdict === undefined
-  // A saved build is being loaded into the configurator: its name and its match with
-  // the current selection are still unknown, so actions must wait for that answer.
+  // Only the name/description of the edited build still come from the server; the
+  // cart no longer depends on saving the configuration first.
+  const items = selectionItems(selections)
   const savedPending = editingBuildId !== null && !!activeAccountId && saved.isPending
   const savedStatus = saved.error instanceof ApiError ? saved.error.status : 0
   const savedMissing = saved.isError && savedStatus === 404
   const savedForbidden = saved.isError && (savedStatus === 401 || savedStatus === 403)
-  const relevant = diagnostics.filter(item => status === 'incompatible' ? item.status === 'incompatible' : item.status === 'unknown')
-  const messages = [...new Set(relevant.map(item => compatibilityMessage(item, t)))]
-  const canCreate = count > 0
+  const messages = (incompatible ? conflicts : unresolved).map(item => compatibilityMessage(item, t))
+  const canCreate = complete && !checking
   const missing = BUILDER_CATEGORIES.filter((category) => !selections[category])
   const validationMessage = [
     missing.length > 0 ? t('builder.select_missing', { components: missing.map((category) => t('builder.components.' + category)).join(', ') }) : '',
   ].filter(Boolean).join(' ')
-
-  useEffect(() => {
-    if (!confirmAction) return
-    const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setConfirmAction(null) }
-    document.addEventListener('keydown', onEscape)
-    return () => document.removeEventListener('keydown', onEscape)
-  }, [confirmAction])
-  useEffect(() => {
-    if (!saveOpen) return
-    const onEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setSaveOpen(false) }
-    document.addEventListener('keydown', onEscape)
-    return () => document.removeEventListener('keydown', onEscape)
-  }, [saveOpen])
-  const addBuild = useMutation({ mutationFn: (id: number) => addBuildApiV1CartBuildsPost({ saved_build_id: id, quantity: 1 }), onSuccess: () => client.invalidateQueries() })
+  const addBuild = useMutation({ mutationFn: (buildItems: typeof items) => addBuildApiV1CartBuildsPost({ items: buildItems, quantity: 1 }), onSuccess: () => client.invalidateQueries() })
   const saveMutation = useMutation({ mutationFn: async ({ name, description }: { name: string; description: string }) => {
-    const items = BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
     if (editingBuildId === null) return createBuildApiV1BuildsPost({ name, description, items })
     return updateBuildApiV1BuildsBuildIdPut(editingBuildId, { name, description, items })
   }, onSettled: () => client.invalidateQueries() })
 
   const handleAddToCart = async () => {
-    if (editingBuildId === null || status !== 'compatible' || !matchesSaved) return
-    try { await addBuild.mutateAsync(editingBuildId); setAddedToCartFor(selections) }
-    catch { setSaveError(t('common.load_error')) }
+    // The server re-validates compatibility, stock and prices; this is only the
+    // client-side gate that requires an explicit check of these exact selections.
+    if (!complete || !compatible || checking) return
+    if (!activeAccountId) { openAuthModal('login'); return }
+    setCartError('')
+    try {
+      await addBuild.mutateAsync(selectionItems(selections))
+      setAddedToCartFor(signature)
+    } catch { setCartError(t('builder.cart_error')) }
   }
 
   const requestClear = () => {
     if (count > 0) setConfirmAction('clear')
   }
 
-  const handleCreate = () => {
-    if (status !== 'compatible') return
-    setCreatedFor(selections)
+  const handleCreate = async () => {
+    // A second submission while a check is in flight is never started.
+    if (!canCreate || useBuilderStore.getState().verification?.phase === 'checking') return
+    // The submitted configuration is captured now: any later change makes this
+    // response outdated instead of silently verifying another build.
+    const requested = signature
+    const requestedItems = selectionItems(selections)
+    setConflictModalFor(null)
+    setCartError('')
+    startVerification(requested)
+    try {
+      const result = await checkCurrentCompatibilityApiV1BuildsCompatibilityPost({ items: requestedItems })
+      const status = result.overall_status
+      settleVerification(requested, status, result.items ?? [])
+      const settled = useBuilderStore.getState().verification
+      if (settled?.signature === requested && settled.phase === 'incompatible') setConflictModalFor(requested)
+    } catch {
+      settleVerification(requested, 'failed', [])
+    }
   }
 
   const requestSave = () => {
-    if (!canCreate) return
+    if (count === 0) return
     if (!activeAccountId) {
       openAuthModal('login')
       return
@@ -129,14 +144,21 @@ export function BuilderPage() {
       if (useAccountStore.getState().activeAccountId !== activeAccountId) return
       useBuilderStore.setState({ editingBuildId: build.id })
       setSaveOpen(false)
-      setSavedNotice({ selections, message: t('builder.save_success', { name: saveName.trim() }) })
-    } catch { setSaveError(t('builder.save_error_account')) }
+      setSavedNotice({ signature, message: t('builder.save_success', { name: saveName.trim() }) })
+    } catch (error) {
+      setSaveError(error instanceof ApiError && error.status === 409
+        ? t('builder.limit_reached')
+        : t('builder.save_error_account'))
+    }
   }
 
   const confirmClear = () => {
+    // Resets selections, verification and every piece of feedback for them.
     clearAll()
     setAddedToCartFor(null)
-    setCreatedFor(null)
+    setConflictModalFor(null)
+    setCartError('')
+    setSavedNotice(null)
     setConfirmAction(null)
   }
 
@@ -156,18 +178,18 @@ export function BuilderPage() {
               </div>
 
               <div className="space-y-2">
-                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} conflicts={[...new Set(diagnostics.filter(item => item.status === 'incompatible' && checkTouchesComponent(item.slot, category)).map(item => compatibilityMessage(item, t)))]} />)}
+                {BUILDER_CATEGORIES.map((category) => <BuilderComponentRow key={category} category={category} conflicts={[...new Set(conflicts.filter(item => checkTouchesComponent(item.slot, category)).map(item => compatibilityMessage(item, t)))]} />)}
               </div>
 
               <div className="mt-3"><BuilderSpecsTable /></div>
               <div className="mt-3">
                 <BuilderActions
-                  onCreate={handleCreate}
+                  onCreate={() => { void handleCreate() }}
                   onClear={requestClear}
                   onSave={requestSave}
                   hasSelections={count > 0 || editingBuildId !== null}
-                  canCreate={status === 'compatible'}
-                  canSave={canCreate && !savedPending}
+                  canCreate={canCreate}
+                  canSave={count > 0 && !savedPending}
                   validationMessage={validationMessage}
                 />
               </div>
@@ -187,15 +209,40 @@ export function BuilderPage() {
                   )}
                 </div>
               )}
+              {incompatible && (
+                <div role="alert" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-text-primary">
+                  <FiAlertTriangle className="shrink-0 text-red-500" />
+                  <span className="text-red-500">{t('builder.conflict_notice', { count: conflicts.length })}</span>
+                  <button type="button" onClick={() => setConflictModalFor(signature)}
+                    className="rounded-md border border-red-500/40 bg-surface px-3 py-1 text-sm font-medium text-text-primary hover:border-red-500">
+                    {t('builder.conflict_notice_details')}
+                  </button>
+                </div>
+              )}
+              {phase === 'unknown' && (
+                <div role="alert" className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+                  {t('builder.unknown_notice', { count: unresolved.length })}
+                </div>
+              )}
+              {phase === 'failed' && (
+                <div role="alert" className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-500">
+                  {t('builder.check_failed')}
+                </div>
+              )}
+              {compatible && (
+                <div role="status" className="mt-3 flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-primary">
+                  <FiCheckCircle className="text-emerald-500" />{t('builder.build_ready')}
+                </div>
+              )}
+              {cartError && (
+                <div role="alert" className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-500">
+                  {cartError}
+                </div>
+              )}
               {saveNotice && (
                 <div role="status" className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-primary">
                   <FiCheckCircle className="text-emerald-500" />{saveNotice}
                   <Link to="/builds" className="font-semibold text-primary hover:underline">{t('builder.saved_builds')}</Link>
-                </div>
-              )}
-              {created && (
-                <div role="status" className="mt-3 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-text-primary">
-                  {t('builder.build_ready')}
                 </div>
               )}
               {addedToCart && (
@@ -205,12 +252,15 @@ export function BuilderPage() {
                 </div>
               )}
             </section>
-            <BuilderSidebar onAddToCart={handleAddToCart} status={status} canAdd={matchesSaved} checked={verdict !== undefined} loading={compatibilityPending} error={compatibilityFailed} messages={messages} savedPending={savedPending} />
+            <BuilderSidebar onAddToCart={() => { void handleAddToCart() }} status={compatible ? 'compatible' : incompatible ? 'incompatible' : 'unknown'}
+              canAdd={compatible} checked={phase === 'compatible' || phase === 'incompatible' || phase === 'unknown'}
+              loading={checking} error={phase === 'failed'} messages={messages} />
           </div>
         </div>
       </main>
       <Footer />
 
+      {showConflicts && <BuilderConflictsModal conflicts={conflicts} onClose={() => setConflictModalFor(null)} />}
       {confirmAction && (
         <div className="fixed inset-0 z-[130] flex items-center justify-center bg-black/60 p-4"
           onMouseDown={(event) => { if (event.target === event.currentTarget) setConfirmAction(null) }}>
