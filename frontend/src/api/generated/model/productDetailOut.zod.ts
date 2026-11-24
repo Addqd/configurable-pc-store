@@ -6,10 +6,7 @@
  */
 import * as zod from 'zod';
 
-export const productDetailOutSpecLinesDefault = [];
-export const productDetailOutShortSpecsDefault = [];
-export const productDetailOutTechnicalSpecsDefault = {};
-export const productDetailOutDisplaySpecsDefault = [];
+export const productDetailOutCharacteristicsDefault = [];
 export const productDetailOutImagesDefault = [];
 export const productDetailOutAverageRatingDefault = 0;
 export const productDetailOutReviewCountDefault = 0;
@@ -23,13 +20,18 @@ export const ProductDetailOut = zod.object({
   "stock_quantity": zod.int(),
   "color": zod.union([zod.string(),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string(),zod.null()]).optional(),
-  "spec_lines": zod.array(zod.string()).default(productDetailOutSpecLinesDefault),
-  "short_specs": zod.array(zod.string()).default(productDetailOutShortSpecsDefault),
-  "technical_specs": zod.record(zod.string(), zod.unknown()).default(productDetailOutTechnicalSpecsDefault),
-  "display_specs": zod.array(zod.object({
-  "label": zod.string(),
-  "value": zod.string()
-}).describe('Customer-facing specification row; internal evidence metadata is not exposed.')).default(productDetailOutDisplaySpecsDefault),
+  "characteristics": zod.array(zod.object({
+  "code": zod.string(),
+  "name": zod.string(),
+  "data_type": zod.string(),
+  "unit": zod.union([zod.string(),zod.null()]).optional(),
+  "sort_order": zod.int(),
+  "is_required": zod.boolean(),
+  "show_in_short": zod.boolean(),
+  "show_in_details": zod.boolean(),
+  "value": zod.unknown(),
+  "display_value": zod.string()
+}).describe('One category-scoped characteristic value of a product.\n\n`value` keeps its native JSON type (number, boolean, ordered list) so clients\ncan reason about it structurally. `display_value` is the ready-to-render\nstring: unit appended once, no raw JSON and no Python representation.')).default(productDetailOutCharacteristicsDefault),
   "on_sale": zod.boolean(),
   "is_active": zod.boolean(),
   "listed_at": zod.iso.date(),

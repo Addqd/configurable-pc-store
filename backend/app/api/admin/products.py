@@ -12,10 +12,10 @@ from app.schemas.admin_products import (
     AdminProductDetailOut,
     AdminProductImageOut,
     AdminProductUpdate,
+    CharacteristicDefinitionsOut,
     ProductFormOptionsOut,
     ProductSort,
     ProductStatusFilter,
-    SpecificationTemplateOut,
 )
 from app.services import product_admin_service as products_svc
 from app.services import product_image_service as images_svc
@@ -66,13 +66,14 @@ def get_product_options(db: DBSessionDep, admin: AdminUserDep) -> ProductFormOpt
 
 
 @router.get(
-    "/product-types/{product_type_id}/spec-fields",
-    response_model=SpecificationTemplateOut,
+    "/categories/{category_id}/characteristics",
+    response_model=CharacteristicDefinitionsOut,
 )
-def get_spec_template(
-    product_type_id: int, db: DBSessionDep, admin: AdminUserDep
-) -> SpecificationTemplateOut:
-    return products_svc.spec_template(db, product_type_id)
+def get_characteristic_definitions(
+    category_id: int, db: DBSessionDep, admin: AdminUserDep
+) -> CharacteristicDefinitionsOut:
+    """Category-scoped field definitions for the dynamic product editor."""
+    return products_svc.characteristic_definitions(db, category_id)
 
 
 @router.get("/products/{product_id}", response_model=AdminProductDetailOut)

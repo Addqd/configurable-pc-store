@@ -155,9 +155,6 @@ def sample_products(test_db_session: Session) -> dict:
             description="Test-only item",
             price="199.99",
             stock_quantity=20,
-            spec_lines=[],
-            short_specs=[],
-            technical_specs={},
             on_sale=False,
             is_active=True,
         )
@@ -165,6 +162,59 @@ def sample_products(test_db_session: Session) -> dict:
         test_db_session.flush()
         products[category] = product
     return products
+
+
+def apply_characteristics(
+    db: Session, product: Product, values: dict[str, object]
+) -> None:
+    """Attach structured values to a product through the normalized tables.
+
+    Missing definitions are created in the product's category with a data type
+    inferred from the Python value; an existing definition keeps its declared
+    type. Used by tests that need a technically complete build.
+    """
+    from app.models import Characteristic, ProductCharacteristic
+    from app.services import spec_service
+
+    category_id = product.product_type.category_id
+    known = {
+        definition.code: definition
+        for definition in spec_service.definitions_for_category(db, category_id)
+    }
+
+    def _type_of(value: object) -> str:
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, (int, float)):
+            return "number"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, list) and all(isinstance(x, str) for x in value):
+            return "string_list"
+        return "number_list"
+
+    for code, value in values.items():
+        definition = known.get(code)
+        if definition is None:
+            row = Characteristic(
+                category_id=category_id,
+                code=code,
+                name=code,
+                data_type=_type_of(value),
+                sort_order=900,
+            )
+            db.add(row)
+            db.flush()
+            definition = spec_service.CharacteristicDefinition.from_row(row)
+            known[code] = definition
+        db.add(
+            ProductCharacteristic(
+                product_id=product.id,
+                characteristic_id=definition.id,
+                value=value,
+            )
+        )
+    db.flush()
 
 
 @pytest.fixture()

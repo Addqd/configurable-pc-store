@@ -1,7 +1,7 @@
-"""Admin platform tables added by Alembic revision d4e5f6a7b8c9.
+"""Admin platform tables: the audit event journal and the independent sales ledger.
 
-These four tables back the specification templates, the audit event journal and
-the independent sales ledger. They mirror the applied PostgreSQL schema listed in
+These two tables (`site_events`, `sales_line_facts`) back the platform admin area.
+They mirror the applied PostgreSQL schema listed in
 `alembic/versions/d4e5f6a7b8c9_admin_platform.py`.
 
 Deliberate architecture (do not "fix"):
@@ -22,7 +22,6 @@ from typing import Any
 
 from sqlalchemy import (
     BigInteger,
-    Boolean,
     CheckConstraint,
     DateTime,
     ForeignKey,
@@ -32,7 +31,6 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
     text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -40,63 +38,6 @@ from sqlalchemy.ext.mutable import MutableDict
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
-
-class ProductSpecField(Base):
-    __tablename__ = "product_spec_fields"
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    product_type_id: Mapped[int] = mapped_column(
-        BigInteger, ForeignKey("product_types.id", ondelete="CASCADE"), nullable=False
-    )
-    code: Mapped[str] = mapped_column(String(64), nullable=False)
-    label: Mapped[str] = mapped_column(String(120), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
-    is_required: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, server_default=text("true")
-    )
-
-    __table_args__ = (
-        UniqueConstraint("product_type_id", "code", name="uq_spec_fields_type_code"),
-        UniqueConstraint(
-            "product_type_id",
-            "sort_order",
-            name="uq_spec_fields_type_order",
-        ),
-        CheckConstraint(
-            "sort_order >= 0",
-            name="ck_spec_fields_order_nonnegative",
-        ),
-        CheckConstraint(
-            "length(btrim(label)) > 0",
-            name="ck_spec_fields_label_nonempty",
-        ),
-        Index("ix_spec_fields_type", "product_type_id"),
-    )
-
-
-class ProductSpecOption(Base):
-    __tablename__ = "product_spec_options"
-
-    id: Mapped[int] = mapped_column(BigInteger, Identity(), primary_key=True)
-    field_id: Mapped[int] = mapped_column(
-        BigInteger,
-        ForeignKey("product_spec_fields.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    value: Mapped[str] = mapped_column(String(180), nullable=False)
-    sort_order: Mapped[int] = mapped_column(Integer, nullable=False)
-
-    __table_args__ = (
-        UniqueConstraint("field_id", "value", name="uq_spec_options_field_value"),
-        UniqueConstraint("field_id", "sort_order", name="uq_spec_options_field_order"),
-        CheckConstraint("sort_order >= 0", name="ck_spec_options_order_nonnegative"),
-        CheckConstraint(
-            "length(btrim(value)) > 0",
-            name="ck_spec_options_value_nonempty",
-        ),
-        Index("ix_spec_options_field", "field_id"),
-    )
 
 
 class SiteEvent(Base):

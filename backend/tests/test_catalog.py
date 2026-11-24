@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.models import ProductImage
+from tests.conftest import apply_characteristics
 
 
 def test_placeholder_is_original_jpeg(api_client: TestClient):
@@ -90,28 +91,25 @@ def test_single_image_is_cover_and_alt_text_is_serialized(
     assert len(gallery["images"]) == 1
 
 
-def test_product_detail_exposes_display_specs_without_evidence(
+def test_product_detail_exposes_show_in_details_characteristics(
     api_client: TestClient, test_db_session: Session, sample_products: dict
 ):
     product = sample_products["gpu"]
-    product.display_specs = [
-        {
-            "label": "Объём видеопамяти",
-            "value": "12 ГБ",
-            "evidence": {"source": "internal-vendor-sheet"},
-        },
-        {"label": "Разрядность шины", "value": "192 бит"},
-    ]
-    test_db_session.flush()
+    apply_characteristics(
+        test_db_session, product, {"vram_gb": 12, "memory_bus_bits": 192}
+    )
     body = api_client.get(f"/api/v1/products/{product.slug}").json()
-    assert body["display_specs"] == [
-        {"label": "Объём видеопамяти", "value": "12 ГБ"},
-        {"label": "Разрядность шины", "value": "192 бит"},
-    ]
-    assert "evidence" not in json.dumps(body["display_specs"])
-    assert body["technical_specs"] == {}
+    rows = {row["code"]: row for row in body["characteristics"]}
+    assert rows["vram_gb"]["value"] == 12
+    assert rows["memory_bus_bits"]["value"] == 192
+    # Native JSON numbers stay numbers; the display string carries the unit once.
+    assert isinstance(rows["vram_gb"]["value"], int)
+    assert rows["memory_bus_bits"]["display_value"].endswith("бит")
+    # No raw JSON object, no internal metadata, no Python representation.
+    assert "{" not in json.dumps(body["characteristics"], ensure_ascii=False)
     empty = api_client.get(f"/api/v1/products/{sample_products['cpu'].slug}").json()
-    assert empty["display_specs"] == []
+    assert empty["characteristics"] == []
+    assert empty["short_characteristics"] == []
 
 
 def test_filter_total_matches_products(api_client: TestClient, sample_products: dict):

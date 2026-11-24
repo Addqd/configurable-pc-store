@@ -1,11 +1,11 @@
-"""Product administration: validated CRUD, automatic SKU/slug, spec templates."""
+"""Product administration: validated CRUD, automatic SKU/slug, characteristics."""
 
 from __future__ import annotations
 
 import re
 import secrets
 from datetime import date
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -19,14 +19,15 @@ from app.schemas.admin_products import (
     AdminProductImageOut,
     AdminProductSummaryOut,
     AdminProductUpdate,
+    CharacteristicDataType,
+    CharacteristicDefinitionOut,
+    CharacteristicDefinitionsOut,
     ProductFormOptionsOut,
-    ProductSpecFieldOut,
-    ProductSpecOptionOut,
     ProductTypeWithCategoryOut,
-    SpecificationTemplateOut,
 )
 from app.schemas.catalog import (
     CategoryOut,
+    CharacteristicValueOut,
     ManufacturerOut,
     ProductTypeOut,
 )
@@ -160,7 +161,9 @@ def _detail(db: Session, product: Product) -> AdminProductDetailOut:
             Review.product_id == product.id, Review.is_published.is_(True)
         )
     ).one()
-    fields, _ = spec_service.template_fields(db, product.product_type_id)
+    category_id = product.product_type.category.id
+    definitions = spec_service.definitions_for_category(db, category_id)
+    values = spec_service.values_for_product(db, product.id)
     return AdminProductDetailOut(
         id=product.id,
         slug=product.slug,
@@ -171,13 +174,10 @@ def _detail(db: Session, product: Product) -> AdminProductDetailOut:
         stock_quantity=product.stock_quantity,
         color=product.color,
         graphics_chip_brand=product.graphics_chip_brand,
-        spec_lines=product.spec_lines or [],
-        short_specs=product.short_specs or [],
-        technical_specs=product.technical_specs or {},
-        display_specs=catalog_service.serialize_display_specs(product.display_specs),
-        specifications=spec_service.specifications_view(
-            product.technical_specs, fields
-        ),
+        characteristics=[
+            CharacteristicValueOut(**row)
+            for row in spec_service.serialize_definitions(definitions, values)
+        ],
         on_sale=product.on_sale,
         is_active=product.is_active,
         listed_at=product.listed_at,
@@ -274,13 +274,13 @@ def _assert_slug_free(db: Session, slug: str, exclude_id: int | None = None) -> 
         raise ConflictError("Slug already exists")
 
 
-def _display_specs_payload(
+def _submitted_characteristics(
     data: AdminProductCreate | AdminProductUpdate,
-) -> list[dict[str, str]] | None:
-    specs = getattr(data, "display_specs", None)
-    if specs is None:
-        return None
-    return [{"label": spec.label, "value": spec.value} for spec in specs]
+) -> list[tuple[str, Any]]:
+    items = getattr(data, "characteristics", None)
+    if items is None:
+        return []
+    return [(item.code, item.value) for item in items]
 
 
 def list_products(
@@ -358,12 +358,10 @@ def create_product(
 ) -> AdminProductDetailOut:
     product_type = _resolve_type(db, data.product_type_id)
     manufacturer = _resolve_manufacturer(db, data.manufacturer_id)
-    technical = spec_service.validate_specifications(
+    definitions, values = spec_service.validate_values(
         db,
-        product_type.id,
-        submitted=data.specifications,
-        technical_specs=data.technical_specs,
-        base=data.technical_specs,
+        product_type.category_id,
+        _submitted_characteristics(data),
     )
     sku = data.sku or generate_sku(db, product_type.slug, manufacturer.slug)
     if data.sku:
@@ -383,10 +381,6 @@ def create_product(
         stock_quantity=data.stock_quantity,
         color=data.color,
         graphics_chip_brand=data.graphics_chip_brand,
-        spec_lines=data.spec_lines,
-        short_specs=data.short_specs,
-        technical_specs=technical,
-        display_specs=_display_specs_payload(data) or [],
         on_sale=data.on_sale,
         is_active=data.is_active,
         listed_at=data.listed_at or date.today(),
@@ -405,6 +399,7 @@ def create_product(
             details={"name": data.name},
         )
         raise ConflictError("SKU or slug already exists") from None
+    spec_service.replace_values(db, product.id, definitions, values)
     event_service.record_event(
         db,
         category=event_service.CATEGORY_CATALOG,
@@ -425,10 +420,11 @@ def update_product(
     provided = data.model_fields_set
     changed: list[str] = []
 
+    target_type: ProductType | None = None
     if "product_type_id" in provided and data.product_type_id is not None:
-        product_type = _resolve_type(db, data.product_type_id)
-        if product_type.id != product.product_type_id:
-            product.product_type_id = product_type.id
+        target_type = _resolve_type(db, data.product_type_id)
+        if target_type.id != product.product_type_id:
+            product.product_type_id = target_type.id
             changed.append("product_type_id")
     if "manufacturer_id" in provided and data.manufacturer_id is not None:
         manufacturer = _resolve_manufacturer(db, data.manufacturer_id)
@@ -459,7 +455,7 @@ def update_product(
         if field in provided and getattr(data, field) != getattr(product, field):
             setattr(product, field, getattr(data, field))
             changed.append(field)
-    for field in ("spec_lines", "short_specs", "on_sale", "is_active", "listed_at"):
+    for field in ("on_sale", "is_active", "listed_at"):
         if field not in provided:
             continue
         value = getattr(data, field)
@@ -479,34 +475,32 @@ def update_product(
         _assert_slug_free(db, data.slug, exclude_id=product.id)
         product.slug = data.slug
         changed.append("slug")
-    if "display_specs" in provided and data.display_specs is not None:
-        payload = _display_specs_payload(data) or []
-        if payload != (product.display_specs or []):
-            product.display_specs = payload
-            changed.append("display_specs")
 
-    specs_touched = any(
-        field in provided
-        for field in ("specifications", "technical_specs", "product_type_id")
+    # Characteristics are category-scoped: a product-type change may move the
+    # product into another category, so the definitions of the *target* category
+    # are authoritative here, not the relation still cached on the instance.
+    category_id = (
+        target_type.category_id
+        if target_type is not None
+        else product.product_type.category.id
     )
-    if specs_touched:
-        # A supplied `technical_specs` replaces the stored value, so it becomes the
-        # merge base as well; template codes inside it are validated regardless.
-        replacement = data.technical_specs if "technical_specs" in provided else None
-        merged = spec_service.validate_specifications(
+    category_changed = target_type is not None and (
+        target_type.category_id != product.product_type.category.id
+    )
+    if (
+        category_changed
+        or "characteristics" in provided
+        or "remove_characteristics" in provided
+    ):
+        definitions, values = spec_service.validate_values(
             db,
-            product.product_type_id,
-            submitted=data.specifications if "specifications" in provided else None,
-            technical_specs=replacement,
-            base=(
-                replacement
-                if replacement is not None
-                else (product.technical_specs or {})
-            ),
+            category_id,
+            _submitted_characteristics(data),
+            spec_service.values_for_product(db, product.id),
+            data.remove_characteristics or [],
         )
-        if merged != (product.technical_specs or {}):
-            product.technical_specs = merged
-            changed.append("specifications")
+        spec_service.replace_values(db, product.id, definitions, values)
+        changed.append("characteristics")
 
     if not changed:
         return _detail(db, product)
@@ -582,28 +576,27 @@ def form_options(db: Session) -> ProductFormOptionsOut:
     )
 
 
-def spec_template(db: Session, product_type_id: int) -> SpecificationTemplateOut:
-    product_type = _resolve_type(db, product_type_id)
-    fields, options = spec_service.template_fields(db, product_type.id)
-    return SpecificationTemplateOut(
-        product_type_id=product_type.id,
-        product_type_name=product_type.name,
+def characteristic_definitions(
+    db: Session, category_id: int
+) -> CharacteristicDefinitionsOut:
+    """Category-scoped definitions rendered dynamically by the admin editor."""
+    category = db.get(Category, category_id)
+    if category is None:
+        raise InvalidInputError("Unknown category")
+    return CharacteristicDefinitionsOut(
+        category_id=category.id,
+        category_name=category.name,
         fields=[
-            ProductSpecFieldOut(
-                id=field.id,
-                code=field.code,
-                label=field.label,
-                sort_order=field.sort_order,
-                is_required=field.is_required,
-                options=[
-                    ProductSpecOptionOut(
-                        id=option.id,
-                        value=option.value,
-                        sort_order=option.sort_order,
-                    )
-                    for option in options.get(field.id, [])
-                ],
+            CharacteristicDefinitionOut(
+                code=definition.code,
+                name=definition.name,
+                data_type=cast(CharacteristicDataType, definition.data_type),
+                unit=definition.unit,
+                sort_order=definition.sort_order,
+                is_required=definition.is_required,
+                show_in_short=definition.show_in_short,
+                show_in_details=definition.show_in_details,
             )
-            for field in fields
+            for definition in spec_service.definitions_for_category(db, category.id)
         ],
     )

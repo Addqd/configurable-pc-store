@@ -58,14 +58,17 @@ describe('catalog query parameters', () => {
   })
 })
 
+const characteristic = (code: string, name: string, display: string, value: unknown, dataType = 'string') => ({
+  code, name, data_type: dataType, unit: null, sort_order: 0, is_required: false,
+  show_in_short: true, show_in_details: true, value, display_value: display,
+})
+
 const detailFixture = (overrides: Partial<ProductDetailOut> = {}): ProductDetailOut => ({
   id: 1, sku: 'SKU-1', slug: 'gpu-x', name: 'GPU X', description: 'Импортированное описание',
   price: '100.00', stock_quantity: 3, color: null, graphics_chip_brand: 'NVIDIA',
-  spec_lines: ['12 ГБ GDDR6X'], short_specs: ['12 ГБ GDDR6X'],
-  technical_specs: { length_mm: 300, socket: 'AM5' },
-  display_specs: [
-    { label: 'Объём видеопамяти', value: '12 ГБ' },
-    { label: 'Разрядность шины', value: '192 бит' },
+  characteristics: [
+    characteristic('vram_gb', 'Объём видеопамяти', '12 ГБ', 12, 'number'),
+    characteristic('memory_bus_bits', 'Разрядность шины памяти', '192 бит', 192, 'number'),
   ],
   on_sale: false, is_active: true, listed_at: '2026-01-01',
   created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z',
@@ -78,30 +81,41 @@ const detailFixture = (overrides: Partial<ProductDetailOut> = {}): ProductDetail
 })
 
 describe('product detail mapping', () => {
-  it('maps display_specs to detailedSpecs in the imported order', () => {
+  it('maps show_in_details characteristics to detailedSpecs in server order', () => {
     const detail = productFromDetail(detailFixture())
     expect(detail.detailedSpecs).toEqual([
       { label: 'Объём видеопамяти', value: '12 ГБ' },
-      { label: 'Разрядность шины', value: '192 бит' },
+      { label: 'Разрядность шины памяти', value: '192 бит' },
     ])
     expect(detail.description).toBe('Импортированное описание')
-    // Compatibility-engine keys stay internal.
-    expect(detail.detailedSpecs.some(spec => spec.label === 'length_mm' || spec.label === 'socket')).toBe(false)
+    // Characteristic codes never leak as labels.
+    expect(detail.detailedSpecs.some(spec => spec.label === 'vram_gb' || spec.label === 'memory_bus_bits')).toBe(false)
+    // Structured values stay available for the builder.
+    expect(detail.characteristics?.map(row => [row.code, row.value])).toEqual([
+      ['vram_gb', 12],
+      ['memory_bus_bits', 192],
+    ])
   })
 
-  it('ignores blank or malformed display_specs rows and handles an empty array', () => {
-    expect(productFromDetail(detailFixture({ display_specs: [] })).detailedSpecs).toEqual([])
-    expect(productFromDetail(detailFixture({
-      display_specs: [
-        { label: '  Сокет  ', value: '  AM5  ' },
-        { label: '', value: 'нет подписи' },
-        { label: 'Пустое значение', value: '   ' },
-        { label: 'Шина', value: '192 бит' },
+  it('keeps only show_in_short rows in the header summary', () => {
+    const detail = productFromDetail(detailFixture({
+      characteristics: [
+        { ...characteristic('vram_gb', 'Объём видеопамяти', '12 ГБ', 12, 'number'), show_in_short: true },
+        { ...characteristic('length_mm', 'Длина', '307 мм', 307, 'number'), show_in_short: false },
       ],
-    })).detailedSpecs).toEqual([
-      { label: 'Сокет', value: 'AM5' },
-      { label: 'Шина', value: '192 бит' },
-    ])
+    }))
+    expect(detail.shortSpecs).toEqual(['12 ГБ'])
+    expect(detail.specs).toEqual(['12 ГБ'])
+  })
+
+  it('skips hidden rows and handles an empty characteristic list', () => {
+    expect(productFromDetail(detailFixture({ characteristics: [] })).detailedSpecs).toEqual([])
+    expect(productFromDetail(detailFixture({
+      characteristics: [
+        { ...characteristic('hidden', 'Внутренняя пометка', 'нет', 'x'), show_in_details: false },
+        characteristic('socket', 'Сокет', 'AM5', 'am5'),
+      ],
+    })).detailedSpecs).toEqual([{ label: 'Сокет', value: 'AM5' }])
   })
 
   it('keeps gallery order, server alt text and the cover fallback', () => {

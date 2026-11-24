@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
@@ -23,8 +23,6 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.ext.mutable import MutableDict, MutableList
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -32,6 +30,7 @@ from app.db.base import Base
 if TYPE_CHECKING:
     from app.models.build import SavedBuildItem
     from app.models.cart_order import CartItem, OrderItem
+    from app.models.characteristics import Characteristic, ProductCharacteristic
     from app.models.social import Favorite, Review
 
 
@@ -45,6 +44,13 @@ class Category(Base):
 
     product_types: Mapped[list[ProductType]] = relationship(
         back_populates="category", cascade="all, delete-orphan"
+    )
+    # Category-scoped definitions, shared by every product type of the category.
+    # characteristics.category_id is ON DELETE RESTRICT: no ORM delete cascade, and
+    # passive_deletes="all" so SQLAlchemy never tries to NULL the child FK itself.
+    characteristics: Mapped[list[Characteristic]] = relationship(
+        back_populates="category",
+        passive_deletes="all",
     )
 
 
@@ -98,28 +104,6 @@ class Product(Base):
     )
     color: Mapped[str | None] = mapped_column(String(80))
     graphics_chip_brand: Mapped[str | None] = mapped_column(String(40))
-    spec_lines: Mapped[list[str]] = mapped_column(
-        MutableList.as_mutable(JSONB),
-        nullable=False,
-        server_default=text("'[]'::jsonb"),
-    )
-    short_specs: Mapped[list[str]] = mapped_column(
-        MutableList.as_mutable(JSONB),
-        nullable=False,
-        server_default=text("'[]'::jsonb"),
-    )
-    technical_specs: Mapped[dict[str, Any]] = mapped_column(
-        MutableDict.as_mutable(JSONB),
-        nullable=False,
-        server_default=text("'{}'::jsonb"),
-    )
-    # Customer-facing label/value pairs. Independent of `technical_specs`, which
-    # remains the compatibility engine's input and is never shown as raw keys.
-    display_specs: Mapped[list[dict[str, Any]]] = mapped_column(
-        MutableList.as_mutable(JSONB),
-        nullable=False,
-        server_default=text("'[]'::jsonb"),
-    )
     on_sale: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
@@ -143,20 +127,6 @@ class Product(Base):
     __table_args__ = (
         CheckConstraint("price >= 0", name="ck_products_price_nonnegative"),
         CheckConstraint("stock_quantity >= 0", name="ck_products_stock_nonnegative"),
-        CheckConstraint(
-            "jsonb_typeof(spec_lines) = 'array'", name="ck_products_spec_lines_array"
-        ),
-        CheckConstraint(
-            "jsonb_typeof(short_specs) = 'array'", name="ck_products_short_specs_array"
-        ),
-        CheckConstraint(
-            "jsonb_typeof(technical_specs) = 'object'",
-            name="ck_products_technical_specs_object",
-        ),
-        CheckConstraint(
-            "jsonb_typeof(display_specs) = 'array'",
-            name="ck_products_display_specs_array",
-        ),
         Index("ix_products_product_type_id", "product_type_id"),
         Index("ix_products_manufacturer_id", "manufacturer_id"),
         Index("ix_products_price", "price"),
@@ -180,6 +150,10 @@ class Product(Base):
     )
     saved_build_items: Mapped[list[SavedBuildItem]] = relationship(
         back_populates="product", passive_deletes="all"
+    )
+    # Values are owned by the product; products.id FK is ON DELETE CASCADE.
+    characteristics: Mapped[list[ProductCharacteristic]] = relationship(
+        back_populates="product", cascade="all, delete-orphan", passive_deletes=True
     )
 
 

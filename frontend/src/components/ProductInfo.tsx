@@ -1,4 +1,5 @@
 import { catalogDisplay } from '../i18n/catalogDisplay'
+import { characteristicLines } from '../i18n/characteristics'
 import { useTranslation } from 'react-i18next'
 import { useEffect, useRef, useState } from 'react'
 import type { EnrichedProduct } from '../data/productDetails'
@@ -32,7 +33,7 @@ export function ProductInfo({
   onToggleFavorite,
   onShare,
 }: ProductInfoProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [copied, setCopied] = useState(false)
   const copyTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -48,7 +49,11 @@ export function ProductInfo({
     copyTimeout.current = setTimeout(() => setCopied(false), 1200)
   }
 
-  const specs = product.shortSpecs ?? product.specs
+  const specs = characteristicLines(
+    product.characteristics?.filter((row) => row.showInShort),
+    product.shortSpecs ?? product.specs,
+    { language: i18n.resolvedLanguage ?? 'ru' },
+  )
 
   return (
     <article className="flex min-w-0 flex-col">
@@ -58,7 +63,7 @@ export function ProductInfo({
       <p className="mt-3 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm text-primary">
         {specs.map((spec, index) => (
           <span key={`${spec}-${index}`}>
-            {catalogDisplay(spec)}
+            {spec}
             {index < specs.length - 1 && <span className="mx-1.5 text-text-muted">•</span>}
           </span>
         ))}

@@ -8,20 +8,22 @@ Run from backend/ AFTER applying the initial Alembic migration:
 Does not create users, passwords, orders, reviews, favorites or cart data.
 Uses psycopg 3 directly, without any SQLAlchemy ORM mappings.
 
+Products are created without characteristic values; the normalized
+`characteristics` / `product_characteristics` data is inserted by the dedicated
+Alembic data revision, never by this script.
+
 Idempotent and non-destructive: existing products with the same slug are left
 unchanged, so rerunning will not overwrite manually edited catalog content.
 """
 
 from __future__ import annotations
 
-import ast
 import hashlib
 import re
 from datetime import date
 from pathlib import Path
 
 import psycopg
-from psycopg.types.json import Jsonb
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -121,79 +123,7 @@ CATALOG_ROWS = """
 """
 
 
-# id | public, DISPLAY-ONLY spec lines | short display-only spec lines
-# The source fixtures do not reliably provide complete structured technical
-# attributes. technical_specs remains {} until compatibility data is verified.
-SPEC_ROWS = """
-1 | ['AMD Ryzen 7 5700X', 'NVIDIA GeForce RTX 4060 Ti', '16 ГБ DDR4', '1 ТБ NVMe SSD'] | ['Ryzen 7 5700X', 'RTX 4060 Ti', '16 ГБ DDR4', '1 ТБ SSD']
-2 | ['Intel Core i5-14600KF', 'NVIDIA GeForce RTX 4070', '32 ГБ DDR5', '1 ТБ NVMe SSD'] | ['i5-14600KF', 'RTX 4070', '32 ГБ DDR5', '1 ТБ SSD']
-3 | ['AMD Ryzen 9 7900X', 'NVIDIA GeForce RTX 4080', '64 ГБ DDR5', '2 ТБ NVMe SSD'] | ['Ryzen 9 7900X', 'RTX 4080', '64 ГБ DDR5', '2 ТБ SSD']
-4 | ['AMD Ryzen 7 7800X3D', 'NVIDIA GeForce RTX 4070 Ti', '32 ГБ DDR5', '2 ТБ NVMe SSD'] | ['Ryzen 7 7800X3D', 'RTX 4070 Ti', '32 ГБ DDR5', '2 ТБ SSD']
-5 | ['AMD Threadripper PRO 7945WX', 'NVIDIA RTX 6000', '128 ГБ ECC DDR5', '4 ТБ NVMe SSD'] | ['Threadripper PRO 7945WX', 'RTX 6000', '128 ГБ ECC', '4 ТБ NVMe']
-6 | ['AMD Ryzen 5 7600', 'AMD Radeon RX 7600 XT', '16 ГБ DDR5', '512 ГБ NVMe SSD'] | ['Ryzen 5 7600', 'RX 7600 XT', '16 ГБ DDR5', '512 ГБ SSD']
-7 | ['12 ГБ GDDR6X', '192 бит', 'DLSS 3'] | []
-8 | ['16 ГБ GDDR6X', '256 бит', 'DLSS 3'] | []
-9 | ['16 ГБ GDDR6X', '256 бит', 'DLSS 3'] | []
-10 | ['16 ГБ GDDR6', '256 бит', 'FSR'] | []
-11 | ['16 ГБ GDDR6', '256 бит', 'FSR'] | []
-12 | ['24 ГБ GDDR6X', '384 бит', 'DLSS 3'] | []
-13 | ['6 ядер', '12 потоков', '5.1 ГГц', 'AM5'] | []
-14 | ['8 ядер', '16 потоков', '5.0 ГГц', 'AM5'] | []
-15 | ['14 ядер', '20 потоков', '5.3 ГГц', 'LGA 1700'] | []
-16 | ['20 ядер', '28 потоков', '5.6 ГГц', 'LGA 1700'] | []
-17 | ['16 ядер', '32 потока', '5.7 ГГц', 'AM5'] | []
-18 | ['24 ядра', '32 потока', '6.0 ГГц', 'LGA 1700'] | []
-19 | ['AM5', 'DDR5', 'ATX', 'WiFi 6E'] | []
-20 | ['AM5', 'DDR5', 'ATX', 'PCIe 5.0'] | []
-21 | ['LGA 1700', 'DDR5', 'ATX', 'WiFi 6E'] | []
-22 | ['LGA 1700', 'DDR5', 'ATX', 'WiFi 6E'] | []
-23 | ['LGA 1700', 'DDR5', 'ATX', 'WiFi 6'] | []
-24 | ['AM5', 'DDR5', 'mATX'] | []
-25 | ['Механическая', 'GX Switch', 'RGB'] | ['Механическая', 'GX Switch', 'RGB']
-26 | ['Проводная', '30K DPI', 'Focus Pro'] | ['Проводная', '30K DPI', 'Focus Pro']
-27 | ['Проводные', '53 мм', '7.1'] | ['Проводные', '53 мм', '7.1']
-28 | ['Игровое кресло', 'эко-кожа', 'до 150 кг'] | ['Игровое', 'эко-кожа', '150 кг']
-29 | ['Воздушное', '2×120 мм', 'до 260 Вт'] | ['Воздушное', '2×120 мм', '260 Вт']
-30 | ['СЖО', '360 мм', 'Intel/AMD'] | ['СЖО', '360 мм', 'Intel/AMD']
-31 | ['PCIe 4.0 x4', 'до 7450 МБ/с'] | ['PCIe 4.0', '7450 МБ/с', '1 ТБ']
-32 | ['PCIe 4.0 x4', 'до 7300 МБ/с'] | ['PCIe 4.0', '7300 МБ/с', '2 ТБ']
-33 | ['6000 МГц', 'CL30', 'RGB'] | ['6000 МГц', 'CL30', 'RGB']
-34 | ['6400 МГц', 'CL30', 'RGB', 'Silver'] | ['6400 МГц', 'CL30', 'Silver']
-35 | ['ATX', '2×160 мм', 'отличное охлаждение'] | ['ATX', '2×160 мм', 'охлаждение']
-36 | ['ATX', '2×120 мм', 'закалённое стекло'] | ['ATX', '2×120 мм', 'стекло']
-37 | ['750 Вт', '80+ Gold', 'ATX 3.0', 'модульный'] | ['750 Вт', '80+ Gold', 'модульный']
-38 | ['850 Вт', '80+ Gold', 'ATX 3.0', 'модульный'] | ['850 Вт', '80+ Gold', 'модульный']
-39 | ['SATA III', '7200 об/мин', '256 МБ'] | ['SATA III', '7200 об/мин', '2 ТБ']
-40 | ['27"', 'IPS', '2560×1440', '144 Гц', '1 мс'] | ['27"', 'IPS', '144 Гц', '1 мс']
-41 | ['12 ГБ GDDR6X', '192 бит', 'Boost 2495 МГц'] | ['12 ГБ GDDR6X', '192 бит', '2495 МГц']
-42 | ['12 ГБ GDDR6X', '192 бит', 'Boost 2490 МГц'] | ['12 ГБ GDDR6X', '192 бит', '2490 МГц']
-43 | ['12 ГБ GDDR6X', '192 бит', 'Boost 2475 МГц'] | ['12 ГБ GDDR6X', '192 бит', '2475 МГц']
-44 | ['6 ядер', '12 потоков', '5.3 ГГц', 'AM5'] | ['6 ядер', '12 потоков', '5.3 ГГц', 'AM5']
-45 | ['Core i7-13700KF', 'NVIDIA GeForce RTX 4070 SUPER', '32 ГБ DDR5', '1 ТБ SSD'] | ['i7-13700KF', 'RTX 4070 SUPER', '32 ГБ DDR5']
-46 | ['Ryzen 7 7800X3D', 'NVIDIA GeForce RTX 4070', '32 ГБ DDR5', '1 ТБ SSD'] | ['Ryzen 7 7800X3D', 'RTX 4070', '32 ГБ DDR5']
-47 | ['Воздушное', '2×120 мм', 'до 245 Вт'] | ['Воздушное', '2×120 мм', '245 Вт']
-48 | ['ATX', 'дерево', 'отличное охлаждение'] | ['ATX', 'дерево', 'охлаждение']
-49 | ['27"', 'Nano IPS', '2560×1440', '180 Гц'] | ['27"', 'Nano IPS', '180 Гц']
-50 | ['6000 МГц', 'CL36', 'Black'] | ['6000 МГц', 'CL36', 'Black']
-51 | ['RGB', 'кабель питания', '24-pin'] | ['RGB', '24-pin', 'кабель']
-"""
-
-
 def parse_catalog() -> list[dict[str, object]]:
-    specs_by_id: dict[int, tuple[list[str], list[str]]] = {}
-    for raw in SPEC_ROWS.strip().splitlines():
-        product_id_text, specs_text, shorts_text = (
-            part.strip() for part in raw.split(" | ", 2)
-        )
-        product_id = int(product_id_text)
-        specs = ast.literal_eval(specs_text)
-        short_specs = ast.literal_eval(shorts_text)
-        if not isinstance(specs, list) or not isinstance(short_specs, list):
-            raise ValueError(f"Malformed specification arrays for product {product_id}")  # noqa: TRY004
-        if product_id in specs_by_id:
-            raise ValueError(f"Duplicate specification ID: {product_id}")
-        specs_by_id[product_id] = (specs, short_specs)
-
     products = []
     seen_ids: set[int] = set()
     seen_slugs: set[str] = set()
@@ -216,13 +146,10 @@ def parse_catalog() -> list[dict[str, object]]:
         identifier = int(product_id)
         if identifier in seen_ids or slug in seen_slugs:
             raise ValueError(f"Duplicate product ID/slug: {identifier}, {slug}")
-        if identifier not in specs_by_id:
-            raise ValueError(f"Missing display specifications: {identifier}")
         if category not in {name for _, name in CATEGORIES}:
             raise ValueError(f"Unknown product category: {category}")
         seen_ids.add(identifier)
         seen_slugs.add(slug)
-        specs, short_specs = specs_by_id[identifier]
         products.append(
             {
                 "id": identifier,
@@ -235,12 +162,8 @@ def parse_catalog() -> list[dict[str, object]]:
                 "listed_at": date.fromisoformat(listed_at),
                 "color": color or None,
                 "gpu": gpu or None,
-                "specs": specs,
-                "short_specs": short_specs,
             }
         )
-    if set(specs_by_id) != seen_ids:
-        raise ValueError("Some specifications do not have matching catalog products")
     return products
 
 
@@ -325,20 +248,19 @@ def seed() -> None:
 
             inserted = 0
             for product in items:
-                spec_lines = product["specs"]
                 # All identity values are the original fixture IDs (1..51).
                 # This allows a later API migration to preserve frontend product IDs.
+                # Characteristics are NOT fabricated here: the normalized
+                # definitions and values come from the Alembic data migration.
                 cursor.execute(
                     """
                     INSERT INTO products (
                         id, product_type_id, manufacturer_id, slug, sku, name,
-                        description, price, stock_quantity, color,
-                        graphics_chip_brand, spec_lines, short_specs,
-                        technical_specs, on_sale, listed_at
+                        price, stock_quantity, color,
+                        graphics_chip_brand, on_sale, listed_at
                     )
                     VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, FALSE, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, FALSE, %s
                     )
                     ON CONFLICT (slug) DO NOTHING
                     """,
@@ -349,14 +271,10 @@ def seed() -> None:
                         product["slug"],
                         f"DEMO-{product['id']:04d}",
                         product["name"],
-                        ", ".join(spec_lines),
                         product["price"],
                         10,  # illustrative demo inventory, not real stock data
                         product["color"],
                         product["gpu"],
-                        Jsonb(spec_lines),
-                        Jsonb(product["short_specs"]),
-                        Jsonb({}),
                         product["listed_at"],
                     ),
                 )
@@ -381,7 +299,8 @@ def seed() -> None:
     )
     print("No users, purchases, reviews or product images were fabricated.")
     print(
-        "technical_specs remains empty: it needs verified structured compatibility data."
+        "Product characteristics are not seeded here: they are inserted by the "
+        "Alembic data revision with verified structured values."
     )
 
 

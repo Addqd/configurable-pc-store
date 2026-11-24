@@ -1,8 +1,16 @@
-"""PostgreSQL catalog queries, independent per-product images and review counts."""
+"""PostgreSQL catalog queries, independent per-product images and review counts.
+
+Customer-facing specifications come from the normalized
+`characteristics` / `product_characteristics` tables: catalog cards use the
+definitions flagged `show_in_short`, product pages use `show_in_details`, both in
+`sort_order`. Definitions and values are bulk-loaded for the whole page, so the
+number of queries stays constant regardless of page size.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 from urllib.parse import urlsplit
 
 from sqlalchemy import func, literal, or_, select, text
@@ -11,16 +19,17 @@ from sqlalchemy.orm import Session, joinedload, selectinload
 from app.models import Category, Manufacturer, Product, ProductType, Review
 from app.schemas.catalog import (
     CategoryOut,
+    CharacteristicValueOut,
     FilterOptionsOut,
     ManufacturerOut,
     PaginatedProductsOut,
     ProductDetailOut,
-    ProductDisplaySpecOut,
     ProductImageOut,
     ProductSummaryOut,
     ProductTypeOut,
     SearchSuggestionOut,
 )
+from app.services import spec_service
 from app.services.product_image_service import normalize_media_url
 
 PLACEHOLDER_URL = "/api/v1/assets/product-placeholder.jpg"
@@ -62,31 +71,59 @@ def _images(product: Product) -> tuple[list[ProductImageOut], str]:
     return values, normalize_media_url(rows[0].image_url)
 
 
-def serialize_display_specs(raw: object) -> list[ProductDisplaySpecOut]:
-    """Return the customer-facing label/value rows, in the imported order.
+def _characteristic_rows(
+    definitions: Sequence[spec_service.CharacteristicDefinition],
+    values: dict[str, Any],
+    *,
+    short_only: bool = False,
+    details_only: bool = False,
+) -> list[CharacteristicValueOut]:
+    return [
+        CharacteristicValueOut(**row)
+        for row in spec_service.serialize_definitions(
+            definitions, values, short_only=short_only, details_only=details_only
+        )
+    ]
 
-    `display_specs` entries also carry internal `evidence` metadata; only the
-    label and value are exposed. Malformed entries and empty arrays are safe.
+
+def short_characteristics(
+    db: Session, products: Sequence[Product]
+) -> dict[int, list[CharacteristicValueOut]]:
+    """Short `show_in_short` rows of every product, in `sort_order`.
+
+    Bulk-loads the definitions of every involved category and the values of every
+    involved product, so a page or cart with many products still costs the same
+    two queries instead of one per product.
     """
-    if not isinstance(raw, list):
-        return []
-    specs: list[ProductDisplaySpecOut] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        label = item.get("label")
-        value = item.get("value")
-        if not isinstance(label, str):
-            continue
-        label = label.strip()
-        if not label or value is None or isinstance(value, bool):
-            continue
-        if not isinstance(value, str | int | float):
-            continue
-        text = str(value).strip()
-        if text:
-            specs.append(ProductDisplaySpecOut(label=label, value=text))
-    return specs
+    rows = list(products)
+    if not rows:
+        return {}
+    definitions = spec_service.load_definitions(
+        db, [product.product_type.category.id for product in rows]
+    )
+    values = spec_service.load_values(db, [product.id for product in rows])
+    return {
+        product.id: _characteristic_rows(
+            definitions.get(product.product_type.category.id, []),
+            values.get(product.id, {}),
+            short_only=True,
+        )
+        for product in rows
+    }
+
+
+def short_display_lines(
+    db: Session, products: Sequence[Product]
+) -> dict[int, list[str]]:
+    """Short characteristic strings for cart lines and order snapshots.
+
+    Derived from `short_characteristics`, so both the ready-to-render strings and
+    the structured rows come from one bulk load.
+    """
+    return {
+        product_id: [row.display_value for row in rows]
+        for product_id, rows in short_characteristics(db, products).items()
+    }
 
 
 def _base_stmt():
@@ -157,14 +194,21 @@ def _serialize_manufacturer(m: Manufacturer) -> ManufacturerOut:
     return ManufacturerOut(id=m.id, slug=m.slug, name=m.name)
 
 
-def _summary(product: Product, rating: tuple[float, int]) -> ProductSummaryOut:
+def _summary(
+    product: Product,
+    rating: tuple[float, int],
+    definitions: Sequence[spec_service.CharacteristicDefinition],
+    values: dict[str, Any],
+) -> ProductSummaryOut:
     images, cover = _images(product)
     return ProductSummaryOut(
         id=product.id,
         slug=product.slug,
         name=product.name,
         price=product.price,
-        short_specs=product.short_specs or product.spec_lines or [],
+        short_characteristics=_characteristic_rows(
+            definitions, values, short_only=True
+        ),
         color=product.color,
         graphics_chip_brand=product.graphics_chip_brand,
         on_sale=product.on_sale,
@@ -179,7 +223,12 @@ def _summary(product: Product, rating: tuple[float, int]) -> ProductSummaryOut:
     )
 
 
-def _detail(product: Product, rating: tuple[float, int]) -> ProductDetailOut:
+def _detail(
+    product: Product,
+    rating: tuple[float, int],
+    definitions: Sequence[spec_service.CharacteristicDefinition],
+    values: dict[str, Any],
+) -> ProductDetailOut:
     images, cover = _images(product)
     return ProductDetailOut(
         id=product.id,
@@ -191,10 +240,7 @@ def _detail(product: Product, rating: tuple[float, int]) -> ProductDetailOut:
         stock_quantity=product.stock_quantity,
         color=product.color,
         graphics_chip_brand=product.graphics_chip_brand,
-        spec_lines=product.spec_lines or [],
-        short_specs=product.short_specs or [],
-        technical_specs=product.technical_specs or {},
-        display_specs=serialize_display_specs(product.display_specs),
+        characteristics=_characteristic_rows(definitions, values),
         on_sale=product.on_sale,
         is_active=product.is_active,
         listed_at=product.listed_at,
@@ -278,8 +324,20 @@ def list_products(
         ).all()
     )
     ratings = _ratings(db, [p.id for p in products])
+    definitions = spec_service.load_definitions(
+        db, [p.product_type.category.id for p in products]
+    )
+    values = spec_service.load_values(db, [p.id for p in products])
     return PaginatedProductsOut(
-        items=[_summary(p, ratings.get(p.id, (0.0, 0))) for p in products],
+        items=[
+            _summary(
+                p,
+                ratings.get(p.id, (0.0, 0)),
+                definitions.get(p.product_type.category.id, []),
+                values.get(p.id, {}),
+            )
+            for p in products
+        ],
         total=total,
         page=page,
         page_size=page_size,
@@ -299,7 +357,13 @@ def get_product_by_slug(db: Session, slug: str) -> ProductDetailOut | None:
     )
     if product is None:
         return None
-    return _detail(product, _ratings(db, [product.id]).get(product.id, (0.0, 0)))
+    category_id = product.product_type.category.id
+    return _detail(
+        product,
+        _ratings(db, [product.id]).get(product.id, (0.0, 0)),
+        spec_service.definitions_for_category(db, category_id),
+        spec_service.values_for_product(db, product.id),
+    )
 
 
 def search_products(

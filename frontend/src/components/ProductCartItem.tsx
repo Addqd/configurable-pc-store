@@ -1,5 +1,6 @@
 import { Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
+import { characteristicLines } from '../i18n/characteristics'
 import type { RegularCartItem } from '../stores/cartStore'
 import { formatPrice } from '../utils/formatPrice'
 import { FiX } from 'react-icons/fi'
@@ -12,7 +13,12 @@ interface ProductCartItemProps {
 }
 
 export function ProductCartItem({ item, onQuantityChange: updateQuantity, onRemove: removeItem, pending }: ProductCartItemProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  // Structured rows are formatted for the active language; lines persisted before
+  // they existed (or demo data) keep their ready-to-render text.
+  const specs = characteristicLines(item.characteristics, item.specs, {
+    language: i18n.resolvedLanguage ?? 'ru',
+  })
 
   return (
     <article className="flex flex-col gap-4 px-3 py-5 sm:px-4 md:flex-row md:items-center">
@@ -27,7 +33,7 @@ export function ProductCartItem({ item, onQuantityChange: updateQuantity, onRemo
             {item.name}
           </h2>
           <p className="mt-1 text-sm leading-relaxed text-text-muted">
-            {item.specs.map((spec, index) => (
+            {specs.map((spec, index) => (
               <Fragment key={`${index}-${spec}`}>
                 {/* A filled bullet only between specifications: never leading or trailing. */}
                 {index > 0 && <span className="px-1.5">•</span>}

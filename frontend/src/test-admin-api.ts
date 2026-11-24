@@ -47,17 +47,25 @@ export const productOptionsFixture = {
   ],
 }
 
-export const specTemplateFixture = {
-  product_type_id: 8,
-  product_type_name: 'Дискретная',
+export const characteristicDefinitionsFixture = {
+  category_id: 8,
+  category_name: 'Видеокарты',
   fields: [
     {
-      id: 1, code: 'memory_size', label: 'Объём памяти', sort_order: 0, is_required: true,
-      options: [{ id: 11, value: '12 ГБ', sort_order: 0 }, { id: 12, value: '16 ГБ', sort_order: 1 }],
+      code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null,
+      sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
     },
     {
-      id: 2, code: 'memory_bus', label: 'Шина памяти', sort_order: 1, is_required: true,
-      options: [{ id: 21, value: '192 бит', sort_order: 0 }],
+      code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит',
+      sort_order: 1, is_required: true, show_in_short: false, show_in_details: true,
+    },
+    {
+      code: 'has_rgb', name: 'Подсветка', data_type: 'boolean', unit: null,
+      sort_order: 2, is_required: false, show_in_short: false, show_in_details: true,
+    },
+    {
+      code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list', unit: null,
+      sort_order: 3, is_required: false, show_in_short: false, show_in_details: true,
     },
   ],
 }
@@ -77,9 +85,11 @@ export const productDetailFixture = {
   id: 7, slug: 'gpu-rtx-4070-super', sku: 'GPU-MSI-4070S',
   name: 'MSI GeForce RTX 4070 SUPER Gaming X Slim 12G',
   description: 'Существующее описание товара', price: '64990.00', stock_quantity: 8,
-  color: 'Чёрный', graphics_chip_brand: 'NVIDIA', spec_lines: [], short_specs: [],
-  technical_specs: { memory_size: '12 ГБ', memory_bus: '192 бит' },
-  display_specs: [], specifications: { memory_size: '12 ГБ', memory_bus: '192 бит' },
+  color: 'Чёрный', graphics_chip_brand: 'NVIDIA',
+  characteristics: [
+    { code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null, sort_order: 0, is_required: true, show_in_short: true, show_in_details: true, value: '12 ГБ', display_value: '12 ГБ' },
+    { code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит', sort_order: 1, is_required: true, show_in_short: false, show_in_details: true, value: 192, display_value: '192 бит' },
+  ],
   on_sale: false, is_active: true, listed_at: '2026-08-27',
   created_at: '2026-08-27T10:00:00Z', updated_at: '2026-11-17T14:30:00Z',
   category: { id: 8, slug: 'gpu', name: 'Видеокарты', sort_order: 0 },

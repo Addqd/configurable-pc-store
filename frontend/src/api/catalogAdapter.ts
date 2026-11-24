@@ -1,42 +1,61 @@
-import type { PaginatedProductsOut, FilterOptionsOut, ListProductsApiV1ProductsGetParams, ProductDetailOut } from './generated/model'
-import type { Product } from '../data/product'
-import type { DetailedSpec, EnrichedProduct } from '../data/productDetails'
+import type { CharacteristicValueOut, PaginatedProductsOut, FilterOptionsOut, ListProductsApiV1ProductsGetParams, ProductDetailOut } from './generated/model'
+import type { Product, ProductCharacteristic } from '../data/product'
+import type { EnrichedProduct } from '../data/productDetails'
 import { CATEGORY_SLUG_MAP, type FilterState } from '../data/catalogModel'
 
+/** One API characteristic row mapped to the front-end shape. */
+function toCharacteristic(row: CharacteristicValueOut): ProductCharacteristic {
+  return {
+    code: row.code, name: row.name, dataType: row.data_type, unit: row.unit ?? null,
+    value: row.value, displayValue: row.display_value,
+    showInShort: row.show_in_short, showInDetails: row.show_in_details,
+  }
+}
+
+const displayLines = (rows: ProductCharacteristic[]): string[] =>
+  rows.map((row) => row.displayValue).filter((value) => value.trim().length > 0)
+
 export function productFromSummary(item: PaginatedProductsOut['items'][number]): Product {
+  const short = (item.short_characteristics ?? []).map(toCharacteristic)
+  const lines = displayLines(short)
   return {
     id: item.id, slug: item.slug, name: item.name, price: Number(item.price),
     image: item.cover_image_url, category: item.category.name, type: item.product_type.name,
     manufacturer: item.manufacturer.name, color: item.color ?? undefined,
     rating: item.average_rating ?? 0, reviewCount: item.review_count ?? 0,
-    specs: item.short_specs ?? [], shortSpecs: item.short_specs ?? [], addedAt: '', onSale: item.on_sale,
+    specs: lines, shortSpecs: lines, characteristics: short,
+    addedAt: '', onSale: item.on_sale,
   }
 }
 
 export function productFromDetail(item: ProductDetailOut): EnrichedProduct {
   const summary = productFromSummary(item)
+  const characteristics = (item.characteristics ?? []).map(toCharacteristic)
+  const short = characteristics.filter((row) => row.showInShort)
+  const details = characteristics.filter((row) => row.showInDetails)
+  // Fall back to the first detailed rows when a category flags nothing as short,
+  // so a product never loses its header summary.
+  const headerLines = short.length ? displayLines(short) : displayLines(details).slice(0, 4)
   return {
-    ...summary, addedAt: item.listed_at, specs: item.spec_lines ?? [], shortSpecs: item.short_specs?.length ? item.short_specs : item.spec_lines ?? [],
+    ...summary,
+    addedAt: item.listed_at, specs: headerLines, shortSpecs: headerLines,
+    characteristics,
     article: item.sku ?? '', description: item.description, reviews: [],
     gallery: item.images?.length
       ? item.images.map(image => ({ url: image.url, alt: image.alt_text?.trim() || item.name }))
       : [{ url: item.cover_image_url, alt: item.name }],
-    detailedSpecs: displaySpecs(item.display_specs),
+    /**
+     * The specification table shows the server-selected `show_in_details`
+     * definitions in `sort_order`; the label is the definition name and the value
+     * is already formatted with its unit.
+     */
+    detailedSpecs: details.flatMap((row) => {
+      const label = row.name.trim()
+      const value = row.displayValue.trim()
+      return label && value ? [{ label, value }] : []
+    }),
     stockQuantity: item.stock_quantity,
   }
-}
-
-/**
- * Customer-facing specifications come from the imported `display_specs` array.
- * `technical_specs` is the compatibility engine's input and is never rendered as
- * raw labels. The imported order is preserved; empty rows are skipped.
- */
-function displaySpecs(specs: ProductDetailOut['display_specs'] | undefined): DetailedSpec[] {
-  return (specs ?? []).flatMap(spec => {
-    const label = typeof spec?.label === 'string' ? spec.label.trim() : ''
-    const value = typeof spec?.value === 'string' ? spec.value.trim() : ''
-    return label && value ? [{ label, value }] : []
-  })
 }
 
 type NamedOption = { name: string; slug: string }

@@ -6,14 +6,24 @@ import { CATALOG_CATEGORY_MAP, type BuilderCategory } from './stores/builderStor
 export const getProductsForCategory = (category: BuilderCategory) => mockProducts.filter(product => product.category === CATALOG_CATEGORY_MAP[category])
 
 const categories = Object.entries(CATEGORY_SLUG_MAP).map(([slug, name], index) => ({ id: index + 1, slug, name, sort_order: index }))
+
+/** API-shaped characteristic rows for a fixture product. */
+const characteristicRows = (product: (typeof mockProducts)[number]) => (product.characteristics ?? []).map((item, index) => ({
+  code: item.code, name: item.name, data_type: item.dataType, unit: item.unit ?? null,
+  sort_order: index, is_required: false, show_in_short: item.showInShort, show_in_details: item.showInDetails,
+  value: item.value, display_value: item.displayValue,
+}))
+
 const products = mockProducts.map(product => {
   const category = categories.find(item => item.name === product.category)!
+  const rows = characteristicRows(product)
   return { id: product.id, slug: product.slug, name: product.name, price: product.price.toFixed(2), color: product.color ?? null,
-    graphics_chip_brand: product.graphicsChipBrand ?? null, short_specs: product.shortSpecs ?? product.specs, on_sale: !!product.onSale, is_active: true, cover_image_url: '/placeholder.jpg', images: [],
+    graphics_chip_brand: product.graphicsChipBrand ?? null, short_characteristics: rows.filter(row => row.show_in_short),
+    on_sale: !!product.onSale, is_active: true, cover_image_url: '/placeholder.jpg', images: [],
     average_rating: product.rating, review_count: product.reviewCount, category,
     product_type: { id: product.id, category_id: category.id, slug: `type-${product.id}`, name: product.type },
     manufacturer: { id: product.id, slug: `maker-${product.id}`, name: product.manufacturer },
-    details: product,
+    characteristics: rows,
   }
 })
 const response = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
@@ -36,14 +46,15 @@ export function mockCatalogFetch() {
     if (slug) {
       const product = products.find(item => item.slug === slug)
       if (!product) return response({ detail: 'Not found' }, 404)
-      return response({ ...product, sku: 'SKU-TEST-13', description: 'Server description', stock_quantity: 5, spec_lines: product.details.specs, short_specs: product.details.shortSpecs ?? [], technical_specs: {}, display_specs: [
-        { label: 'Кэш L3', value: '32 МБ', evidence: { source: 'test-fixture-must-not-render' } },
-        { label: 'Техпроцесс', value: '5 нм' },
-        { label: 'Встроенная графика', value: 'Radeon Graphics' },
-        { label: 'Тип поставки', value: 'Box' },
-        { label: 'Гарантия', value: '36 месяцев' },
-        { label: 'Максимальная температура', value: '95 °C' },
-      ], listed_at: '2026-01-01', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' })
+      return response({ ...product, sku: 'SKU-TEST-13', description: 'Server description', stock_quantity: 5,
+        characteristics: product.characteristics.length ? product.characteristics : [
+          { code: 'cache_l3_mb', name: 'Кэш L3', data_type: 'number', unit: 'МБ', sort_order: 0, is_required: false, show_in_short: false, show_in_details: true, value: 32, display_value: '32 МБ' },
+          { code: 'cpu_process', name: 'Техпроцесс', data_type: 'string', unit: null, sort_order: 1, is_required: false, show_in_short: false, show_in_details: true, value: '5 нм', display_value: '5 нм' },
+          { code: 'integrated_graphics', name: 'Встроенная графика', data_type: 'string', unit: null, sort_order: 2, is_required: false, show_in_short: false, show_in_details: true, value: 'Radeon Graphics', display_value: 'Radeon Graphics' },
+          { code: 'delivery_type', name: 'Тип поставки', data_type: 'string', unit: null, sort_order: 3, is_required: false, show_in_short: false, show_in_details: true, value: 'Box', display_value: 'Box' },
+          { code: 'warranty', name: 'Гарантия', data_type: 'string', unit: null, sort_order: 4, is_required: false, show_in_short: false, show_in_details: true, value: '36 месяцев', display_value: '36 месяцев' },
+          { code: 'max_temperature_c', name: 'Максимальная температура', data_type: 'number', unit: '°C', sort_order: 5, is_required: false, show_in_short: false, show_in_details: true, value: 95, display_value: '95 °C' },
+        ], listed_at: '2026-01-01', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z' })
     }
     if (/\/reviews$/.test(url.pathname)) return response({ items: [], total: 0, page: 1, page_size: 50, total_pages: 1, average_rating: 0 })
     return response({ detail: 'Not found' }, 404)

@@ -178,7 +178,20 @@
       "validation_type": "Выберите тип товара",
       "validation_manufacturer": "Выберите производителя",
       "error_load": "Не удалось загрузить товар",
-      "not_found": "Товар не найден"
+      "not_found": "Товар не найден",
+      "char_boolean_value": "Да",
+      "char_boolean_unset": "Не задано",
+      "char_boolean_true": "Да",
+      "char_boolean_false": "Нет",
+      "char_number_placeholder": "Число",
+      "char_number_error": "Введите число",
+      "char_too_long_error": "Слишком длинное значение",
+      "char_list_empty": "Значений пока нет.",
+      "char_list_add": "Добавить значение",
+      "char_list_remove": "Удалить значение {{index}}",
+      "char_orphans_title": "Характеристики предыдущей категории: {{count}}",
+      "char_orphans_confirm": "Удалить эти характеристики при смене категории",
+      "char_orphans_unresolved": "Подтвердите удаление характеристик предыдущей категории или укажите подходящую замену"
     },
     "reviews": {
       "title": "Отзывы товара",

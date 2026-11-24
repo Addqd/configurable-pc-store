@@ -6,7 +6,7 @@
  */
 import * as zod from 'zod';
 
-export const paginatedProductsOutItemsItemShortSpecsDefault = [];
+export const paginatedProductsOutItemsItemShortCharacteristicsDefault = [];
 export const paginatedProductsOutItemsItemImagesDefault = [];
 export const paginatedProductsOutItemsItemAverageRatingDefault = 0;
 export const paginatedProductsOutItemsItemReviewCountDefault = 0;
@@ -16,7 +16,18 @@ export const PaginatedProductsOut = zod.object({
   "slug": zod.string(),
   "name": zod.string(),
   "price": zod.string(),
-  "short_specs": zod.array(zod.string()).default(paginatedProductsOutItemsItemShortSpecsDefault),
+  "short_characteristics": zod.array(zod.object({
+  "code": zod.string(),
+  "name": zod.string(),
+  "data_type": zod.string(),
+  "unit": zod.union([zod.string(),zod.null()]).optional(),
+  "sort_order": zod.int(),
+  "is_required": zod.boolean(),
+  "show_in_short": zod.boolean(),
+  "show_in_details": zod.boolean(),
+  "value": zod.unknown(),
+  "display_value": zod.string()
+}).describe('One category-scoped characteristic value of a product.\n\n`value` keeps its native JSON type (number, boolean, ordered list) so clients\ncan reason about it structurally. `display_value` is the ready-to-render\nstring: unit appended once, no raw JSON and no Python representation.')).default(paginatedProductsOutItemsItemShortCharacteristicsDefault),
   "color": zod.union([zod.string(),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string(),zod.null()]).optional(),
   "on_sale": zod.boolean(),

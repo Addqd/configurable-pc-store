@@ -23,8 +23,6 @@ from sqlalchemy.orm import configure_mappers
 
 from app.db.base import Base
 from app.models import (
-    ProductSpecField,
-    ProductSpecOption,
     Review,
     SaleLineFact,
     SiteEvent,
@@ -32,8 +30,6 @@ from app.models import (
 )
 
 PLATFORM_TABLES = (
-    "product_spec_fields",
-    "product_spec_options",
     "site_events",
     "sales_line_facts",
 )
@@ -92,10 +88,12 @@ def _index_columns(table, name: str) -> list[str]:
 def test_platform_tables_are_registered_on_shared_metadata() -> None:
     for name in PLATFORM_TABLES:
         assert name in Base.metadata.tables, name
-    assert Base.metadata.tables["product_spec_fields"] is ProductSpecField.__table__
-    assert Base.metadata.tables["product_spec_options"] is ProductSpecOption.__table__
     assert Base.metadata.tables["site_events"] is SiteEvent.__table__
     assert Base.metadata.tables["sales_line_facts"] is SaleLineFact.__table__
+    # The legacy specification template tables were dropped by the applied
+    # migration and must never come back in the ORM metadata.
+    assert "product_spec_fields" not in Base.metadata.tables
+    assert "product_spec_options" not in Base.metadata.tables
 
 
 def test_every_mapped_table_is_registered_exactly_once() -> None:
@@ -114,20 +112,6 @@ def test_database_views_are_not_registered_as_tables() -> None:
 
 
 def test_platform_table_columns() -> None:
-    assert set(_table("product_spec_fields").c.keys()) == {
-        "id",
-        "product_type_id",
-        "code",
-        "label",
-        "sort_order",
-        "is_required",
-    }
-    assert set(_table("product_spec_options").c.keys()) == {
-        "id",
-        "field_id",
-        "value",
-        "sort_order",
-    }
     assert set(_table("site_events").c.keys()) == {
         "id",
         "event_key",
@@ -222,20 +206,6 @@ def test_review_columns_added_by_migration() -> None:
 
 
 def test_platform_column_types_and_nullability() -> None:
-    fields = _table("product_spec_fields")
-    assert isinstance(fields.c.id.type, BigInteger)
-    assert isinstance(fields.c.product_type_id.type, BigInteger)
-    assert isinstance(fields.c.code.type, String) and fields.c.code.type.length == 64
-    assert isinstance(fields.c.label.type, String) and fields.c.label.type.length == 120
-    assert isinstance(fields.c.sort_order.type, Integer)
-    assert isinstance(fields.c.is_required.type, Boolean)
-    assert fields.c.is_required.nullable is False
-
-    options = _table("product_spec_options")
-    assert isinstance(options.c.value.type, String)
-    assert options.c.value.type.length == 180
-    assert isinstance(options.c.sort_order.type, Integer)
-
     events = _table("site_events")
     assert isinstance(events.c.event_key.type, String)
     assert events.c.event_key.type.length == 160
@@ -300,9 +270,6 @@ def test_server_defaults_match_migration() -> None:
     assert _default_text(reviews.c.displayed_at) == "CURRENT_TIMESTAMP"
     assert _default_text(reviews.c.author_name) is None
     assert _default_text(reviews.c.store_reply) is None
-
-    fields = _table("product_spec_fields")
-    assert _default_text(fields.c.is_required) == "true"
 
     events = _table("site_events")
     assert _default_text(events.c.occurred_at) == "CURRENT_TIMESTAMP"
@@ -372,30 +339,6 @@ def test_review_check_constraints_unique_and_indexes() -> None:
         "displayed_at",
     ]
     assert "ix_reviews_product_id" in _index_names(reviews)
-
-
-def test_spec_template_constraints_and_indexes() -> None:
-    fields = _table("product_spec_fields")
-    assert _check_names(fields) == {
-        "ck_spec_fields_order_nonnegative",
-        "ck_spec_fields_label_nonempty",
-    }
-    assert _unique_names(fields) == {
-        "uq_spec_fields_type_code",
-        "uq_spec_fields_type_order",
-    }
-    assert _index_columns(fields, "ix_spec_fields_type") == ["product_type_id"]
-
-    options = _table("product_spec_options")
-    assert _check_names(options) == {
-        "ck_spec_options_order_nonnegative",
-        "ck_spec_options_value_nonempty",
-    }
-    assert _unique_names(options) == {
-        "uq_spec_options_field_value",
-        "uq_spec_options_field_order",
-    }
-    assert _index_columns(options, "ix_spec_options_field") == ["field_id"]
 
 
 def test_site_event_constraints_and_indexes() -> None:
@@ -477,20 +420,6 @@ def test_sales_line_facts_foreign_keys() -> None:
     assert foreign_key.ondelete == "SET NULL"
     # No FK to orders / order_items / users: the ledger is independent.
     assert [item.parent.name for item in foreign_keys] == ["product_id"]
-
-
-def test_spec_template_foreign_keys() -> None:
-    fields = list(_table("product_spec_fields").foreign_keys)
-    assert len(fields) == 1
-    assert fields[0].parent.name == "product_type_id"
-    assert fields[0].column.table.name == "product_types"
-    assert fields[0].ondelete == "CASCADE"
-
-    options = list(_table("product_spec_options").foreign_keys)
-    assert len(options) == 1
-    assert options[0].parent.name == "field_id"
-    assert options[0].column.table.name == "product_spec_fields"
-    assert options[0].ondelete == "CASCADE"
 
 
 def test_review_user_foreign_key_stays_nullable_cascade() -> None:

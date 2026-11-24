@@ -28,15 +28,11 @@ export const adminProductUpdateColorOneMax = 80;
 
 export const adminProductUpdateGraphicsChipBrandOneMax = 40;
 
-export const adminProductUpdateSpecLinesOneMax = 40;
+export const adminProductUpdateCharacteristicsOneItemCodeMax = 64;
 
-export const adminProductUpdateShortSpecsOneMax = 20;
+export const adminProductUpdateCharacteristicsOneMax = 200;
 
-export const adminProductUpdateDisplaySpecsOneItemLabelMax = 120;
-
-export const adminProductUpdateDisplaySpecsOneItemValueMax = 300;
-
-export const adminProductUpdateDisplaySpecsOneMax = 60;
+export const adminProductUpdateRemoveCharacteristicsOneMax = 200;
 
 
 export const AdminProductUpdate = zod.object({
@@ -50,14 +46,11 @@ export const AdminProductUpdate = zod.object({
   "slug": zod.union([zod.string().max(adminProductUpdateSlugOneMax),zod.null()]).optional(),
   "color": zod.union([zod.string().max(adminProductUpdateColorOneMax),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string().max(adminProductUpdateGraphicsChipBrandOneMax),zod.null()]).optional(),
-  "spec_lines": zod.union([zod.array(zod.string()).max(adminProductUpdateSpecLinesOneMax),zod.null()]).optional(),
-  "short_specs": zod.union([zod.array(zod.string()).max(adminProductUpdateShortSpecsOneMax),zod.null()]).optional(),
-  "technical_specs": zod.union([zod.record(zod.string(), zod.unknown()),zod.null()]).optional(),
-  "display_specs": zod.union([zod.array(zod.object({
-  "label": zod.string().min(1).max(adminProductUpdateDisplaySpecsOneItemLabelMax),
-  "value": zod.string().min(1).max(adminProductUpdateDisplaySpecsOneItemValueMax)
-})).max(adminProductUpdateDisplaySpecsOneMax),zod.null()]).optional(),
-  "specifications": zod.union([zod.record(zod.string(), zod.string()),zod.null()]).optional(),
+  "characteristics": zod.union([zod.array(zod.object({
+  "code": zod.string().min(1).max(adminProductUpdateCharacteristicsOneItemCodeMax),
+  "value": zod.unknown()
+}).describe('One submitted value.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse. `null` is never\na legal value: use `remove_characteristics` to delete an existing one.')).max(adminProductUpdateCharacteristicsOneMax),zod.null()]).optional(),
+  "remove_characteristics": zod.union([zod.array(zod.string()).max(adminProductUpdateRemoveCharacteristicsOneMax),zod.null()]).optional(),
   "on_sale": zod.union([zod.boolean(),zod.null()]).optional(),
   "is_active": zod.union([zod.boolean(),zod.null()]).optional(),
   "listed_at": zod.union([zod.iso.date(),zod.null()]).optional()

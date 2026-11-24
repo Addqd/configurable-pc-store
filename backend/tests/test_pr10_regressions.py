@@ -16,6 +16,7 @@ from app.core.security import create_refresh_token, get_settings
 from app.db.session import get_db_session
 from app.main import app
 from app.models import Product
+from tests.conftest import apply_characteristics
 
 
 def test_failed_transaction_cannot_return_no_content(monkeypatch) -> None:
@@ -132,9 +133,6 @@ def test_filter_options_are_scoped_and_manufacturers_unique(
         price=Decimal("149.99"),
         stock_quantity=2,
         color="AQUA_TEST_ONLY",
-        spec_lines=[],
-        short_specs=[],
-        technical_specs={},
         is_active=True,
     )
     test_db_session.add(clone)
@@ -157,8 +155,7 @@ def test_order_snapshot_remains_unchanged_after_product_edit(
     sample_products: dict,
 ) -> None:
     product = sample_products["gpu"]
-    product.spec_lines = ["Before purchase"]
-    test_db_session.flush()
+    apply_characteristics(test_db_session, product, {"gpu_model": "Before purchase"})
     headers = registered_user["headers"]
     add = api_client.post(
         "/api/v1/cart/products",
@@ -175,7 +172,6 @@ def test_order_snapshot_remains_unchanged_after_product_edit(
     assert item["specs_snapshot"] == ["Before purchase"]
     product.name = "CHANGED AFTER PURCHASE"
     product.price = Decimal("777.77")
-    product.spec_lines = ["After purchase"]
     test_db_session.flush()
     orders = api_client.get("/api/v1/cart/orders", headers=headers)
     assert orders.status_code == 200

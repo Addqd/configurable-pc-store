@@ -1,10 +1,15 @@
-"""Database-free regression tests for the verified compatibility rule set."""
+"""Database-free regression tests for the verified compatibility rule set.
+
+The evaluator reads normalized characteristic values through `db` helpers, so
+the fake session serves the two bulk reads (`scalars`/`execute`) plus `get`.
+"""
 
 from __future__ import annotations
 
 from copy import deepcopy
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -12,14 +17,70 @@ from app.services.cart_service import _build_snapshot
 from app.services.compatibility import SLOT_CATEGORIES, check_selections
 
 
+class _Scalars:
+    def __init__(self, rows: list[SimpleNamespace]) -> None:
+        self._rows = rows
+
+    def all(self) -> list[SimpleNamespace]:
+        return self._rows
+
+
+class _Result:
+    def __init__(self, rows: list[tuple[int, str, Any]]) -> None:
+        self._rows = rows
+
+    def all(self) -> list[tuple[int, str, Any]]:
+        return self._rows
+
+    def __iter__(self):
+        return iter(self._rows)
+
+
+def _requested_ids(statement: object) -> set[int]:
+    """Recover the id list of an `IN (...)` filter from an ORM statement."""
+    whereclause = getattr(statement, "whereclause", None)
+    if whereclause is None:
+        return set()
+    ids: set[int] = set()
+    for element in whereclause.get_children():
+        for candidate in (element, getattr(element, "right", None)):
+            value = getattr(candidate, "value", None)
+            if isinstance(value, list | tuple | set):
+                ids.update(item for item in value if isinstance(item, int))
+    return ids
+
+
 class FakeSession:
-    """Only the read interface needed by the pure compatibility evaluator."""
+    """The read interface used by the pure compatibility evaluator.
+
+    Only two bulk reads are issued (`select(Product)` and the characteristic
+    value join). The requested ids are recovered from the `IN (...)` filter, so a
+    selection that omits a slot really omits that product.
+    """
 
     def __init__(self, parts: dict[int, SimpleNamespace]) -> None:
         self.parts = parts
 
     def get(self, _model: object, key: int) -> SimpleNamespace | None:
         return self.parts.get(key)
+
+    def _requested(self, statement: object) -> list[SimpleNamespace]:
+        ids = _requested_ids(statement)
+        if not ids:
+            return list(self.parts.values())
+        return [part for key, part in self.parts.items() if key in ids]
+
+    def scalars(self, statement: object) -> _Scalars:
+        return _Scalars(self._requested(statement))
+
+    def execute(self, statement: object) -> _Result:
+        return _Result(
+            [
+                (product.id, code, value)
+                for product in self._requested(statement)
+                for code, value in product.values.items()
+            ]
+        )
 
 
 def _parts() -> tuple[FakeSession, dict[str, int]]:
@@ -102,7 +163,7 @@ def _parts() -> tuple[FakeSession, dict[str, int]]:
             price=Decimal("100.00"),
             stock_quantity=10,
             product_type=SimpleNamespace(category=SimpleNamespace(slug=category)),
-            technical_specs=deepcopy(data),
+            values=deepcopy(data),
         )
         selection[slot] = number
     assert set(selection) == set(SLOT_CATEGORIES)
@@ -133,7 +194,7 @@ def test_partial_or_unverified_build_stays_unknown() -> None:
         _build_snapshot(db, selections, 1)  # type: ignore[arg-type]
 
     db, selections = _parts()
-    db.parts[selections["gpu"]].technical_specs.pop("length_mm")
+    db.parts[selections["gpu"]].values.pop("length_mm")
     result = _result(db, selections)
     assert result.status == "unknown"
     assert any(
@@ -148,7 +209,7 @@ def test_wrong_slot_and_confirmed_conflict_precede_unknown() -> None:
     assert _result(db, selections).status == "incompatible"
 
     db, selections = _parts()
-    db.parts[selections["cpu"]].technical_specs["socket"] = "LGA1700"
+    db.parts[selections["cpu"]].values["socket"] = "LGA1700"
     result = _result(db, selections)
     assert result.status == "incompatible"
     assert any(
@@ -196,7 +257,7 @@ def test_each_proven_mismatch_is_incompatible(
     slot: str, field: str, bad_value: object, expected_check: str
 ) -> None:
     db, selections = _parts()
-    db.parts[selections[slot]].technical_specs[field] = bad_value
+    db.parts[selections[slot]].values[field] = bad_value
     result = _result(db, selections)
     assert result.status == "incompatible"
     assert any(
@@ -208,39 +269,39 @@ def test_each_proven_mismatch_is_incompatible(
 def test_liquid_radiator_mounting_is_checked() -> None:
     db, selections = _parts()
     cooler = db.parts[selections["cooling"]]
-    cooler.technical_specs["cooling_type"] = "liquid"
-    cooler.technical_specs["radiator_size_mm"] = 240
+    cooler.values["cooling_type"] = "liquid"
+    cooler.values["radiator_size_mm"] = 240
     assert _result(db, selections).status == "compatible"
-    cooler.technical_specs["radiator_size_mm"] = 280
+    cooler.values["radiator_size_mm"] = 280
     assert _result(db, selections).status == "incompatible"
-    cooler.technical_specs.pop("radiator_size_mm")
+    cooler.values.pop("radiator_size_mm")
     assert _result(db, selections).status == "unknown"
 
 
 def test_invalid_power_values_never_prove_safety() -> None:
     db, selections = _parts()
-    db.parts[selections["gpu"]].technical_specs["max_power_draw_w"] = "250"
+    db.parts[selections["gpu"]].values["max_power_draw_w"] = "250"
     assert _result(db, selections).status == "unknown"
-    db.parts[selections["gpu"]].technical_specs["max_power_draw_w"] = True
+    db.parts[selections["gpu"]].values["max_power_draw_w"] = True
     assert _result(db, selections).status == "unknown"
 
 
 def test_missing_structured_metadata_never_becomes_green() -> None:
     db, selections = _parts()
     for product in db.parts.values():
-        product.technical_specs = {}
+        product.values = {}
     assert _result(db, selections).status == "unknown"
 
 
 def test_sata_drive_bay_is_checked() -> None:
     db, selections = _parts()
     storage = db.parts[selections["storage"]]
-    storage.technical_specs["interface"] = "sata"
-    storage.technical_specs["drive_form_factor"] = "2.5"
+    storage.values["interface"] = "sata"
+    storage.values["drive_form_factor"] = "2.5"
     assert _result(db, selections).status == "compatible"
-    storage.technical_specs["drive_form_factor"] = "5.25"
+    storage.values["drive_form_factor"] = "5.25"
     assert _result(db, selections).status == "incompatible"
-    storage.technical_specs.pop("drive_form_factor")
+    storage.values.pop("drive_form_factor")
     assert _result(db, selections).status == "unknown"
 
 
@@ -249,7 +310,7 @@ def test_verified_zero_connector_gpu_and_passive_case_draw() -> None:
     gpu = db.parts[selections["gpu"]]
     psu = db.parts[selections["psu"]]
     case = db.parts[selections["case"]]
-    gpu.technical_specs["required_power_connectors"] = []
-    psu.technical_specs["available_gpu_power_connectors"] = []
-    case.technical_specs["max_power_draw_w"] = 0
+    gpu.values["required_power_connectors"] = []
+    psu.values["available_gpu_power_connectors"] = []
+    case.values["max_power_draw_w"] = 0
     assert _result(db, selections).status == "compatible"

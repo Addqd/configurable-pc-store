@@ -1,15 +1,37 @@
 import { type BuilderSelections, estimateComponentPower } from '../stores/builderStore'
+import { characteristicOf } from './product'
+import { characteristicValue } from '../i18n/characteristics'
 
 export interface BuildSpec { label: string; value: string }
 
-function found(specs: string[], expression: RegExp): string | null {
-  return specs.find((part) => expression.test(part)) ?? null
-}
-
-/** Specifications are *only* derived from available product fields. */
-export function deriveBuilderSpecs(selections: BuilderSelections): BuildSpec[] {
+/**
+ * Builder summary rows.
+ *
+ * Every technical value is read from the product's structured characteristics by
+ * its stable `code` — never inferred from display strings, file names or product
+ * names. A value the catalog does not declare is simply not shown. Values are
+ * formatted for `language`, while the labels stay Russian keys that the summary
+ * localizes with the shared characteristic dictionary.
+ */
+export function deriveBuilderSpecs(
+  selections: BuilderSelections,
+  language = 'ru',
+): BuildSpec[] {
   const specs: BuildSpec[] = []
   const add = (label: string, value: string | null | undefined) => { if (value) specs.push({ label, value }) }
+  // Structured value of one characteristic, formatted for the active language.
+  const text = (product: BuilderSelections[keyof BuilderSelections], code: string) => {
+    const row = characteristicOf(product, code)
+    return row ? characteristicValue(row, language) || null : null
+  }
+  const first = (product: BuilderSelections[keyof BuilderSelections], ...codes: string[]) => {
+    for (const code of codes) {
+      const value = text(product, code)
+      if (value) return value
+    }
+    return null
+  }
+
   const cpu = selections.cpu
   const mobo = selections.mobo
   const ram = selections.ram
@@ -20,37 +42,37 @@ export function deriveBuilderSpecs(selections: BuilderSelections): BuildSpec[] {
   const cooling = selections.cooling
 
   if (cpu) {
-    add('Сокет процессора', found(cpu.specs, /\b(?:AM[345]|LGA[\s-]?\d{4})\b/i))
-    add('Частота процессора', found(cpu.specs, /\d[.,]\d+\s*ГГц/i))
-    add('Ядра процессора', found(cpu.specs, /\d+\s*(?:ядер|ядра|ядро)/i))
+    add('Сокет процессора', text(cpu, 'socket'))
+    add('Частота процессора', first(cpu, 'max_clock_ghz', 'base_clock_ghz'))
+    add('Ядра процессора', text(cpu, 'cores'))
   }
   if (mobo) {
-    add('Чипсет материнской платы', mobo.name.match(/\b(?:B650E?|B760|Z790|Z870|B850|X670E?|X870E?)\b/i)?.[0])
-    add('Форм-фактор платы', found(mobo.specs, /^(?:ATX|mATX|micro-ATX|mini-ITX|ITX)$/i))
+    add('Чипсет материнской платы', text(mobo, 'chipset'))
+    add('Форм-фактор платы', text(mobo, 'form_factor'))
   }
   if (ram) {
-    add('Объём оперативной памяти', ram.name.match(/\b\d+\s*ГБ(?![A-Za-zА-Яа-я0-9])/i)?.[0])
-    add('Частота памяти', found(ram.specs, /\d+\s*МГц/i))
-    add('Тип памяти', [ram.type, ram.name, ...ram.specs].join(' ').match(/\bDDR[345]\b/i)?.[0])
+    add('Объём оперативной памяти', text(ram, 'capacity_gb'))
+    add('Частота памяти', text(ram, 'frequency_mhz'))
+    add('Тип памяти', text(ram, 'memory_type'))
   }
   if (storage) {
-    add('Объём накопителя', storage.name.match(/\b\d+(?:[.,]\d+)?\s*(?:ТБ|ГБ)(?![A-Za-zА-Яа-я0-9])/i)?.[0])
-    add('Интерфейс накопителя', found(storage.specs, /\b(?:PCIe|M\.2|NVMe|SATA)\b/i) ??
-      ([storage.type, storage.name].join(' ').match(/\b(?:NVMe|SATA|M\.2)\b/i)?.[0] ?? null))
+    add('Объём накопителя', text(storage, 'capacity_gb'))
+    add('Интерфейс накопителя', first(storage, 'interface', 'interface_detail'))
   }
   if (gpu) {
-    add('Графический процессор', gpu.name)
-    add('Объём видеопамяти', found(gpu.specs, /\d+\s*ГБ\s*GDDR/i))
+    add('Графический процессор', text(gpu, 'gpu_model') ?? gpu.name)
+    const memory = [text(gpu, 'vram_gb'), text(gpu, 'vram_type')].filter(Boolean).join(' ')
+    add('Объём видеопамяти', memory || null)
   }
   if (psu) {
-    add('Мощность блока питания', found(psu.specs, /\d+\s*(?:Вт|W)(?![A-Za-zА-Яа-я0-9])/i) ??
-      psu.name.match(/\b\d+\s*(?:Вт|W)(?![A-Za-zА-Яа-я0-9])/i)?.[0])
-    add('Эффективность БП', found(psu.specs, /80\+\s*(?:Gold|Silver|Bronze|Platinum|Titanium)/i))
+    add('Мощность блока питания', text(psu, 'wattage_w'))
+    add('Эффективность БП', text(psu, 'efficiency_rating'))
   }
   const power = estimateComponentPower(selections)
-  if (power !== null) add('Потребление CPU + GPU (минимум)', `≥ ${power} Вт`)
-  if (chassis) add('Форм-фактор корпуса', found(chassis.specs, /^(?:ATX|mATX|micro-ATX|mini-ITX|ITX)$/i) ?? chassis.type)
-  if (cooling) add('Тип охлаждения', found(cooling.specs, /^(?:Воздушное|СЖО)$/i) ?? cooling.type)
+  if (power !== null) {
+    add('Потребление CPU + GPU (минимум)', `≥ ${power} ${language.startsWith('en') ? 'W' : 'Вт'}`)
+  }
+  if (chassis) add('Форм-фактор корпуса', text(chassis, 'form_factor'))
+  if (cooling) add('Тип охлаждения', text(cooling, 'cooling_type'))
   return specs
 }
-
