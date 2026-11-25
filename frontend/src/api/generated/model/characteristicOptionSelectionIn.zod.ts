@@ -15,7 +15,7 @@ export const characteristicOptionSelectionInQuantityMax = 32;
 export const CharacteristicOptionSelectionIn = zod.object({
   "option_id": zod.int().gt(characteristicOptionSelectionInOptionIdExclusiveMin),
   "quantity": zod.int().min(1).max(characteristicOptionSelectionInQuantityMax).default(characteristicOptionSelectionInQuantityDefault)
-}).describe('One submitted dictionary pick with its repeat count.')
+}).describe('One submitted dictionary pick with its repeat count.\n\nBoth integers are strict, so a JSON `true`, `1.0` or `"1"` is rejected here\ninstead of being coerced into a number the service would then accept.')
 
 export type CharacteristicOptionSelectionIn = zod.input<typeof CharacteristicOptionSelectionIn>;
 export type CharacteristicOptionSelectionInOutput = zod.output<typeof CharacteristicOptionSelectionIn>;

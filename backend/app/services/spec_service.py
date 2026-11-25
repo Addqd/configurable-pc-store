@@ -680,13 +680,22 @@ def resolve_values(
     of the target dictionary or removed explicitly; nothing is dropped silently and
     no identifier of the previous category is reused.
 
-    An explicitly submitted code always wins over the stored one, so an
-    administrator can resolve a transition without the old selection being
-    validated against a definition it never belonged to.
+    A code may never be replaced *and* removed by the same request: the submitted
+    codes and the requested removals are both validated first, then their
+    intersection is rejected, so neither side can silently win. Nothing is written
+    here — the caller owns the transaction, so a rejected request leaves the
+    product, its associations and the dictionary untouched.
     """
     by_code = {definition.code: definition for definition in definitions}
     explicit_removals = removed_codes(definitions, removed, also_known=list(existing))
     replacements = dict(submitted or {})
+
+    conflicting = sorted(set(replacements) & explicit_removals)
+    if conflicting:
+        raise InvalidInputError(
+            "A characteristic cannot be replaced and removed by the same request: "
+            + ", ".join(conflicting)
+        )
 
     unresolved = sorted(
         code

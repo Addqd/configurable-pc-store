@@ -1,4 +1,9 @@
-from fastapi import FastAPI, Request
+import math
+from typing import Any
+
+from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.admin import router as admin_router
@@ -31,6 +36,40 @@ def handle_service_error(request: Request, exc: ServiceError) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.message},
+    )
+
+
+def _without_non_finite(value: Any) -> Any:
+    """Replace `NaN`/`Infinity` with their literal text, recursively.
+
+    Pydantic reports the rejected input in its errors, and a JSON document may
+    carry the `NaN`/`Infinity` literals (they are accepted by Python's decoder but
+    not emitted by `json.dumps`). Such an input must not make the *error response*
+    unrenderable.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else str(value)
+    if isinstance(value, dict):
+        return {key: _without_non_finite(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [_without_non_finite(item) for item in value]
+    return value
+
+
+@app.exception_handler(RequestValidationError)
+def handle_request_validation_error(
+    request: Request, exc: RequestValidationError
+) -> JSONResponse:
+    """Keep every malformed request a 422.
+
+    The default handler echoes the submitted input verbatim; when that input holds
+    a non-finite float, rendering the response raises and the client sees HTTP 500
+    instead of the validation error.
+    """
+    detail = _without_non_finite(jsonable_encoder(exc.errors()))
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content={"detail": detail},
     )
 
 

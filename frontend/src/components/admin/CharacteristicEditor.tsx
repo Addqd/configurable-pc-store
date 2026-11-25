@@ -13,12 +13,17 @@ import {
 } from '../../admin/characteristicDrafts'
 import {
   characteristicLabel,
-  translateCharacteristicCategoricalValue,
+  translateCharacteristicOptionValue,
   translateCharacteristicUnit,
 } from '../../i18n/characteristics'
 
-const optionLabel = (value: string, language: string) =>
-  translateCharacteristicCategoricalValue(value, language)
+const optionLabelFor = (
+  field: CharacteristicDefinitionLike,
+  language: string,
+) => (value: string) =>
+  // Boolean definitions store `Да`/`Нет`; the editor shows the localized wording
+  // of exactly those two values through the shared dictionary.
+  translateCharacteristicOptionValue(value, field.editor, field.data_type, language)
 
 /**
  * One category-scoped characteristic control.
@@ -46,6 +51,7 @@ export function CharacteristicFieldEditor({
   const controlId = `characteristic-${field.code}`
   const editor = editorOf(field)
   const options = field.options ?? []
+  const optionLabel = optionLabelFor(field, language)
   // The stored definition label/unit are Russian; the English editor shows the
   // same dictionary the storefront uses, keyed by the stable `code`.
   const name = characteristicLabel(field, language)
@@ -95,7 +101,7 @@ export function CharacteristicFieldEditor({
             id={controlId}
             name={name}
             options={options}
-            language={language}
+            optionLabel={optionLabel}
             value={draft.selected[0]}
             disabled={disabled}
             invalid={Boolean(error)}
@@ -106,7 +112,7 @@ export function CharacteristicFieldEditor({
             idPrefix={controlId}
             name={name}
             options={options}
-            language={language}
+            optionLabel={optionLabel}
             draft={draft}
             repeatable={editor === 'connector_quantity'}
             disabled={disabled}
@@ -125,7 +131,7 @@ function SingleOptionSelect({
   id,
   name,
   options,
-  language,
+  optionLabel,
   value,
   disabled,
   invalid,
@@ -134,7 +140,7 @@ function SingleOptionSelect({
   id: string
   name: string
   options: readonly { option_id: number; value: string }[]
-  language: string
+  optionLabel: (value: string) => string
   value: number | undefined
   disabled: boolean
   invalid: boolean
@@ -146,9 +152,9 @@ function SingleOptionSelect({
     const needle = search.trim().toLocaleLowerCase()
     if (!needle) return options
     return options.filter((option) =>
-      optionLabel(option.value, language).toLocaleLowerCase().includes(needle),
+      optionLabel(option.value).toLocaleLowerCase().includes(needle),
     )
-  }, [options, search, language])
+  }, [options, search, optionLabel])
   const unknown = value !== undefined && !options.some((option) => option.option_id === value)
 
   return (
@@ -180,7 +186,7 @@ function SingleOptionSelect({
         )}
         {filtered.map((option) => (
           <option key={option.option_id} value={String(option.option_id)}>
-            {optionLabel(option.value, language)}
+            {optionLabel(option.value)}
           </option>
         ))}
       </select>
@@ -199,7 +205,7 @@ function OptionChecklist({
   idPrefix,
   name,
   options,
-  language,
+  optionLabel,
   draft,
   repeatable,
   disabled,
@@ -209,7 +215,7 @@ function OptionChecklist({
   idPrefix: string
   name: string
   options: readonly { option_id: number; value: string }[]
-  language: string
+  optionLabel: (value: string) => string
   draft: CharacteristicDraft
   repeatable: boolean
   disabled: boolean
@@ -223,13 +229,13 @@ function OptionChecklist({
     const needle = search.trim().toLocaleLowerCase()
     if (!needle) return options
     return options.filter((option) =>
-      optionLabel(option.value, language).toLocaleLowerCase().includes(needle),
+      optionLabel(option.value).toLocaleLowerCase().includes(needle),
     )
-  }, [options, search, language])
+  }, [options, search, optionLabel])
   const labelFor = (optionId: number) => {
     const option = options.find((item) => item.option_id === optionId)
     return option
-      ? optionLabel(option.value, language)
+      ? optionLabel(option.value)
       : t('admin.form.char_option_unknown', { id: optionId })
   }
 
@@ -267,7 +273,7 @@ function OptionChecklist({
               disabled={disabled}
               onChange={() => onToggle(option.option_id)}
             />
-            <span className="min-w-0 truncate">{optionLabel(option.value, language)}</span>
+            <span className="min-w-0 truncate">{optionLabel(option.value)}</span>
           </label>
         ))}
       </div>

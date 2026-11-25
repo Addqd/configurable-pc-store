@@ -18,13 +18,18 @@ from app.core.security import get_settings
 from app.models import (
     Category,
     Characteristic,
+    CharacteristicOption,
     Manufacturer,
     ProductCharacteristic,
     ProductImage,
     ProductType,
     User,
 )
-from app.schemas.admin_products import AdminProductUpdate, CharacteristicValueIn
+from app.schemas.admin_products import (
+    AdminProductUpdate,
+    CharacteristicOptionSelectionIn,
+    CharacteristicValueIn,
+)
 from app.services import product_admin_service, product_image_service
 from app.services.errors import InvalidInputError
 
@@ -52,6 +57,41 @@ def _create(api_client: TestClient, admin_user: dict, sample_products: dict, **e
         headers=admin_user["headers"],
         json=_payload(sample_products, **extra),
     )
+
+
+def _option_id(db: Session, definition: Characteristic, value: str) -> int:
+    """Dictionary id of one definition value, created inside the test transaction.
+
+    Values are resolved by their canonical text from the isolated test database, so
+    no identifier is hardcoded and a definition added by another test cannot leak
+    into this one.
+    """
+    option = db.scalar(
+        select(CharacteristicOption).where(
+            CharacteristicOption.characteristic_name_id == definition.id,
+            CharacteristicOption.value == value,
+        )
+    )
+    if option is None:
+        option = CharacteristicOption(characteristic_name_id=definition.id, value=value)
+        db.add(option)
+        db.flush()
+    return option.id
+
+
+def _selection(code: str, *picks: int | tuple[int, int]) -> dict[str, Any]:
+    """One characteristic write of the current contract.
+
+    A bare id stores `quantity = 1`; a `(option_id, quantity)` pair stores an
+    explicit repeat count, which only a connector field may use.
+    """
+    options = [
+        {"option_id": pick, "quantity": 1}
+        if isinstance(pick, int)
+        else {"option_id": pick[0], "quantity": pick[1]}
+        for pick in picks
+    ]
+    return {"code": code, "options": options}
 
 
 @pytest.fixture()
@@ -91,6 +131,17 @@ def gpu_number_definition(
 
 
 @pytest.fixture()
+def gpu_number_options(
+    test_db_session: Session, gpu_number_definition: Characteristic
+) -> dict[str, int]:
+    """Dictionary of the probe wattage definition: `{"250": id, "300": id}`."""
+    return {
+        value: _option_id(test_db_session, gpu_number_definition, value)
+        for value in ("250", "300")
+    }
+
+
+@pytest.fixture()
 def gpu_optional_definition(
     test_db_session: Session, sample_products: dict
 ) -> Characteristic:
@@ -110,6 +161,36 @@ def gpu_optional_definition(
 
 
 @pytest.fixture()
+def gpu_optional_options(
+    test_db_session: Session, gpu_optional_definition: Characteristic
+) -> dict[str, int]:
+    """Dictionary of the optional note definition."""
+    return {
+        value: _option_id(test_db_session, gpu_optional_definition, value)
+        for value in ("Заметка",)
+    }
+
+
+@pytest.fixture()
+def gpu_model_options(
+    test_db_session: Session, sample_products: dict
+) -> dict[str, int]:
+    """Real dictionary ids of the seeded `gpu_model` definition."""
+    definition = test_db_session.scalar(
+        select(Characteristic).where(
+            Characteristic.category_id
+            == sample_products["gpu"].product_type.category_id,
+            Characteristic.code == "gpu_model",
+        )
+    )
+    assert definition is not None, "the seeded catalogue defines gpu_model"
+    return {
+        value: _option_id(test_db_session, definition, value)
+        for value in ("GeForce RTX", "Radeon RX")
+    }
+
+
+@pytest.fixture()
 def cpu_text_definition(
     test_db_session: Session, sample_products: dict
 ) -> Characteristic:
@@ -126,6 +207,17 @@ def cpu_text_definition(
     test_db_session.add(definition)
     test_db_session.flush()
     return definition
+
+
+@pytest.fixture()
+def cpu_text_options(
+    test_db_session: Session, cpu_text_definition: Characteristic
+) -> dict[str, int]:
+    """Dictionary of the CPU probe socket definition."""
+    return {
+        value: _option_id(test_db_session, cpu_text_definition, value)
+        for value in ("AM5",)
+    }
 
 
 def test_create_generates_unique_sku_and_slug(
@@ -220,56 +312,130 @@ def test_characteristic_definitions_are_category_scoped(
     assert "test_probe_wattage" not in {item["code"] for item in other.json()["fields"]}
 
 
-@pytest.mark.parametrize(
-    ("payload", "expected"),
-    [
-        ({}, "Тестовая мощность"),
-        (
-            {"characteristics": [{"code": "unknown_code", "value": "x"}]},
-            "Unknown characteristic code",
-        ),
-        (
-            {"characteristics": [{"code": "test_probe_wattage", "value": "сто"}]},
-            "numeric value",
-        ),
-        (
-            {"characteristics": [{"code": "test_probe_wattage", "value": True}]},
-            "numeric value",
-        ),
-        (
-            {"characteristics": [{"code": "test_probe_wattage", "value": None}]},
-            "null",
-        ),
-        (
-            {
-                "characteristics": [
-                    {"code": "test_probe_wattage", "value": 250},
-                    {"code": "test_probe_wattage", "value": 300},
-                ]
-            },
-            "Duplicate characteristic code",
-        ),
-    ],
-    ids=[
-        "missing-required",
-        "unknown-code",
-        "wrong-type",
-        "boolean-as-number",
-        "json-null",
-        "duplicate-code",
-    ],
-)
 def test_create_rejects_invalid_characteristics(
     api_client: TestClient,
     admin_user: dict,
     sample_products: dict,
     gpu_number_definition: Characteristic,
-    payload: dict,
-    expected: str,
+    gpu_number_options: dict[str, int],
 ):
-    response = _create(api_client, admin_user, sample_products, **payload)
-    assert response.status_code == 422, response.text
-    assert expected in response.json()["detail"]
+    """Rejections the service owns keep a readable `detail` string.
+
+    Every negative case fails for its own business reason — not because the
+    request still uses the removed free-text contract.
+    """
+    wattage = gpu_number_options
+    cases = [
+        pytest.param({}, "Тестовая мощность", id="missing-required"),
+        pytest.param(
+            {"characteristics": [_selection("unknown_code", wattage["250"])]},
+            "Unknown characteristic code",
+            id="unknown-code",
+        ),
+        pytest.param(
+            {
+                "characteristics": [
+                    _selection("test_probe_wattage", wattage["250"], wattage["300"])
+                ]
+            },
+            "only one option may be selected",
+            id="two-options-for-a-scalar",
+        ),
+        pytest.param(
+            {
+                "characteristics": [
+                    _selection("test_probe_wattage", wattage["250"], wattage["250"])
+                ]
+            },
+            "must not be selected twice",
+            id="duplicate-option",
+        ),
+        pytest.param(
+            {
+                "characteristics": [
+                    _selection("test_probe_wattage", wattage["250"]),
+                    _selection("test_probe_wattage", wattage["300"]),
+                ]
+            },
+            "Duplicate characteristic code",
+            id="duplicate-code",
+        ),
+        pytest.param(
+            {"characteristics": [_selection("test_probe_wattage", 999_999)]},
+            "unknown option id",
+            id="unknown-option-id",
+        ),
+        pytest.param(
+            {"characteristics": [_selection("dimensions_mm", wattage["250"])]},
+            "exactly three measurements are required",
+            id="dictionary-pick-for-dimensions",
+        ),
+    ]
+    for payload, expected in cases:
+        response = _create(api_client, admin_user, sample_products, **payload)
+        assert response.status_code == 422, response.text
+        assert expected in response.json()["detail"], response.text
+
+
+def test_create_rejects_malformed_characteristic_shapes(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    gpu_number_definition: Characteristic,
+    gpu_number_options: dict[str, int],
+):
+    """A malformed body fails while the request is parsed, before any service call."""
+    option_id = gpu_number_options["250"]
+
+    def rejected(payload: list[dict[str, Any]], field: str) -> None:
+        response = _create(
+            api_client, admin_user, sample_products, characteristics=payload
+        )
+        assert response.status_code == 422, response.text
+        detail = response.json()["detail"]
+        assert isinstance(detail, list), detail
+        assert any(field in error["loc"] for error in detail), detail
+
+    # Strict integers: no booleans, fractions or numeric strings.
+    rejected(
+        [{"code": "test_probe_wattage", "options": [{"option_id": True}]}],
+        "option_id",
+    )
+    rejected(
+        [{"code": "test_probe_wattage", "options": [{"option_id": str(option_id)}]}],
+        "option_id",
+    )
+    rejected(
+        [
+            {
+                "code": "test_probe_wattage",
+                "options": [{"option_id": option_id, "quantity": 1.5}],
+            }
+        ],
+        "quantity",
+    )
+    rejected(
+        [
+            {
+                "code": "test_probe_wattage",
+                "options": [{"option_id": option_id, "quantity": 0}],
+            }
+        ],
+        "quantity",
+    )
+    rejected(
+        [
+            {
+                "code": "test_probe_wattage",
+                "options": [{"option_id": option_id, "quantity": 33}],
+            }
+        ],
+        "quantity",
+    )
+    # The removed contract and an empty selection are not accepted either.
+    rejected([{"code": "test_probe_wattage", "value": 250}], "characteristics")
+    rejected([{"code": "test_probe_wattage"}], "characteristics")
+    rejected([{"code": "test_probe_wattage", "options": []}], "characteristics")
 
 
 def test_create_and_update_store_typed_values(
@@ -277,16 +443,19 @@ def test_create_and_update_store_typed_values(
     admin_user: dict,
     sample_products: dict,
     gpu_number_definition: Characteristic,
+    gpu_number_options: dict[str, int],
     gpu_optional_definition: Characteristic,
+    gpu_optional_options: dict[str, int],
+    gpu_model_options: dict[str, int],
 ):
     created = _create(
         api_client,
         admin_user,
         sample_products,
         characteristics=[
-            {"code": "test_probe_wattage", "value": 250},
-            {"code": "test_probe_note", "value": "  Заметка  "},
-            {"code": "gpu_model", "value": "GeForce RTX"},
+            _selection("test_probe_wattage", gpu_number_options["250"]),
+            _selection("test_probe_note", gpu_optional_options["Заметка"]),
+            _selection("gpu_model", gpu_model_options["GeForce RTX"]),
         ],
     )
     assert created.status_code == 201, created.text
@@ -294,6 +463,14 @@ def test_create_and_update_store_typed_values(
     rows = {row["code"]: row for row in body["characteristics"]}
     assert rows["test_probe_wattage"]["value"] == 250
     assert rows["test_probe_wattage"]["display_value"] == "250 Вт"
+    # The stored option ids are the ones the dictionary offered.
+    assert rows["test_probe_wattage"]["options"] == [
+        {
+            "option_id": gpu_number_options["250"],
+            "value": "250",
+            "quantity": 1,
+        }
+    ]
     assert rows["test_probe_note"]["value"] == "Заметка"
     assert rows["gpu_model"]["value"] == "GeForce RTX"
     assert rows["test_probe_wattage"]["is_required"] is True
@@ -305,11 +482,16 @@ def test_create_and_update_store_typed_values(
     updated = api_client.patch(
         path,
         headers=headers,
-        json={"characteristics": [{"code": "gpu_model", "value": "Radeon RX"}]},
+        json={
+            "characteristics": [_selection("gpu_model", gpu_model_options["Radeon RX"])]
+        },
     )
     assert updated.status_code == 200, updated.text
     after = {row["code"]: row for row in updated.json()["characteristics"]}
     assert after["gpu_model"]["value"] == "Radeon RX"
+    assert (
+        after["gpu_model"]["options"][0]["option_id"] == gpu_model_options["Radeon RX"]
+    )
     assert after["test_probe_wattage"]["value"] == 250
 
     # An explicit removal is honoured for a non-required definition.
@@ -336,9 +518,11 @@ def test_rolled_back_characteristic_write_leaves_no_rows(
     sample_products: dict,
     admin_user: dict,
     gpu_number_definition: Characteristic,
+    gpu_number_options: dict[str, int],
 ):
     """A failed transaction must not leave partial characteristic rows."""
     product = sample_products["gpu"]
+    option_id = gpu_number_options["250"]
 
     with _service_session(isolated_connection) as db:
         actor = db.get(User, admin_user["id"])
@@ -348,7 +532,14 @@ def test_rolled_back_characteristic_write_leaves_no_rows(
             product.id,
             AdminProductUpdate(
                 characteristics=[
-                    CharacteristicValueIn(code="test_probe_wattage", value=250)
+                    CharacteristicValueIn(
+                        code="test_probe_wattage",
+                        options=[
+                            CharacteristicOptionSelectionIn(
+                                option_id=option_id, quantity=1
+                            )
+                        ],
+                    )
                 ]
             ),
         )
@@ -359,7 +550,14 @@ def test_rolled_back_characteristic_write_leaves_no_rows(
                 product.id,
                 AdminProductUpdate(
                     characteristics=[
-                        CharacteristicValueIn(code="test_probe_wattage", value="nope")
+                        CharacteristicValueIn(
+                            code="test_probe_wattage",
+                            options=[
+                                CharacteristicOptionSelectionIn(
+                                    option_id=999_999, quantity=1
+                                )
+                            ],
+                        )
                     ]
                 ),
             )
@@ -384,13 +582,15 @@ def test_category_transition_never_drops_values_silently(
     admin_user: dict,
     sample_products: dict,
     gpu_number_definition: Characteristic,
+    gpu_number_options: dict[str, int],
     cpu_text_definition: Characteristic,
+    cpu_text_options: dict[str, int],
 ):
     created = _create(
         api_client,
         admin_user,
         sample_products,
-        characteristics=[{"code": "test_probe_wattage", "value": 250}],
+        characteristics=[_selection("test_probe_wattage", gpu_number_options["250"])],
     )
     assert created.status_code == 201, created.text
     product_id = created.json()["id"]
@@ -418,7 +618,9 @@ def test_category_transition_never_drops_values_silently(
         json={
             "product_type_id": cpu_type_id,
             "remove_characteristics": ["test_probe_wattage"],
-            "characteristics": [{"code": "test_probe_socket", "value": "AM5"}],
+            "characteristics": [
+                _selection("test_probe_socket", cpu_text_options["AM5"])
+            ],
         },
     )
     assert switched.status_code == 200, switched.text
@@ -427,6 +629,115 @@ def test_category_transition_never_drops_values_silently(
     assert {row["code"]: row["value"] for row in body["characteristics"]} == {
         "test_probe_socket": "AM5"
     }
+
+
+# ── Connector quantities ──────────────────────────────────────────────────────
+
+
+def test_connector_quantities_round_trip_through_the_dictionary(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """A repeated connector is one option with a quantity, not repeated rows."""
+    definition = test_db_session.scalar(
+        select(Characteristic).where(
+            Characteristic.category_id
+            == sample_products["gpu"].product_type.category_id,
+            Characteristic.code == "required_power_connectors",
+        )
+    )
+    assert definition is not None, "the seeded catalogue defines the connector field"
+    eight_pin = _option_id(test_db_session, definition, "PCIe 8-pin")
+    sixteen_pin = _option_id(test_db_session, definition, "PCIe 16-pin")
+
+    created = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        characteristics=[
+            _selection("required_power_connectors", (eight_pin, 3), (sixteen_pin, 1))
+        ],
+    )
+    assert created.status_code == 201, created.text
+    rows = {item["code"]: item for item in created.json()["characteristics"]}
+    connectors = rows["required_power_connectors"]
+    stored = {option["option_id"]: option for option in connectors["options"]}
+    assert stored[eight_pin] == {
+        "option_id": eight_pin,
+        "value": "PCIe 8-pin",
+        "quantity": 3,
+    }
+    assert stored[sixteen_pin]["quantity"] == 1
+    # The structured value repeats the option by its quantity.
+    assert connectors["value"].count("PCIe 8-pin") == 3
+    assert "PCIe 8-pin × 3" in connectors["display_value"]
+
+    # The quantity is bounded by the schema and by the service.
+    for quantity in (0, 33):
+        rejected = _create(
+            api_client,
+            admin_user,
+            sample_products,
+            name=f"Connector probe {quantity}",
+            characteristics=[
+                _selection("required_power_connectors", (eight_pin, quantity))
+            ],
+        )
+        assert rejected.status_code == 422, rejected.text
+
+
+def test_an_explicit_negative_boolean_is_a_stored_value(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    test_db_session: Session,
+):
+    """`Нет` is a real dictionary option, never an absent value."""
+    cpu = sample_products["cpu"]
+    definition = test_db_session.scalar(
+        select(Characteristic).where(
+            Characteristic.category_id == cpu.product_type.category_id,
+            Characteristic.code == "has_3d_vcache",
+        )
+    )
+    assert definition is not None, "the seeded CPU category defines has_3d_vcache"
+    no_id = _option_id(test_db_session, definition, "Нет")
+    yes_id = _option_id(test_db_session, definition, "Да")
+
+    created = api_client.post(
+        "/api/v1/admin/products",
+        headers=admin_user["headers"],
+        json={
+            "name": "Boolean probe CPU",
+            "product_type_id": cpu.product_type_id,
+            "manufacturer_id": cpu.manufacturer_id,
+            "price": "249.00",
+            "stock_quantity": 2,
+            "description": "Отрицательное логическое значение",
+            "characteristics": [_selection("has_3d_vcache", no_id)],
+        },
+    )
+    assert created.status_code == 201, created.text
+    rows = {row["code"]: row for row in created.json()["characteristics"]}
+    # A stored `Нет` is present in the payload, unlike a missing value.
+    assert rows["has_3d_vcache"]["value"] is False
+    assert rows["has_3d_vcache"]["display_value"] == "Нет"
+    assert rows["has_3d_vcache"]["options"] == [
+        {"option_id": no_id, "value": "Нет", "quantity": 1}
+    ]
+
+    # Switching to the positive option replaces the stored one.
+    switched = api_client.patch(
+        f"/api/v1/admin/products/{created.json()['id']}",
+        headers=admin_user["headers"],
+        json={"characteristics": [_selection("has_3d_vcache", yes_id)]},
+    )
+    assert switched.status_code == 200, switched.text
+    after = {row["code"]: row for row in switched.json()["characteristics"]}
+    assert after["has_3d_vcache"]["value"] is True
+    assert after["has_3d_vcache"]["display_value"] == "Да"
 
 
 def test_update_and_soft_delete(
@@ -915,11 +1226,30 @@ def gpu_required_list_definitions(
     return strings, numbers
 
 
-def _list_payload(connectors: Any, lengths: Any) -> list[dict[str, Any]]:
+def _list_payload(connectors: list[int], lengths: list[int]) -> list[dict[str, Any]]:
+    """Both required list definitions as explicit dictionary selections."""
     return [
-        {"code": "test_probe_connectors", "value": connectors},
-        {"code": "test_probe_lengths", "value": lengths},
+        _selection("test_probe_connectors", *connectors),
+        _selection("test_probe_lengths", *lengths),
     ]
+
+
+@pytest.fixture()
+def gpu_required_list_options(
+    test_db_session: Session,
+    gpu_required_list_definitions: tuple[Characteristic, Characteristic],
+) -> dict[str, dict[str, int]]:
+    """Dictionaries of the two required list definitions, resolved by value."""
+    strings, numbers = gpu_required_list_definitions
+    return {
+        "connectors": {
+            value: _option_id(test_db_session, strings, value)
+            for value in ("pcie-8pin", "pcie-16pin")
+        },
+        "lengths": {
+            value: _option_id(test_db_session, numbers, value) for value in ("80", "60")
+        },
+    }
 
 
 def test_create_rejects_empty_required_lists(
@@ -927,26 +1257,43 @@ def test_create_rejects_empty_required_lists(
     admin_user: dict,
     sample_products: dict,
     gpu_required_list_definitions: tuple[Characteristic, Characteristic],
+    gpu_required_list_options: dict[str, dict[str, int]],
 ):
-    empty_strings = _create(
-        api_client,
-        admin_user,
-        sample_products,
-        name="Empty connectors",
-        characteristics=_list_payload([], [60, 80]),
-    )
-    assert empty_strings.status_code == 422, empty_strings.text
-    assert "Тестовые разъёмы" in empty_strings.json()["detail"]
+    """An empty selection is refused while the body is parsed.
 
-    empty_numbers = _create(
-        api_client,
-        admin_user,
-        sample_products,
-        name="Empty lengths",
-        characteristics=_list_payload(["pcie-8pin"], []),
+    The definition-name wording of the service ("at least one option is required")
+    is unreachable through the API because the request contract itself asks for at
+    least one option; the service rule is unit-tested separately.
+    """
+    dictionaries = gpu_required_list_options
+
+    def rejected(payload: list[dict[str, Any]], index: int, name: str) -> None:
+        response = _create(
+            api_client,
+            admin_user,
+            sample_products,
+            name=name,
+            characteristics=payload,
+        )
+        assert response.status_code == 422, response.text
+        detail = response.json()["detail"]
+        assert isinstance(detail, list), detail
+        assert any(
+            error["loc"][:5] == ["body", "characteristics", index, "options"]
+            or error["loc"][:4] == ["body", "characteristics", index]
+            for error in detail
+        ), detail
+
+    rejected(
+        _list_payload([], [dictionaries["lengths"]["80"]]),
+        0,
+        "Empty connectors",
     )
-    assert empty_numbers.status_code == 422, empty_numbers.text
-    assert "Тестовые длины" in empty_numbers.json()["detail"]
+    rejected(
+        _list_payload([dictionaries["connectors"]["pcie-8pin"]], []),
+        1,
+        "Empty lengths",
+    )
 
     # Rejected requests persist nothing at all.
     listing = api_client.get("/api/v1/products", params={"q": "Empty connectors"})
@@ -959,24 +1306,59 @@ def test_create_accepts_required_lists_with_real_values(
     admin_user: dict,
     sample_products: dict,
     gpu_required_list_definitions: tuple[Characteristic, Characteristic],
+    gpu_required_list_options: dict[str, dict[str, int]],
 ):
+    dictionaries = gpu_required_list_options
+    eight, sixteen = (
+        dictionaries["connectors"]["pcie-8pin"],
+        dictionaries["connectors"]["pcie-16pin"],
+    )
+    lengths = dictionaries["lengths"]
+
     created = _create(
         api_client,
         admin_user,
         sample_products,
-        characteristics=_list_payload(
-            ["pcie-8pin", "pcie-16pin", "pcie-8pin"], [80, 60, 60]
-        ),
+        characteristics=_list_payload([eight, sixteen], [lengths["80"], lengths["60"]]),
     )
     assert created.status_code == 201, created.text
     rows = {row["code"]: row for row in created.json()["characteristics"]}
-    assert rows["test_probe_connectors"]["value"] == [
+
+    connectors = rows["test_probe_connectors"]
+    assert {option["value"] for option in connectors["options"]} == {
         "pcie-8pin",
         "pcie-16pin",
-        "pcie-8pin",
-    ]
-    assert rows["test_probe_lengths"]["value"] == [80, 60, 60]
-    assert rows["test_probe_lengths"]["display_value"] == "80, 60, 60 мм"
+    }
+    assert {option["quantity"] for option in connectors["options"]} == {1}
+    assert sorted(connectors["value"]) == ["pcie-16pin", "pcie-8pin"]
+
+    stored_lengths = rows["test_probe_lengths"]
+    assert set(stored_lengths["value"]) == {60, 80}
+    assert stored_lengths["display_value"].endswith(" мм")
+
+    # An ordinary multiselect stores one row per option: no repeats, no quantity.
+    duplicated = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        name="Repeated connector",
+        characteristics=_list_payload([eight, eight], [lengths["80"]]),
+    )
+    assert duplicated.status_code == 422, duplicated.text
+    assert "must not be selected twice" in duplicated.json()["detail"]
+
+    quantified = _create(
+        api_client,
+        admin_user,
+        sample_products,
+        name="Quantified length",
+        characteristics=[
+            _selection("test_probe_connectors", eight),
+            _selection("test_probe_lengths", (lengths["80"], 2)),
+        ],
+    )
+    assert quantified.status_code == 422, quantified.text
+    assert "does not accept a quantity" in quantified.json()["detail"]
 
 
 def test_update_cannot_empty_a_required_list_and_rolls_back(
@@ -984,12 +1366,17 @@ def test_update_cannot_empty_a_required_list_and_rolls_back(
     admin_user: dict,
     sample_products: dict,
     gpu_required_list_definitions: tuple[Characteristic, Characteristic],
+    gpu_required_list_options: dict[str, dict[str, int]],
 ):
+    dictionaries = gpu_required_list_options
+    eight = dictionaries["connectors"]["pcie-8pin"]
+    eighty = dictionaries["lengths"]["80"]
+
     created = _create(
         api_client,
         admin_user,
         sample_products,
-        characteristics=_list_payload(["pcie-8pin"], [80]),
+        characteristics=_list_payload([eight], [eighty]),
     )
     assert created.status_code == 201, created.text
     product_id = created.json()["id"]
@@ -1001,11 +1388,10 @@ def test_update_cannot_empty_a_required_list_and_rolls_back(
         headers=headers,
         json={
             "name": "Renamed while invalid",
-            "characteristics": _list_payload([], [80]),
+            "characteristics": _list_payload([], [eighty]),
         },
     )
     assert rejected.status_code == 422, rejected.text
-    assert "Тестовые разъёмы" in rejected.json()["detail"]
 
     # The unrelated field of the rejected request was never committed either.
     after = api_client.get(path, headers=headers)
@@ -1013,7 +1399,9 @@ def test_update_cannot_empty_a_required_list_and_rolls_back(
     body = after.json()
     assert body["name"] == created.json()["name"]
     rows = {row["code"]: row for row in body["characteristics"]}
-    assert rows["test_probe_connectors"]["value"] == ["pcie-8pin"]
+    assert [
+        option["option_id"] for option in rows["test_probe_connectors"]["options"]
+    ] == [eight]
 
     # Removing a required list is rejected the same way.
     removal = api_client.patch(
@@ -1022,6 +1410,7 @@ def test_update_cannot_empty_a_required_list_and_rolls_back(
         json={"remove_characteristics": ["test_probe_lengths"]},
     )
     assert removal.status_code == 422, removal.text
+    assert "Тестовые длины" in removal.json()["detail"]
     unchanged = api_client.get(path, headers=headers)
     assert unchanged.json()["characteristics"] != []
 
@@ -1102,6 +1491,15 @@ def transition_spec(test_db_session: Session) -> dict:
         "source_wattage": source_wattage,
         "target_memory": target_memory,
         "target_socket": target_socket,
+        # Both categories define the same code with their own dictionary, so the
+        # option ids are different and an option of the previous category can
+        # never be reused after the transition.
+        "options": {
+            "source_memory": _option_id(test_db_session, source_memory, "ddr5"),
+            "source_wattage": _option_id(test_db_session, source_wattage, "250"),
+            "target_memory": _option_id(test_db_session, target_memory, "ddr5"),
+            "target_socket": _option_id(test_db_session, target_socket, "AM5"),
+        },
     }
 
 
@@ -1112,6 +1510,7 @@ def _transition_product(
     transition_spec: dict,
 ) -> dict:
     """Product of the source category storing a list value in the shared code."""
+    options = transition_spec["options"]
     created = api_client.post(
         "/api/v1/admin/products",
         headers=admin_user["headers"],
@@ -1123,8 +1522,8 @@ def _transition_product(
             "stock_quantity": 3,
             "description": "Переход категории",
             "characteristics": [
-                {"code": "test_probe_source_wattage", "value": 250},
-                {"code": "test_probe_memory_type", "value": ["ddr5"]},
+                _selection("test_probe_source_wattage", options["source_wattage"]),
+                _selection("test_probe_memory_type", options["source_memory"]),
             ],
         },
     )
@@ -1132,16 +1531,28 @@ def _transition_product(
     return created.json()
 
 
-def _stored_rows(isolated_connection, product_id: int) -> dict[int, Any]:
+def _stored_rows(
+    isolated_connection, product_id: int
+) -> dict[int, list[tuple[str, int]]]:
+    """Stored associations as `{definition id: [(dictionary value, quantity)]}`."""
     with _service_session(isolated_connection) as db:
-        return dict(
-            db.execute(
-                select(
-                    ProductCharacteristic.characteristic_id,
-                    ProductCharacteristic.value,
-                ).where(ProductCharacteristic.product_id == product_id)
-            ).all()
-        )
+        rows = db.execute(
+            select(
+                ProductCharacteristic.characteristic_id,
+                CharacteristicOption.value,
+                ProductCharacteristic.quantity,
+            )
+            .join(
+                CharacteristicOption,
+                CharacteristicOption.id
+                == ProductCharacteristic.characteristic_option_id,
+            )
+            .where(ProductCharacteristic.product_id == product_id)
+        ).all()
+    collected: dict[int, list[tuple[str, int]]] = {}
+    for characteristic_id, value, quantity in rows:
+        collected.setdefault(characteristic_id, []).append((value, quantity))
+    return {key: sorted(items) for key, items in collected.items()}
 
 
 def _patch_product(
@@ -1186,6 +1597,7 @@ def test_category_transition_replaces_a_value_of_another_data_type(
         api_client, admin_user, sample_products, transition_spec
     )
     product_id = product["id"]
+    options = transition_spec["options"]
 
     response = _patch_product(
         api_client,
@@ -1194,8 +1606,8 @@ def test_category_transition_replaces_a_value_of_another_data_type(
         {
             "product_type_id": transition_spec["target_type"].id,
             "characteristics": [
-                {"code": "test_probe_memory_type", "value": "ddr5"},
-                {"code": "test_probe_target_socket", "value": "AM5"},
+                _selection("test_probe_memory_type", options["target_memory"]),
+                _selection("test_probe_target_socket", options["target_socket"]),
             ],
             "remove_characteristics": ["test_probe_source_wattage"],
         },
@@ -1211,8 +1623,8 @@ def test_category_transition_replaces_a_value_of_another_data_type(
     # The previous category's row is gone: the replacement belongs to the target
     # category's definition of the same code.
     assert _stored_rows(isolated_connection, product_id) == {
-        transition_spec["target_memory"].id: "ddr5",
-        transition_spec["target_socket"].id: "AM5",
+        transition_spec["target_memory"].id: [("ddr5", 1)],
+        transition_spec["target_socket"].id: [("AM5", 1)],
     }
 
 
@@ -1228,6 +1640,7 @@ def test_category_transition_allows_an_explicit_removal(
         api_client, admin_user, sample_products, transition_spec
     )
     product_id = product["id"]
+    options = transition_spec["options"]
 
     response = _patch_product(
         api_client,
@@ -1236,7 +1649,7 @@ def test_category_transition_allows_an_explicit_removal(
         {
             "product_type_id": transition_spec["target_type"].id,
             "characteristics": [
-                {"code": "test_probe_target_socket", "value": "AM5"},
+                _selection("test_probe_target_socket", options["target_socket"]),
             ],
             "remove_characteristics": [
                 "test_probe_source_wattage",
@@ -1246,7 +1659,7 @@ def test_category_transition_allows_an_explicit_removal(
     )
     assert response.status_code == 200, response.text
     assert _stored_rows(isolated_connection, product_id) == {
-        transition_spec["target_socket"].id: "AM5"
+        transition_spec["target_socket"].id: [("AM5", 1)]
     }
 
 
@@ -1256,7 +1669,7 @@ def test_category_transition_rejects_an_incompatible_value_without_replacement(
     sample_products: dict,
     transition_spec: dict,
 ):
-    """The stored list is never silently carried into a `string` category."""
+    """The stored value is never silently carried into the target category."""
     product = _transition_product(
         api_client, admin_user, sample_products, transition_spec
     )
@@ -1267,26 +1680,31 @@ def test_category_transition_rejects_an_incompatible_value_without_replacement(
         {
             "product_type_id": transition_spec["target_type"].id,
             "characteristics": [
-                {"code": "test_probe_target_socket", "value": "AM5"},
+                _selection(
+                    "test_probe_target_socket",
+                    transition_spec["options"]["target_socket"],
+                ),
             ],
             "remove_characteristics": ["test_probe_source_wattage"],
         },
         transition_spec["source_type"].id,
-        "does not match the target category",
+        "test_probe_memory_type",
         {"test_probe_source_wattage": 250, "test_probe_memory_type": ["ddr5"]},
     )
 
 
-def test_category_transition_rejects_an_invalid_replacement(
+def test_category_transition_rejects_an_option_of_the_previous_category(
     api_client: TestClient,
     admin_user: dict,
     sample_products: dict,
     transition_spec: dict,
 ):
-    """A replacement has to match the *target* definition of the code."""
+    """A replacement has to be an option of the *target* category's definition."""
     product = _transition_product(
         api_client, admin_user, sample_products, transition_spec
     )
+    options = transition_spec["options"]
+    assert options["source_memory"] != options["target_memory"]
     _assert_transition_rejected(
         api_client,
         admin_user,
@@ -1294,13 +1712,13 @@ def test_category_transition_rejects_an_invalid_replacement(
         {
             "product_type_id": transition_spec["target_type"].id,
             "characteristics": [
-                {"code": "test_probe_memory_type", "value": ["ddr5"]},
-                {"code": "test_probe_target_socket", "value": "AM5"},
+                _selection("test_probe_memory_type", options["source_memory"]),
+                _selection("test_probe_target_socket", options["target_socket"]),
             ],
             "remove_characteristics": ["test_probe_source_wattage"],
         },
         transition_spec["source_type"].id,
-        "text value is required",
+        "unknown option id",
         {"test_probe_source_wattage": 250, "test_probe_memory_type": ["ddr5"]},
     )
 
@@ -1322,7 +1740,10 @@ def test_category_transition_requires_the_target_characteristics(
         {
             "product_type_id": transition_spec["target_type"].id,
             "characteristics": [
-                {"code": "test_probe_memory_type", "value": "ddr5"},
+                _selection(
+                    "test_probe_memory_type",
+                    transition_spec["options"]["target_memory"],
+                ),
             ],
             "remove_characteristics": ["test_probe_source_wattage"],
         },
@@ -1330,3 +1751,47 @@ def test_category_transition_requires_the_target_characteristics(
         "Сокет цели",
         {"test_probe_source_wattage": 250, "test_probe_memory_type": ["ddr5"]},
     )
+
+
+def test_category_transition_rejects_a_replace_and_remove_conflict(
+    api_client: TestClient,
+    admin_user: dict,
+    sample_products: dict,
+    isolated_connection,
+    transition_spec: dict,
+):
+    """The same code may not be replaced and removed by one request."""
+    product = _transition_product(
+        api_client, admin_user, sample_products, transition_spec
+    )
+    product_id = product["id"]
+    options = transition_spec["options"]
+    before = _stored_rows(isolated_connection, product_id)
+
+    response = _patch_product(
+        api_client,
+        admin_user,
+        product_id,
+        {
+            "product_type_id": transition_spec["target_type"].id,
+            "characteristics": [
+                _selection("test_probe_memory_type", options["target_memory"]),
+                _selection("test_probe_target_socket", options["target_socket"]),
+            ],
+            # The very code that is being replaced is also being removed.
+            "remove_characteristics": [
+                "test_probe_source_wattage",
+                "test_probe_memory_type",
+            ],
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "test_probe_memory_type" in response.json()["detail"]
+    assert "replaced and removed" in response.json()["detail"]
+
+    # Nothing was written: neither the category nor the associations changed.
+    current = api_client.get(
+        f"/api/v1/admin/products/{product_id}", headers=admin_user["headers"]
+    ).json()
+    assert current["product_type"]["id"] == transition_spec["source_type"].id
+    assert _stored_rows(isolated_connection, product_id) == before

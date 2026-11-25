@@ -323,6 +323,45 @@ def test_scalar_characteristics_reject_a_quantity() -> None:
         )
 
 
+@pytest.mark.parametrize(
+    ("code", "data_type", "category_slug", "values"),
+    [
+        pytest.param("has_3d_vcache", "boolean", "cpu", ("Да", "Нет"), id="boolean"),
+        pytest.param(
+            "supported_sockets",
+            "string_list",
+            "cooling",
+            ("AM5", "AM4"),
+            id="multiselect",
+        ),
+        pytest.param(
+            "supported_nvme_lengths_mm",
+            "number_list",
+            "mobo",
+            ("80", "60"),
+            id="multiselect-number",
+        ),
+    ],
+)
+@pytest.mark.parametrize("quantity", [2, 32])
+def test_non_repeatable_editors_never_accept_a_quantity(
+    code: str,
+    data_type: str,
+    category_slug: str,
+    values: tuple[str, ...],
+    quantity: int,
+) -> None:
+    """Only `connector_quantity` repeats a value; everything else stores one."""
+    definition = _definition(code, data_type, category_slug=category_slug)
+    ids = _options(definition, *values)
+    with pytest.raises(InvalidInputError, match="does not accept a quantity"):
+        spec_service.submitted_values(
+            [definition],
+            [_submission(code, ids[0], quantity=quantity)],
+            _dictionary(definition, *values),
+        )
+
+
 def test_boolean_false_is_a_real_selection() -> None:
     definition = _definition("has_3d_vcache", "boolean", category_slug="cpu")
     dictionary = _dictionary(definition, "Да", "Нет")
@@ -558,6 +597,47 @@ def test_a_stored_code_of_the_previous_category_must_be_removed_explicitly() -> 
         spec_service.resolve_values(target, existing, {}, ["vram_gb"], carry_over=False)
         == {}
     )
+
+
+def test_a_replacement_may_not_also_be_removed() -> None:
+    """Neither side of a conflicting request may silently win."""
+    definitions = [_definition("chipset", "string")]
+    existing = {"chipset": (SelectedOption(1, "AMD B650", 1),)}
+    replacement = {"chipset": (SelectedOption(2, "AMD X670", 1),)}
+    with pytest.raises(InvalidInputError, match="replaced and removed") as raised:
+        spec_service.resolve_values(definitions, existing, replacement, ["chipset"])
+    # The API maps an `InvalidInputError` to 422 through the shared handler.
+    assert raised.value.status_code == 422
+    # Even a value that is not stored yet cannot be both written and removed.
+    with pytest.raises(InvalidInputError, match="replaced and removed"):
+        spec_service.resolve_values(definitions, {}, replacement, ["chipset"])
+
+
+def test_a_conflicting_transition_is_rejected_before_any_merge() -> None:
+    """A category change with a replace+remove pair of one code is refused."""
+    target = [_definition("socket", "string")]
+    existing = {"socket": (SelectedOption(1, "AM5", 1),)}
+    replacement = {"socket": (SelectedOption(9, "LGA1700", 1),)}
+    with pytest.raises(InvalidInputError, match="replaced and removed"):
+        spec_service.resolve_values(
+            target, existing, replacement, ["socket"], carry_over=False
+        )
+
+
+def test_unrelated_replacements_and_removals_still_merge() -> None:
+    """Only the intersection is refused; disjoint lists keep working."""
+    definitions = [_definition("socket", "string"), _definition("chipset", "string")]
+    existing = {
+        "socket": (SelectedOption(1, "AM5", 1),),
+        "chipset": (SelectedOption(2, "AMD B650", 1),),
+    }
+    merged = spec_service.resolve_values(
+        definitions,
+        existing,
+        {"socket": (SelectedOption(3, "AM4", 1),)},
+        ["chipset"],
+    )
+    assert merged == {"socket": (SelectedOption(3, "AM4", 1),)}
 
 
 # ── Serialization of the editor payload ─────────────────────────────────────

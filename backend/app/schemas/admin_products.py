@@ -121,12 +121,16 @@ class CharacteristicDefinitionsOut(BaseModel):
 
 
 class CharacteristicOptionSelectionIn(BaseModel):
-    """One submitted dictionary pick with its repeat count."""
+    """One submitted dictionary pick with its repeat count.
+
+    Both integers are strict, so a JSON `true`, `1.0` or `"1"` is rejected here
+    instead of being coerced into a number the service would then accept.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
-    option_id: int = Field(gt=0)
-    quantity: int = Field(default=1, ge=1, le=MAX_QUANTITY)
+    option_id: int = Field(strict=True, gt=0)
+    quantity: int = Field(default=1, strict=True, ge=1, le=MAX_QUANTITY)
 
 
 class CharacteristicOptionsIn(BaseModel):
@@ -163,6 +167,10 @@ def _dimension_text(value: object) -> str:
     Exponent notation, grouping separators, signs, whitespace and non-numeric
     text are rejected instead of being repaired; more than two decimal places is
     rejected because the stored dictionary value cannot represent it faithfully.
+
+    Only `ValueError`/`AssertionError` become validation errors in Pydantic v2 — a
+    `TypeError` would escape as a runtime error and turn a malformed request into
+    HTTP 500 — so every rejection here is a `ValueError`.
     """
     if isinstance(value, bool) or value is None:
         raise ValueError("A dimension measurement must be a number")
@@ -179,8 +187,11 @@ def _dimension_text(value: object) -> str:
             raise ValueError("A dimension measurement must be finite")
         text = format(value, "f")
     else:
-        raise TypeError("A dimension measurement must be a number")
-    if _DIMENSION_TEXT.match(text) is None:
+        # `noqa: TRY004` — Pydantic only converts `ValueError`/`AssertionError`, so a
+        # `TypeError` here would escape as a runtime error (HTTP 500) instead.
+        raise ValueError("A dimension measurement must be a number")  # noqa: TRY004
+    # `fullmatch`: `match` with `$` also accepts a trailing newline.
+    if _DIMENSION_TEXT.fullmatch(text) is None:
         raise ValueError(
             "A dimension measurement must be a plain number with at most two "
             "decimal places"
@@ -207,8 +218,9 @@ class CharacteristicDimensionsIn(BaseModel):
     @field_validator("dimensions", mode="before")
     @classmethod
     def clean_dimensions(cls, value: object) -> object:
+        # A `ValueError` (never a `TypeError`) so a malformed body stays a 422.
         if not isinstance(value, list | tuple):
-            raise TypeError("Exactly three dimensions are required")
+            raise ValueError("Exactly three dimensions are required")  # noqa: TRY004
         if len(value) != 3:
             raise ValueError("Exactly three dimensions are required")
         return tuple(_dimension_text(item) for item in value)

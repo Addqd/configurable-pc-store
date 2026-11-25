@@ -70,7 +70,7 @@ export const AdminProductCreate = zod.object({
   "options": zod.array(zod.object({
   "option_id": zod.int().gt(adminProductCreateCharacteristicsItemOneOptionsItemOptionIdExclusiveMin),
   "quantity": zod.int().min(1).max(adminProductCreateCharacteristicsItemOneOptionsItemQuantityMax).default(adminProductCreateCharacteristicsItemOneOptionsItemQuantityDefault)
-}).describe('One submitted dictionary pick with its repeat count.')).min(1).max(adminProductCreateCharacteristicsItemOneOptionsMax)
+}).describe('One submitted dictionary pick with its repeat count.\n\nBoth integers are strict, so a JSON `true`, `1.0` or `"1"` is rejected here\ninstead of being coerced into a number the service would then accept.')).min(1).max(adminProductCreateCharacteristicsItemOneOptionsMax)
 }).describe('An ordinary characteristic write: explicit dictionary selections.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse.'),zod.object({
   "code": zod.string().min(1).max(adminProductCreateCharacteristicsItemTwoCodeMax),
   "dimensions": zod.tuple([zod.union([zod.number().gt(adminProductCreateCharacteristicsItemTwoDimensions0ItemOneExclusiveMin).max(adminProductCreateCharacteristicsItemTwoDimensions0ItemOneMax),zod.string()]),

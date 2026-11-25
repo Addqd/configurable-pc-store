@@ -460,8 +460,16 @@ export function AdminProductFormPage() {
     setSaved(false)
   }
 
-  const invalidateCatalog = () => {
-    void invalidateAfterProductChange(queryClient)
+  /**
+   * Refreshes everything a committed catalog mutation invalidates.
+   *
+   * `categories` lists the categories whose characteristic dictionary the
+   * mutation can have changed: the target category of a product write, plus the
+   * previous one during a transition. Image-only mutations pass `[]` because they
+   * never add a dictionary value.
+   */
+  const invalidateCatalog = (categories: readonly (number | null | undefined)[] = []) => {
+    void invalidateAfterProductChange(queryClient, categories)
   }
 
   /** True while this page still hosts the flow that started at `token`. */
@@ -974,7 +982,12 @@ export function AdminProductFormPage() {
       if (draft.removals.length > 0) data.remove_characteristics = draft.removals
       try {
         const updated = await updateProduct.mutateAsync({ productId: numericId, data })
-        invalidateCatalog()
+        invalidateCatalog([
+          categoryId,
+          // The previous category is no longer used by the product, but its cached
+          // dictionary belongs to the transition that just committed.
+          detail.data?.category.id,
+        ])
         // The server is the source of truth for the saved state: re-align the
         // editor with it so a second save builds on the committed values (and a
         // value just deleted cannot be "deleted" a second time). The confirmation
@@ -997,7 +1010,7 @@ export function AdminProductFormPage() {
       const created = await createProduct.mutateAsync({ data: payload(amount) })
       // The product row is committed on the server: the catalog must refresh even
       // when the administrator has already left this page.
-      invalidateCatalog()
+      invalidateCatalog([categoryId])
       const active = isCurrentFlow(flowToken)
       if (active) {
         setCreatedProduct(created)

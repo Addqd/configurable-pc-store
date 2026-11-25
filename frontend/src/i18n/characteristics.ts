@@ -305,6 +305,17 @@ const BOOLEAN_LABELS = {
   en: { true: 'Yes', false: 'No' },
 } as const
 
+/**
+ * The two dictionary values a boolean definition stores, and their meaning.
+ *
+ * They are the only Russian values translated for a boolean field; an unknown
+ * value stays exactly as stored instead of being guessed into `false`.
+ */
+const STORED_BOOLEANS: Readonly<Record<string, boolean>> = {
+  'да': true,
+  'нет': false,
+}
+
 function currentLanguage(): string {
   return i18n.resolvedLanguage ?? i18n.language ?? 'ru'
 }
@@ -315,6 +326,27 @@ function isEnglish(language: string): boolean {
 
 function dataTypeOf(row: CharacteristicLike): string {
   return row.dataType ?? row.data_type ?? 'string'
+}
+
+/** Whether a row is edited and rendered as a boolean (yes / no). */
+export function isBooleanCharacteristic(row: CharacteristicLike): boolean {
+  return row.editor === 'boolean' || dataTypeOf(row) === 'boolean'
+}
+
+/**
+ * Boolean meaning of one stored dictionary value, or `null` when it carries none.
+ *
+ * Mirrors the server's `parse_boolean`: `Да`/`Нет` in any case and with any
+ * surrounding whitespace. Nothing else is treated as a boolean.
+ */
+export function parseStoredBoolean(value: string): boolean | null {
+  const key = value.trim().toLocaleLowerCase()
+  return Object.hasOwn(STORED_BOOLEANS, key) ? STORED_BOOLEANS[key] : null
+}
+
+/** Localized wording of a stored boolean value. */
+function booleanLabel(value: boolean, language: string): string {
+  return BOOLEAN_LABELS[isEnglish(language) ? 'en' : 'ru'][value ? 'true' : 'false']
 }
 
 function displayValueOf(row: CharacteristicLike): string {
@@ -424,6 +456,27 @@ export function translateCharacteristicCategoricalValue(
 }
 
 /**
+ * Localized label of one dictionary option.
+ *
+ * A boolean definition stores the Russian `Да`/`Нет` options, so the editor and the
+ * rendered values translate exactly those two values (and nothing else) into
+ * `Yes`/`No` for English. Every other value keeps the shared categorical
+ * dictionary, and an unknown value is shown as stored.
+ */
+export function translateCharacteristicOptionValue(
+  value: string,
+  editor: string | null | undefined,
+  dataType: string | null | undefined,
+  language = currentLanguage(),
+): string {
+  if (!isEnglish(language)) return value
+  const boolean =
+    editor === 'boolean' || dataType === 'boolean' ? parseStoredBoolean(value) : null
+  if (boolean !== null) return booleanLabel(boolean, language)
+  return translateCharacteristicCategoricalValue(value, language)
+}
+
+/**
  * Localized label of one characteristic definition.
  *
  * The stable `code` is authoritative; the stored Russian `name` is the fallback
@@ -455,9 +508,21 @@ export function characteristicValue(
 
   const options = optionsOf(row)
   if (options.length > 0) {
+    // A boolean definition is rendered from its single stored option, so an
+    // explicit `Нет` never turns into an empty value and an unset field (no row at
+    // all) never turns into `No`.
+    if (isBooleanCharacteristic(row) && options.length === 1) {
+      const boolean = parseStoredBoolean(options[0].value)
+      if (boolean !== null) return booleanLabel(boolean, language)
+    }
     const parts = options.map((option) => {
       const text = english
-        ? translateCharacteristicCategoricalValue(option.value, language)
+        ? translateCharacteristicOptionValue(
+            option.value,
+            row.editor,
+            dataTypeOf(row),
+            language,
+          )
         : option.value
       const quantity = typeof option.quantity === 'number' ? option.quantity : 1
       return quantity > 1 ? `${text} × ${quantity}` : text
@@ -486,7 +551,7 @@ function formatFromStructuredValue(row: CharacteristicLike, language: string): s
     case 'boolean':
       // Only a real boolean is rendered; anything else is not turned into `false`.
       if (raw !== true && raw !== false) return ''
-      text = BOOLEAN_LABELS[isEnglish(language) ? 'en' : 'ru'][raw ? 'true' : 'false']
+      text = booleanLabel(raw, language)
       break
     case 'number':
       text = typeof raw === 'number' ? formatCharacteristicNumber(raw) : ''
