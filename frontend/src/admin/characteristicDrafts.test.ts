@@ -8,10 +8,17 @@ import {
   editorOf,
   emptyDraft,
   isDraftEmpty,
+  normalizeNumericText,
+  numericAffixOf,
+  numericDraftSchema,
+  numericTextFromOptionValue,
+  numericTextIssue,
   orphanCodes,
   parseDimensionText,
+  pluralWord,
   type CharacteristicDefinitionLike,
   type CharacteristicDraft,
+  type NumericLimitsInput,
   type StoredCharacteristic,
 } from './characteristicDrafts'
 
@@ -43,6 +50,7 @@ function drafted(patch: Partial<CharacteristicDraft>): CharacteristicDraft {
     selected: [],
     quantities: {},
     dimensions: ['', '', ''],
+    numericText: '',
     edited: true,
     ...patch,
   }
@@ -84,6 +92,7 @@ describe('editor selection', () => {
       selected: [],
       quantities: {},
       dimensions: ['', '', ''],
+      numericText: '',
       edited: false,
     })
     expect(isDraftEmpty(draft)).toBe(true)
@@ -371,5 +380,239 @@ describe('category transitions', () => {
     )
     expect(payload.unresolved).toEqual([])
     expect(payload.values).toEqual([{ code: 'socket', options: [{ option_id: 12, quantity: 1 }] }])
+  })
+})
+
+/* ── Editable numeric characteristics ─────────────────────────────────────── */
+
+const LENGTH_LIMITS: NumericLimitsInput = {
+  max_value: '1000',
+  decimal_places: 2,
+  style: 'suffix',
+  affix: 'мм',
+  plural_forms: null,
+}
+
+const LENGTH_OPTIONS = [
+  { option_id: 61, value: '234.1 мм' },
+  { option_id: 62, value: '305 мм' },
+]
+
+const numericDefinition = (
+  overrides: Partial<CharacteristicDefinitionLike> = {},
+): CharacteristicDefinitionLike =>
+  definition({
+    code: 'length_mm',
+    name: 'Длина',
+    data_type: 'number',
+    editor: 'numeric',
+    unit: 'мм',
+    is_required: false,
+    options: LENGTH_OPTIONS,
+    limits: {
+      max_selections: 1,
+      max_quantity: 1,
+      repeatable: false,
+      numeric: LENGTH_LIMITS,
+    },
+    ...overrides,
+  })
+
+describe('numeric drafts', () => {
+  it('reads the editable number out of the dictionary wording', () => {
+    expect(numericTextFromOptionValue('305 мм')).toBe('305')
+    expect(numericTextFromOptionValue('3.4 ГГц')).toBe('3.4')
+    expect(numericTextFromOptionValue('CL36')).toBe('36')
+    expect(numericTextFromOptionValue('24″')).toBe('24')
+    expect(numericTextFromOptionValue('6 ядер')).toBe('6')
+    expect(numericTextFromOptionValue('269,1 мм')).toBe('269.1')
+    // The helper is only applied to a numeric definition, where a number always
+    // exists; a categorical value never reaches it.
+    expect(numericTextFromOptionValue('AM5')).toBe('5')
+  })
+
+  it('converts exactly one decimal comma and nothing else', () => {
+    expect(normalizeNumericText('269,1')).toBe('269.1')
+    expect(normalizeNumericText(' 750 ')).toBe('750')
+    expect(normalizeNumericText('1,2,3')).toBe('1,2,3')
+    expect(normalizeNumericText('1.234,5')).toBe('1.234,5')
+    expect(normalizeNumericText('')).toBe('')
+  })
+
+  it('validates the text against the backend limits', () => {
+    expect(numericTextIssue('269.1', LENGTH_LIMITS)).toBeNull()
+    expect(numericTextIssue('269,1', LENGTH_LIMITS)).toBeNull()
+    expect(numericTextIssue('1000', LENGTH_LIMITS)).toBeNull()
+    expect(numericTextIssue('305.10', LENGTH_LIMITS)).toBeNull()
+    expect(numericTextIssue('1001', LENGTH_LIMITS)).toBe('range')
+    expect(numericTextIssue('0', LENGTH_LIMITS)).toBe('range')
+    expect(numericTextIssue('-5', LENGTH_LIMITS)).toBe('format')
+    expect(numericTextIssue('1.234', LENGTH_LIMITS)).toBe('precision')
+    expect(numericTextIssue('1e3', LENGTH_LIMITS)).toBe('format')
+    expect(numericTextIssue('1 2', LENGTH_LIMITS)).toBe('format')
+    expect(numericTextIssue('305 мм', LENGTH_LIMITS)).toBe('format')
+    expect(numericTextIssue('', LENGTH_LIMITS)).toBe('format')
+  })
+
+  it('rejects an integer field fraction through the same schema', () => {
+    const integer: NumericLimitsInput = {
+      max_value: '256',
+      decimal_places: 0,
+      style: 'prefix',
+      affix: 'CL',
+      plural_forms: null,
+    }
+    expect(numericDraftSchema(integer).safeParse('36').success).toBe(true)
+    expect(numericDraftSchema(integer).safeParse('36.5').success).toBe(false)
+    expect(numericDraftSchema(integer).safeParse('36.0').success).toBe(true)
+  })
+
+  it('builds the fixed affix of every style', () => {
+    expect(numericAffixOf(LENGTH_LIMITS, '305')).toBe('мм')
+    expect(numericAffixOf(LENGTH_LIMITS, '')).toBe('мм')
+    expect(
+      numericAffixOf(
+        { max_value: '256', decimal_places: 0, style: 'prefix', affix: 'CL', plural_forms: null },
+        '36',
+      ),
+    ).toBe('CL')
+    expect(
+      numericAffixOf(
+        { max_value: '200', decimal_places: 2, style: 'symbol', affix: '″', plural_forms: null },
+        '27',
+      ),
+    ).toBe('″')
+    expect(
+      numericAffixOf(
+        {
+          max_value: '1024',
+          decimal_places: 0,
+          style: 'suffix',
+          affix: null,
+          plural_forms: { one: 'ядро', few: 'ядра', many: 'ядер' },
+        },
+        '6',
+      ),
+    ).toBe('ядер')
+    expect(numericAffixOf(LENGTH_LIMITS, '')).toBe('мм')
+  })
+
+  it('follows the Russian count word of a plural field', () => {
+    const forms = { one: 'ядро', few: 'ядра', many: 'ядер' }
+    expect(pluralWord(forms, 1)).toBe('ядро')
+    expect(pluralWord(forms, 2)).toBe('ядра')
+    expect(pluralWord(forms, 5)).toBe('ядер')
+    expect(pluralWord(forms, 12)).toBe('ядер')
+    expect(pluralWord(forms, 21)).toBe('ядро')
+    expect(pluralWord(forms, 24)).toBe('ядра')
+    expect(pluralWord(forms, 2.5)).toBe('ядра')
+  })
+
+  it('is empty only without text', () => {
+    expect(isDraftEmpty(drafted({ editor: 'numeric', numericText: '' }))).toBe(true)
+    expect(isDraftEmpty(drafted({ editor: 'numeric', numericText: '0' }))).toBe(false)
+  })
+
+  it('submits a typed number as a plain decimal string', () => {
+    const result = draftToValue(
+      numericDefinition(),
+      drafted({ editor: 'numeric', numericText: '269,1' }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: { code: 'length_mm', numeric_value: '269.1' },
+    })
+  })
+
+  it('keeps the dictionary id of a picked option', () => {
+    const result = draftToValue(
+      numericDefinition(),
+      drafted({ editor: 'numeric', numericText: '305', selected: [62] }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: { code: 'length_mm', options: [{ option_id: 62, quantity: 1 }] },
+    })
+  })
+
+  it('sends typed text as a number even when an option holds that magnitude', () => {
+    // The administrator typed instead of picking: the backend reuses the option.
+    const result = draftToValue(
+      numericDefinition(),
+      drafted({ editor: 'numeric', numericText: '305.0' }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: { code: 'length_mm', numeric_value: '305.0' },
+    })
+  })
+
+  it('reports an invalid number instead of repairing it', () => {
+    expect(draftToValue(numericDefinition(), drafted({ editor: 'numeric', numericText: '1 2' }))).toEqual({
+      ok: false,
+      issue: 'numeric',
+    })
+    expect(draftToValue(numericDefinition(), drafted({ editor: 'numeric', numericText: '1234' }))).toEqual({
+      ok: false,
+      issue: 'numeric',
+    })
+  })
+
+  it('requires a value when the definition is required', () => {
+    expect(
+      draftToValue(
+        numericDefinition({ is_required: true }),
+        drafted({ editor: 'numeric', numericText: '' }),
+      ),
+    ).toEqual({ ok: false, issue: 'required' })
+    // An optional field stays untouched when it is blank.
+    expect(draftToValue(numericDefinition(), drafted({ editor: 'numeric', numericText: '' }))).toBeNull()
+  })
+
+  it('hydrates the stored number and its option id', () => {
+    const draft = draftFromStored(
+      { editor: 'numeric', data_type: 'number' },
+      {
+        options: [{ optionId: 62, quantity: 1, value: '305 мм' }],
+        dataType: 'number',
+      },
+      305,
+      '305 мм',
+    )
+    expect(draft.numericText).toBe('305')
+    expect(draft.selected).toEqual([62])
+    expect(draft.edited).toBe(false)
+  })
+
+  it('hydrates a prefixed value from its dictionary wording', () => {
+    const draft = draftFromStored(
+      { editor: 'numeric', data_type: 'number' },
+      {
+        options: [{ optionId: 7, quantity: 1, value: 'CL36' }],
+        dataType: 'number',
+      },
+      'CL36',
+      'CL36',
+    )
+    expect(draft.numericText).toBe('36')
+    expect(draft.selected).toEqual([7])
+  })
+
+  it('submits a cleared optional value as an explicit removal', () => {
+    const definitions = [numericDefinition(), definition({ code: 'socket' })]
+    const payload = buildCharacteristicPayload(
+      definitions,
+      {
+        socket: drafted({ selected: [12] }),
+        length_mm: drafted({ editor: 'numeric', numericText: '' }),
+      },
+      {
+        socket: stored([{ optionId: 12 }]),
+        length_mm: stored([{ optionId: 62 }], 'number'),
+      },
+    )
+    expect(payload.removals).toEqual(['length_mm'])
+    expect(payload.values).toEqual([{ code: 'socket', options: [{ option_id: 12, quantity: 1 }] }])
+    expect(payload.issues).toEqual({})
   })
 })

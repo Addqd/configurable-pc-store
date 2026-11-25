@@ -36,6 +36,7 @@ import {
 } from '../../components/admin/adminStyles'
 import {
   type CharacteristicDraft,
+  type NumericLimitsInput,
   type StoredCharacteristic,
   MAX_QUANTITY,
   buildCharacteristicPayload,
@@ -188,6 +189,7 @@ function draftsFrom(product: AdminProductDetailOut): Record<string, Characterist
         options: (row.options ?? []).map((option) => ({
           optionId: option.option_id,
           quantity: option.quantity ?? 1,
+          value: option.value,
         })),
         dataType: row.data_type,
       },
@@ -890,6 +892,25 @@ export function AdminProductFormPage() {
     },
   )
 
+  /**
+   * Message of an invalid numeric draft, built from the field's own limits.
+   *
+   * The maximum and the decimal places come from the definitions endpoint, so the
+   * feedback matches exactly what the server would reject.
+   */
+  const numericErrorText = (
+    field?: { limits?: { numeric?: NumericLimitsInput | null } | null },
+  ): string => {
+    const limits = field?.limits?.numeric ?? null
+    const base = t('admin.form.char_numeric_error', {
+      max: limits?.max_value ?? '',
+    })
+    if (!limits || limits.decimal_places <= 0) return base
+    return `${base}. ${t('admin.form.char_numeric_precision', {
+      places: limits.decimal_places,
+    })}`
+  }
+
   const validation = (): boolean => {
     if (categoryId > 0 && definitions.isError) {
       setSpecsError(adminErrorText(definitions.error))
@@ -919,7 +940,9 @@ export function AdminProductFormPage() {
     for (const [code, issue] of Object.entries(draft.issues)) {
       draftErrors[code] = issue === 'dimension'
         ? t('admin.form.char_dimension_error')
-        : t('admin.form.char_quantity_error', { max: MAX_QUANTITY })
+        : issue === 'numeric'
+          ? numericErrorText(fields.find((field) => field.code === code))
+          : t('admin.form.char_quantity_error', { max: MAX_QUANTITY })
     }
     setCharacteristicErrors(draftErrors)
     setSpecsError(draft.unresolved.length > 0

@@ -1599,23 +1599,35 @@ describe('admin product characteristic editing', () => {
     expect(screen.queryByLabelText('Габариты 2')).toBeNull()
   })
 
-  it('filters the dictionary by the typed search and never creates a value', async () => {
+  it('renders one ordinary dropdown per fixed characteristic without a search field', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
     await screen.findByLabelText('Объём памяти')
 
-    const search = screen.getByLabelText('Поиск значений: Объём памяти')
-    fireEvent.change(search, { target: { value: '16' } })
+    // One control per value: no separate search input and no option counter.
+    expect(screen.queryByLabelText('Поиск значений: Объём памяти')).toBeNull()
+    // The counter is only part of the multiple-choice checklist, never of a
+    // single-value control.
+    expect(screen.getAllByText(/Доступно значений/)).toHaveLength(1)
     const memory = screen.getByLabelText('Объём памяти') as HTMLSelectElement
-    expect([...memory.options].map((option) => option.value)).toEqual(['', '13'])
+    expect(memory.tagName).toBe('SELECT')
+    expect([...memory.options].map((option) => option.textContent)).toEqual([
+      'Снять выбор',
+      '8 ГБ',
+      '12 ГБ',
+      '16 ГБ',
+    ])
 
-    // An option that does not exist in the dictionary is not offered at all.
-    fireEvent.change(search, { target: { value: '32 ГБ' } })
-    expect(screen.getByLabelText('Объём памяти')).toBeTruthy()
-    expect((screen.getByLabelText('Объём памяти') as HTMLSelectElement).options).toHaveLength(1)
-    expect(screen.getByText('Нет подходящих значений')).toBeTruthy()
+    // A boolean stays an ordinary Yes/No dropdown with an unset state.
+    const boolean = screen.getByLabelText('Подсветка') as HTMLSelectElement
+    expect(boolean.tagName).toBe('SELECT')
+    expect([...boolean.options].map((option) => option.textContent)).toEqual([
+      'Снять выбор',
+      'Да',
+      'Нет',
+    ])
   })
 
   it('sends explicit option ids and quantities, never free text', async () => {
@@ -1686,6 +1698,108 @@ describe('admin product characteristic editing', () => {
       code: 'dimensions_mm',
       dimensions: [320, 134.85, 61.57],
     })
+  })
+
+  it('edits an allowlisted numeric field with one integrated ComboBox', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+
+    // A single integrated control: an editable combobox, no second search field.
+    const combo = screen.getByRole('combobox', { name: 'Длина' }) as HTMLInputElement
+    expect(combo.tagName).toBe('INPUT')
+    expect(combo.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByLabelText('Поиск значений: Длина')).toBeNull()
+    expect(document.querySelectorAll('#characteristic-length_mm-listbox')).toHaveLength(0)
+
+    // Focusing it offers the existing dictionary values by numeric magnitude.
+    fireEvent.focus(combo)
+    const listValues = () => [...document.querySelectorAll('#characteristic-length_mm-listbox [role="option"]')]
+      .map((node) => node.textContent)
+    expect(listValues()).toEqual(['234.1 мм', '305 мм', '357.6 мм'])
+
+    // Typing filters the dictionary inside the popup and calls no endpoint.
+    const before = fetchMock.mock.calls.length
+    fireEvent.change(combo, { target: { value: '305' } })
+    expect(listValues()).toEqual(['305 мм'])
+    expect(fetchMock.mock.calls.length).toBe(before)
+
+    // Picking an option keeps its original dictionary id.
+    fireEvent.click(screen.getByRole('option', { name: '305 мм' }))
+    expect(combo.value).toBe('305')
+    expect(combo.getAttribute('aria-expanded')).toBe('false')
+
+    await submitForm()
+    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    const body = requestBody(post?.[1] ?? {}) as PatchBody
+    expect(submittedEntry(body, 'length_mm')).toEqual({
+      code: 'length_mm', options: [{ option_id: 62, quantity: 1 }],
+    })
+  })
+
+  it('submits a typed numeric value as a plain decimal and converts one comma', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Длина' }), {
+      target: { value: '269,1' },
+    })
+    await submitForm()
+    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    const body = requestBody(post?.[1] ?? {}) as PatchBody
+    expect(submittedEntry(body, 'length_mm')).toEqual({
+      code: 'length_mm', numeric_value: '269.1',
+    })
+  })
+
+  it('rejects an invalid numeric value instead of repairing it', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Длина' }), {
+      target: { value: '1 2' },
+    })
+    await submitForm()
+    expect(await screen.findByText(/Введите число без пробелов и единиц/)).toBeTruthy()
+    expect(
+      callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST'),
+    ).toBe(false)
+  })
+
+  it('hydrates a stored numeric value and clears it explicitly', async () => {
+    const numericRow = characteristicRow({
+      code: 'length_mm', name: 'Длина', data_type: 'number', editor: 'numeric', unit: 'мм',
+      sort_order: 5, is_required: false, value: 269.1, display_value: '269.1 мм',
+      options: [{ option_id: 32, value: '269.1 мм', quantity: 1 }],
+    })
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), numericRow])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+
+    const combo = (await screen.findByRole('combobox', { name: 'Длина' })) as HTMLInputElement
+    expect(combo.value).toBe('269.1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Очистить значение' }))
+    expect(combo.value).toBe('')
+
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toEqual(['length_mm'])
+    expect(submittedEntry(body, 'length_mm')).toBeUndefined()
   })
 
   it('removes an optional stored characteristic the administrator cleared', async () => {

@@ -25,6 +25,7 @@ from app.schemas.admin_products import (
     CharacteristicDimensionsIn,
     CharacteristicEditor,
     CharacteristicEditorLimitsOut,
+    CharacteristicNumericIn,
     CharacteristicOptionOut,
     ProductFormOptionsOut,
     ProductTypeWithCategoryOut,
@@ -284,7 +285,9 @@ def _submitted_characteristics(
     """Translate the validated payload into service submissions.
 
     Dictionary picks keep their explicit option ids and quantities; a dimensions
-    entry keeps its three measurements. Nothing is coerced by guessing.
+    entry keeps its three measurements; an editable numeric field keeps its plain
+    decimal string, which the service validates against the field policy. Nothing
+    is coerced by guessing.
     """
     items = getattr(data, "characteristics", None)
     if items is None:
@@ -295,6 +298,12 @@ def _submitted_characteristics(
             submissions.append(
                 spec_service.CharacteristicSubmission(
                     code=item.code, dimensions=item.dimensions
+                )
+            )
+        elif isinstance(item, CharacteristicNumericIn):
+            submissions.append(
+                spec_service.CharacteristicSubmission(
+                    code=item.code, numeric_value=item.numeric_value
                 )
             )
         else:

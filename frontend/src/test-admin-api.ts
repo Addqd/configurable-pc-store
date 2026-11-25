@@ -99,6 +99,23 @@ export const characteristicDefinitionsFixture = {
         dimensions: { count: 3, unit: 'мм', max_value: '1000', decimal_places: 2 },
       },
     },
+    {
+      // An allowlisted scalar number: the dictionary is sorted by magnitude by the
+      // server, and a custom value may be typed instead of picking an option.
+      id: 106, code: 'length_mm', name: 'Длина', data_type: 'number', editor: 'numeric', unit: 'мм',
+      sort_order: 5, is_required: false, show_in_short: false, show_in_details: true,
+      options: [
+        { option_id: 61, value: '234.1 мм' },
+        { option_id: 62, value: '305 мм' },
+        { option_id: 63, value: '357.6 мм' },
+      ],
+      limits: {
+        max_selections: 1, max_quantity: 1, repeatable: false, dimensions: null,
+        numeric: {
+          max_value: '1000', decimal_places: 2, style: 'suffix', affix: 'мм', plural_forms: null,
+        },
+      },
+    },
   ],
 }
 

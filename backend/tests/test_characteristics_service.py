@@ -82,7 +82,12 @@ def _options(definition: CharacteristicDefinition, *values: str) -> list[int]:
     ("category_slug", "code", "data_type", "editor"),
     [
         ("gpu", "color", "string", spec_service.EDITOR_SELECT),
-        ("gpu", "length_mm", "number", spec_service.EDITOR_SELECT),
+        # A fixed scalar numeric definition keeps the ordinary dropdown.
+        ("gpu", "memory_bus_bits", "number", spec_service.EDITOR_SELECT),
+        # An allowlisted scalar numeric definition is edited as a number.
+        ("gpu", "length_mm", "number", spec_service.EDITOR_NUMERIC),
+        ("cpu", "base_clock_ghz", "number", spec_service.EDITOR_NUMERIC),
+        ("ram", "cas_latency", "number", spec_service.EDITOR_NUMERIC),
         ("gpu", "ecc_memory", "boolean", spec_service.EDITOR_BOOLEAN),
         (
             "cooling",
@@ -161,6 +166,7 @@ def test_only_repeated_connectors_accept_quantities() -> None:
         spec_service.EDITOR_BOOLEAN,
         spec_service.EDITOR_MULTISELECT,
         spec_service.EDITOR_DIMENSIONS,
+        spec_service.EDITOR_NUMERIC,
     ):
         assert not spec_service.is_repeatable(editor)
 

@@ -229,3 +229,53 @@ describe('characteristic localization', () => {
     expect(characteristicValue(memory)).toBe('12 GB')
   })
 })
+
+describe('numeric characteristic rendering', () => {
+  const row = (overrides: Record<string, unknown>) => ({
+    code: 'diagonal_inch',
+    name: 'Диагональ',
+    data_type: 'number',
+    editor: 'numeric',
+    unit: 'дюйм',
+    value: 27,
+    display_value: '27″',
+    options: [{ option_id: 1, value: '27″', quantity: 1 }],
+    ...overrides,
+  })
+
+  it('never appends the definition unit to a numeric dictionary value', () => {
+    // The dictionary wording already carries the symbol; `27″ дюйм` would be a
+    // duplicated unit in English, where the value is rebuilt from the options.
+    expect(characteristicValue(row({}), 'en')).toBe('27″')
+    expect(characteristicValue(row({}), 'ru')).toBe('27″')
+  })
+
+  it('translates the unit token of a numeric value in English', () => {
+    expect(
+      characteristicValue(
+        row({
+          code: 'wattage_w',
+          name: 'Мощность',
+          unit: 'Вт',
+          value: 750,
+          display_value: '750 Вт',
+          options: [{ option_id: 2, value: '750 Вт', quantity: 1 }],
+        }),
+        'en',
+      ),
+    ).toBe('750 W')
+    expect(
+      characteristicValue(
+        row({
+          code: 'base_clock_ghz',
+          name: 'Базовая частота',
+          unit: 'ГГц',
+          value: 3.4,
+          display_value: '3.4 ГГц',
+          options: [{ option_id: 3, value: '3.4 ГГц', quantity: 1 }],
+        }),
+        'en',
+      ),
+    ).toBe('3.4 GHz')
+  })
+})

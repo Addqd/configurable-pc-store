@@ -12,10 +12,11 @@ the only place that interprets them:
   positive ``quantity`` (four identical PCIe 8-pin connectors are one row with
   ``quantity = 4``).
 
-Nothing here writes a value that is not in the dictionary. The single documented
-exception is the GPU ``dimensions_mm`` field, whose three measurements are turned
-into one canonical dictionary value by the backend: the dictionary row is created
-(or reused) inside the same transaction as the product write.
+Nothing here writes a value that is not in the dictionary. Two documented
+exceptions build a canonical dictionary value from validated numbers: the GPU
+``dimensions_mm`` field (three measurements) and the editable numeric fields of
+``numeric_spec`` (one scalar). In both cases the dictionary row is created (or
+reused) inside the same transaction as the product write.
 
 Selectable values always come from PostgreSQL. Only the *behaviour* of a field is
 declared in code, and it is keyed by ``(category slug, characteristic code)``, so
@@ -37,6 +38,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Category, Characteristic, CharacteristicOption
 from app.models import ProductCharacteristic as ProductCharacteristicRow
+from app.services import numeric_spec
 from app.services.errors import InvalidInputError
 
 # Upper bound for one dictionary value; mirrors `characteristic_options.value`.
@@ -54,6 +56,8 @@ EDITOR_BOOLEAN = "boolean"
 EDITOR_MULTISELECT = "multiselect"
 EDITOR_CONNECTORS = "connector_quantity"
 EDITOR_DIMENSIONS = "dimensions"
+# One integrated combobox: pick an existing dictionary value or type a new number.
+EDITOR_NUMERIC = "numeric"
 
 EDITORS: Final = (
     EDITOR_SELECT,
@@ -61,7 +65,11 @@ EDITORS: Final = (
     EDITOR_MULTISELECT,
     EDITOR_CONNECTORS,
     EDITOR_DIMENSIONS,
+    EDITOR_NUMERIC,
 )
+
+# Editors that hold exactly one value of one definition.
+SINGLE_VALUE_EDITORS: Final = (EDITOR_SELECT, EDITOR_BOOLEAN, EDITOR_NUMERIC)
 
 # ── Field behaviour (category-scoped codes, no database identifiers) ─────────
 
@@ -101,7 +109,12 @@ UNRESOLVED_OPTION_ID: Final = 0
 
 
 def editor_for(category_slug: str, code: str, data_type: str) -> str:
-    """Editor behaviour of one definition, derived from data, never from an id."""
+    """Editor behaviour of one definition, derived from data, never from an id.
+
+    A numeric ComboBox is only offered where the explicit category-scoped policy
+    of ``numeric_spec`` allows it *and* the definition is a scalar number, so
+    `data_type = number` alone never makes a field editable.
+    """
     key = (category_slug, code)
     if key in DIMENSION_FIELDS:
         return EDITOR_DIMENSIONS
@@ -111,6 +124,8 @@ def editor_for(category_slug: str, code: str, data_type: str) -> str:
         return EDITOR_BOOLEAN
     if data_type in ("string_list", "number_list"):
         return EDITOR_MULTISELECT
+    if data_type == "number" and numeric_spec.is_numeric_field(category_slug, code):
+        return EDITOR_NUMERIC
     return EDITOR_SELECT
 
 
@@ -497,11 +512,14 @@ class OptionSelection:
 
 @dataclass(frozen=True, slots=True)
 class CharacteristicSubmission:
-    """One submitted characteristic: either dictionary picks or dimensions."""
+    """One submitted characteristic: dictionary picks, dimensions or a number."""
 
     code: str
     options: tuple[OptionSelection, ...] = ()
     dimensions: tuple[Decimal, Decimal, Decimal] | None = None
+    # Custom scalar number of an editable numeric field, already validated by the
+    # contract and re-validated against the field policy here.
+    numeric_value: str | None = None
 
 
 def _fail(definition: CharacteristicDefinition, detail: str) -> InvalidInputError:
@@ -529,7 +547,7 @@ def _validate_selection(
             definition, f"at most {MAX_SELECTION_COUNT} options may be selected"
         )
     repeatable = is_repeatable(editor)
-    single = editor in (EDITOR_SELECT, EDITOR_BOOLEAN)
+    single = editor in SINGLE_VALUE_EDITORS
     if single and len(submission.options) > 1:
         raise _fail(definition, "only one option may be selected")
     seen: set[int] = set()
@@ -561,6 +579,58 @@ def _validate_selection(
             SelectedOption(option_id=option_id, value=option.value, quantity=quantity)
         )
     return tuple(resolved)
+
+
+def _resolve_numeric_submission(
+    definition: CharacteristicDefinition,
+    submission: CharacteristicSubmission,
+    dictionary: Sequence[DictionaryOption],
+) -> tuple[SelectedOption, ...]:
+    """Resolve one custom number to a dictionary option of its own definition.
+
+    The validated number is turned into the canonical wording of its field and
+    matched against the stored dictionary first. An existing value of the same
+    *magnitude* is reused even when it is spelled differently (`3.40` next to a
+    stored `3.4 ГГц`), so a custom submission never duplicates an option. Only a
+    genuinely new value keeps the unresolved sentinel, which the writer turns
+    into one dictionary row inside the product transaction.
+    """
+    if submission.options or submission.dimensions is not None:
+        raise _fail(
+            definition,
+            "a custom numeric value cannot be combined with options or dimensions",
+        )
+    if definition.editor != EDITOR_NUMERIC:
+        raise _fail(
+            definition, "this characteristic does not accept a custom numeric value"
+        )
+    policy = numeric_spec.numeric_policy(definition.category_slug, definition.code)
+    if policy is None:  # pragma: no cover - `editor_for` derives from the policy
+        raise _fail(
+            definition, "this characteristic does not accept a custom numeric value"
+        )
+    number = numeric_spec.validate_numeric_value(policy, submission.numeric_value)
+    canonical = numeric_spec.format_numeric_value(policy, number)
+    if len(canonical) > MAX_VALUE_LENGTH:  # pragma: no cover - bounded by the policy
+        raise _fail(definition, "the numeric value is too long")
+    known = next(
+        (option for option in dictionary if option.value == canonical),
+        None,
+    )
+    if known is None:
+        known = next(
+            (
+                option
+                for option in dictionary
+                if numeric_spec.parse_numeric_option(policy, option.value) == number
+            ),
+            None,
+        )
+    if known is not None:
+        return (SelectedOption(option_id=known.id, value=known.value, quantity=1),)
+    return (
+        SelectedOption(option_id=UNRESOLVED_OPTION_ID, value=canonical, quantity=1),
+    )
 
 
 def submitted_values(
@@ -596,6 +666,16 @@ def submitted_values(
         if code in result:
             raise InvalidInputError(f"Duplicate characteristic code: {code}")
         assert definition is not None  # narrowed by the check above
+        if (
+            raw_submission.numeric_value is not None
+            and definition.editor != EDITOR_NUMERIC
+        ):
+            # The editor behaviour is authoritative: a field outside the explicit
+            # allowlist never accepts a custom number, whatever its data type is.
+            raise _fail(
+                definition,
+                "this characteristic does not accept a custom numeric value",
+            )
         if definition.editor == EDITOR_DIMENSIONS:
             if raw_submission.options:
                 raise _fail(
@@ -620,6 +700,13 @@ def submitted_values(
             continue
         if raw_submission.dimensions is not None:
             raise _fail(definition, "this characteristic does not accept dimensions")
+        if raw_submission.numeric_value is not None:
+            result[code] = _resolve_numeric_submission(
+                definition,
+                raw_submission,
+                dictionary.get(definition.id, ()),
+            )
+            continue
         result[code] = _validate_selection(
             definition,
             raw_submission,
@@ -906,7 +993,7 @@ def structured_value(
         return None
     if editor == EDITOR_DIMENSIONS:
         return parse_dimensions(options[0].value)
-    if editor == EDITOR_SELECT:
+    if editor in (EDITOR_SELECT, EDITOR_NUMERIC):
         value = options[0].value
         if definition.data_type == "number":
             return _number_or_text(value)
@@ -943,6 +1030,20 @@ def display_value(
     if definition.editor == EDITOR_DIMENSIONS:
         # The canonical dictionary value already carries its unit and separators.
         return options[0].value
+    if definition.editor == EDITOR_NUMERIC:
+        # The canonical dictionary value carries its own unit, prefix or symbol
+        # (`750 Вт`, `CL36`, `24″`, `6 ядер`). Only a plain constant suffix is
+        # completed when a stored value really lacks it, so `24″` never becomes
+        # `24″ дюйм` and a count word is never appended twice.
+        joined = ", ".join(option.value for option in options)
+        policy = numeric_spec.numeric_policy(definition.category_slug, definition.code)
+        if (
+            policy is not None
+            and policy.style == numeric_spec.STYLE_SUFFIX
+            and policy.plural is None
+        ):
+            return append_unit(joined, policy.affix)
+        return joined
     return append_unit(", ".join(option.value for option in options), definition.unit)
 
 
@@ -1015,11 +1116,24 @@ def serialize_definition_fields(
     """Editor payload of every definition of one category.
 
     The full dictionary is returned — including options that no product uses yet —
-    together with the editor behaviour and the limits the editor enforces.
+    together with the editor behaviour and the limits the editor enforces. An
+    editable numeric field lists its options by numeric magnitude instead of by
+    their text, and carries the field-specific validation limits.
     """
     fields: list[dict[str, Any]] = []
     for definition in definitions:
         editor = definition.editor
+        options = list(dictionary.get(definition.id, ()))
+        if editor == EDITOR_NUMERIC:
+            policy = numeric_spec.numeric_policy(
+                definition.category_slug, definition.code
+            )
+            if policy is not None:
+                options.sort(
+                    key=lambda option: numeric_spec.numeric_sort_key(
+                        policy, option.value
+                    )
+                )
         fields.append(
             {
                 "id": definition.id,
@@ -1034,15 +1148,16 @@ def serialize_definition_fields(
                 "show_in_details": definition.show_in_details,
                 "options": [
                     {"option_id": option.id, "value": option.value}
-                    for option in dictionary.get(definition.id, ())
+                    for option in options
                 ],
-                "limits": _editor_limits(editor),
+                "limits": _editor_limits(definition),
             }
         )
     return fields
 
 
-def _editor_limits(editor: str) -> dict[str, Any]:
+def _editor_limits(definition: CharacteristicDefinition) -> dict[str, Any]:
+    editor = definition.editor
     if editor == EDITOR_DIMENSIONS:
         return {
             "max_selections": DIMENSION_COUNT,  # one value built from three numbers
@@ -1054,12 +1169,17 @@ def _editor_limits(editor: str) -> dict[str, Any]:
                 "max_value": str(MAX_DIMENSION_MM),
                 "decimal_places": DIMENSION_DECIMAL_PLACES,
             },
+            "numeric": None,
         }
+    numeric = None
+    if editor == EDITOR_NUMERIC:
+        policy = numeric_spec.numeric_policy(definition.category_slug, definition.code)
+        if policy is not None:
+            numeric = numeric_spec.numeric_editor_limits(policy)
     return {
-        "max_selections": 1
-        if editor in (EDITOR_SELECT, EDITOR_BOOLEAN)
-        else MAX_SELECTION_COUNT,
+        "max_selections": 1 if editor in SINGLE_VALUE_EDITORS else MAX_SELECTION_COUNT,
         "max_quantity": MAX_QUANTITY if editor == EDITOR_CONNECTORS else 1,
         "repeatable": editor == EDITOR_CONNECTORS,
         "dimensions": None,
+        "numeric": numeric,
     }

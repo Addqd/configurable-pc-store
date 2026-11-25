@@ -527,12 +527,12 @@ export function characteristicValue(
       const quantity = typeof option.quantity === 'number' ? option.quantity : 1
       return quantity > 1 ? `${text} × ${quantity}` : text
     })
-    // Containment is checked against the *stored* unit and the stored value, so
-    // the English translation below cannot introduce a second unit.
-    const joined = appendUnit(
-      parts.filter((part) => part.trim().length > 0).join(', '),
-      row.unit,
-    )
+    // A numeric definition stores the whole wording of its field (`750 Вт`,
+    // `CL36`, `24″`, `6 ядер`), so its unit is never appended a second time.
+    // Every other editor keeps the containment check against the *stored* unit,
+    // so the English translation below cannot introduce a second unit either.
+    const text = parts.filter((part) => part.trim().length > 0).join(', ')
+    const joined = row.editor === 'numeric' ? text : appendUnit(text, row.unit)
     return english ? translateCharacteristicUnits(joined, language) : joined
   }
 

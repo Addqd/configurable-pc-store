@@ -50,6 +50,10 @@ export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimens
 export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneExclusiveMin = 0;
 export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneMax = 1000;
 
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemThreeCodeMax = 64;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemThreeNumericValueMax = 20;
+
 export const createProductApiV1AdminProductsPostBodyCharacteristicsMax = 200;
 
 export const createProductApiV1AdminProductsPostBodyOnSaleDefault = false;
@@ -76,7 +80,10 @@ export const CreateProductApiV1AdminProductsPostBody = zod.object({
   "dimensions": zod.tuple([zod.union([zod.number().gt(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions0ItemOneExclusiveMin).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions0ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions1ItemOneExclusiveMin).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions1ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneExclusiveMin).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneMax),zod.string()])])
-}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(createProductApiV1AdminProductsPostBodyCharacteristicsMax).optional(),
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.'),zod.object({
+  "code": zod.string().min(1).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemThreeCodeMax),
+  "numeric_value": zod.string().min(1).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemThreeNumericValueMax)
+}).describe('A custom scalar number of an editable numeric characteristic.\n\nThe number travels as a plain decimal string, so no precision is lost or\nrounded by a JSON float and the lexical form can be validated strictly. What\nthe value is allowed to be (maximum, decimal places, allowlist) depends on the\ndefinition and is enforced by the service that knows the field policy.')])).max(createProductApiV1AdminProductsPostBodyCharacteristicsMax).optional(),
   "on_sale": zod.boolean().default(createProductApiV1AdminProductsPostBodyOnSaleDefault),
   "is_active": zod.boolean().default(createProductApiV1AdminProductsPostBodyIsActiveDefault),
   "listed_at": zod.union([zod.iso.date(),zod.null()]).optional()

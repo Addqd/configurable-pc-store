@@ -411,6 +411,7 @@ def _submit_dimensions(
     product_id: int,
     measurements: MeasurementTriple,
     *,
+    expect_unresolved: bool = True,
     barrier: threading.Barrier | None = None,
     observed: dict[int, bool] | None = None,
 ) -> WriteOutcome:
@@ -421,6 +422,11 @@ def _submit_dimensions(
     by the test. `observed` records, per product, whether the submission still had to
     create the dictionary value — the evidence that no worker found an existing
     option before reaching the insertion phase.
+
+    `expect_unresolved` states which of the two scenarios this call belongs to: a
+    race/different-value write must not find the value (`True`), while a write that
+    intentionally reuses a value another write just created (`False`) must resolve
+    it instead of claiming an insertion would happen.
     """
     canonical = spec_service.canonical_dimensions(measurements)
     with Session(engine) as session:
@@ -438,10 +444,15 @@ def _submit_dimensions(
         unresolved = selected.option_id == spec_service.UNRESOLVED_OPTION_ID
         if observed is not None:
             observed[product_id] = unresolved
-        if not unresolved:
+        if expect_unresolved and not unresolved:
             raise AssertionError(
                 f"product {product_id} resolved {canonical!r} to the existing option "
                 f"{selected.option_id}: no insertion race would be tested"
+            )
+        if not expect_unresolved and unresolved:
+            raise AssertionError(
+                f"product {product_id} did not reuse the existing option for "
+                f"{canonical!r}: the reuse scenario could not be verified"
             )
         if barrier is not None:
             barrier.wait(timeout=_BARRIER_TIMEOUT_SECONDS)
@@ -594,7 +605,9 @@ def test_equivalent_decimals_share_one_option_and_different_triples_do_not(
     # cannot leave a committed dictionary row untracked.
     padded_outcome = _submit_dimensions(test_engine, definition, products[0], padded)
     resolved_shared = _track_persisted_option(test_engine, definition, owned, canonical)
-    trimmed_outcome = _submit_dimensions(test_engine, definition, products[1], trimmed)
+    trimmed_outcome = _submit_dimensions(
+        test_engine, definition, products[1], trimmed, expect_unresolved=False
+    )
     different_outcome = _submit_dimensions(
         test_engine, definition, products[2], different.measurements
     )

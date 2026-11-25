@@ -15,7 +15,18 @@ export const CharacteristicEditorLimitsOut = zod.object({
   "unit": zod.string(),
   "max_value": zod.string(),
   "decimal_places": zod.int()
-}).describe('Limits of the three-measurement dimensions editor.'),zod.null()]).optional()
+}).describe('Limits of the three-measurement dimensions editor.'),zod.null()]).optional(),
+  "numeric": zod.union([zod.object({
+  "max_value": zod.string(),
+  "decimal_places": zod.int(),
+  "style": zod.enum(['suffix', 'prefix', 'symbol']),
+  "affix": zod.union([zod.string(),zod.null()]).optional(),
+  "plural_forms": zod.union([zod.object({
+  "one": zod.string(),
+  "few": zod.string(),
+  "many": zod.string()
+}).describe('Russian count word of one numeric field in all three forms.'),zod.null()]).optional()
+}).describe('Validation limits and wording of one editable numeric field.\n\nThe frontend renders the affix from this metadata and validates against the\nsame bounds, so the allowlist and its limits exist only on the server.'),zod.null()]).optional()
 }).describe('Limits the editor enforces for one definition.')
 
 export type CharacteristicEditorLimitsOut = zod.input<typeof CharacteristicEditorLimitsOut>;

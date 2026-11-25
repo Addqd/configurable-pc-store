@@ -48,6 +48,10 @@ export const adminProductUpdateCharacteristicsOneItemTwoDimensions1ItemOneMax = 
 export const adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin = 0;
 export const adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneMax = 1000;
 
+export const adminProductUpdateCharacteristicsOneItemThreeCodeMax = 64;
+
+export const adminProductUpdateCharacteristicsOneItemThreeNumericValueMax = 20;
+
 export const adminProductUpdateCharacteristicsOneMax = 200;
 
 export const adminProductUpdateRemoveCharacteristicsOneMax = 200;
@@ -75,7 +79,10 @@ export const AdminProductUpdate = zod.object({
   "dimensions": zod.tuple([zod.union([zod.number().gt(adminProductUpdateCharacteristicsOneItemTwoDimensions0ItemOneExclusiveMin).max(adminProductUpdateCharacteristicsOneItemTwoDimensions0ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(adminProductUpdateCharacteristicsOneItemTwoDimensions1ItemOneExclusiveMin).max(adminProductUpdateCharacteristicsOneItemTwoDimensions1ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin).max(adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneMax),zod.string()])])
-}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(adminProductUpdateCharacteristicsOneMax),zod.null()]).optional(),
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.'),zod.object({
+  "code": zod.string().min(1).max(adminProductUpdateCharacteristicsOneItemThreeCodeMax),
+  "numeric_value": zod.string().min(1).max(adminProductUpdateCharacteristicsOneItemThreeNumericValueMax)
+}).describe('A custom scalar number of an editable numeric characteristic.\n\nThe number travels as a plain decimal string, so no precision is lost or\nrounded by a JSON float and the lexical form can be validated strictly. What\nthe value is allowed to be (maximum, decimal places, allowlist) depends on the\ndefinition and is enforced by the service that knows the field policy.')])).max(adminProductUpdateCharacteristicsOneMax),zod.null()]).optional(),
   "remove_characteristics": zod.union([zod.array(zod.string()).max(adminProductUpdateRemoveCharacteristicsOneMax),zod.null()]).optional(),
   "on_sale": zod.union([zod.boolean(),zod.null()]).optional(),
   "is_active": zod.union([zod.boolean(),zod.null()]).optional(),

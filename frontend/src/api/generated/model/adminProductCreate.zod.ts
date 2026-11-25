@@ -50,6 +50,10 @@ export const adminProductCreateCharacteristicsItemTwoDimensions1ItemOneMax = 100
 export const adminProductCreateCharacteristicsItemTwoDimensions2ItemOneExclusiveMin = 0;
 export const adminProductCreateCharacteristicsItemTwoDimensions2ItemOneMax = 1000;
 
+export const adminProductCreateCharacteristicsItemThreeCodeMax = 64;
+
+export const adminProductCreateCharacteristicsItemThreeNumericValueMax = 20;
+
 export const adminProductCreateCharacteristicsMax = 200;
 
 export const adminProductCreateOnSaleDefault = false;
@@ -76,7 +80,10 @@ export const AdminProductCreate = zod.object({
   "dimensions": zod.tuple([zod.union([zod.number().gt(adminProductCreateCharacteristicsItemTwoDimensions0ItemOneExclusiveMin).max(adminProductCreateCharacteristicsItemTwoDimensions0ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(adminProductCreateCharacteristicsItemTwoDimensions1ItemOneExclusiveMin).max(adminProductCreateCharacteristicsItemTwoDimensions1ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(adminProductCreateCharacteristicsItemTwoDimensions2ItemOneExclusiveMin).max(adminProductCreateCharacteristicsItemTwoDimensions2ItemOneMax),zod.string()])])
-}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(adminProductCreateCharacteristicsMax).optional(),
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.'),zod.object({
+  "code": zod.string().min(1).max(adminProductCreateCharacteristicsItemThreeCodeMax),
+  "numeric_value": zod.string().min(1).max(adminProductCreateCharacteristicsItemThreeNumericValueMax)
+}).describe('A custom scalar number of an editable numeric characteristic.\n\nThe number travels as a plain decimal string, so no precision is lost or\nrounded by a JSON float and the lexical form can be validated strictly. What\nthe value is allowed to be (maximum, decimal places, allowlist) depends on the\ndefinition and is enforced by the service that knows the field policy.')])).max(adminProductCreateCharacteristicsMax).optional(),
   "on_sale": zod.boolean().default(adminProductCreateOnSaleDefault),
   "is_active": zod.boolean().default(adminProductCreateIsActiveDefault),
   "listed_at": zod.union([zod.iso.date(),zod.null()]).optional()
