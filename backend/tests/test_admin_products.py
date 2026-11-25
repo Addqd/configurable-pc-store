@@ -28,7 +28,7 @@ from app.models import (
 from app.schemas.admin_products import (
     AdminProductUpdate,
     CharacteristicOptionSelectionIn,
-    CharacteristicValueIn,
+    CharacteristicOptionsIn,
 )
 from app.services import product_admin_service, product_image_service
 from app.services.errors import InvalidInputError
@@ -77,6 +77,40 @@ def _option_id(db: Session, definition: Characteristic, value: str) -> int:
         db.add(option)
         db.flush()
     return option.id
+
+
+def _absent_option_id(db: Session, definition: Characteristic) -> int:
+    """An option id the definition's dictionary does not hold.
+
+    Derived from the database instead of being hardcoded: the dictionary only grows,
+    so a fixed sentinel would eventually name a real option and the negative test
+    would stop proving anything.
+    """
+    used = set(db.scalars(select(CharacteristicOption.id)).all())
+    candidate = max(used, default=0) + 1
+    assert candidate not in used
+    return candidate
+
+
+def _wattage_associations(db: Session, product_id: int) -> set[tuple[int, int]]:
+    """`(option id, quantity)` of the product's `test_probe_wattage` rows."""
+    return {
+        (int(option_id), int(quantity))
+        for option_id, quantity in db.execute(
+            select(
+                ProductCharacteristic.characteristic_option_id,
+                ProductCharacteristic.quantity,
+            )
+            .join(
+                Characteristic,
+                Characteristic.id == ProductCharacteristic.characteristic_id,
+            )
+            .where(
+                ProductCharacteristic.product_id == product_id,
+                Characteristic.code == "test_probe_wattage",
+            )
+        ).all()
+    }
 
 
 def _selection(code: str, *picks: int | tuple[int, int]) -> dict[str, Any]:
@@ -524,42 +558,43 @@ def test_rolled_back_characteristic_write_leaves_no_rows(
     product = sample_products["gpu"]
     option_id = gpu_number_options["250"]
 
+    def _wattage(selected_id: int) -> AdminProductUpdate:
+        # `CharacteristicValueIn` is an annotated union, so the concrete member is
+        # instantiated here; the union itself is not a model and cannot be called.
+        return AdminProductUpdate(
+            characteristics=[
+                CharacteristicOptionsIn(
+                    code="test_probe_wattage",
+                    options=[
+                        CharacteristicOptionSelectionIn(
+                            option_id=selected_id, quantity=1
+                        )
+                    ],
+                )
+            ]
+        )
+
     with _service_session(isolated_connection) as db:
         actor = db.get(User, admin_user["id"])
-        product_admin_service.update_product(
-            db,
-            actor,
-            product.id,
-            AdminProductUpdate(
-                characteristics=[
-                    CharacteristicValueIn(
-                        code="test_probe_wattage",
-                        options=[
-                            CharacteristicOptionSelectionIn(
-                                option_id=option_id, quantity=1
-                            )
-                        ],
-                    )
-                ]
-            ),
+        dictionary_ids = set(
+            db.scalars(
+                select(CharacteristicOption.id).where(
+                    CharacteristicOption.characteristic_name_id
+                    == gpu_number_definition.id
+                )
+            ).all()
         )
-        with pytest.raises(InvalidInputError):
+        unknown_id = _absent_option_id(db, gpu_number_definition)
+        assert unknown_id not in dictionary_ids
+
+        product_admin_service.update_product(db, actor, product.id, _wattage(option_id))
+        # The accepted write really is in the current transaction, not only in the
+        # service's return value.
+        assert _wattage_associations(db, product.id) == {(option_id, 1)}
+
+        with pytest.raises(InvalidInputError, match=f"unknown option id {unknown_id}"):
             product_admin_service.update_product(
-                db,
-                actor,
-                product.id,
-                AdminProductUpdate(
-                    characteristics=[
-                        CharacteristicValueIn(
-                            code="test_probe_wattage",
-                            options=[
-                                CharacteristicOptionSelectionIn(
-                                    option_id=999_999, quantity=1
-                                )
-                            ],
-                        )
-                    ]
-                ),
+                db, actor, product.id, _wattage(unknown_id)
             )
         db.rollback()
 
@@ -575,6 +610,8 @@ def test_rolled_back_characteristic_write_leaves_no_rows(
             ).all()
         )
         assert "test_probe_wattage" not in codes
+        # The rolled-back write left no association behind.
+        assert _wattage_associations(db, product.id) == set()
 
 
 def test_category_transition_never_drops_values_silently(
