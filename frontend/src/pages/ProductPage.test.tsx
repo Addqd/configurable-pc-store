@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { render, createTestQueryClient } from '../test-utils'
 import { mockCatalogFetch } from '../test-api'
@@ -10,6 +10,20 @@ import { ProductPage } from './ProductPage'
 vi.mock('../components/Header', () => ({ Header: () => <div /> }))
 vi.mock('../components/Footer', () => ({ Footer: () => <div /> }))
 const setup = (slug = 'cpu-ryzen-5-7600') => render(<MemoryRouter initialEntries={[`/products/${slug}`]}><Routes><Route path="/products/:slug" element={<ProductPage />} /></Routes></MemoryRouter>)
+
+/**
+ * The specifications panel, scoped by its own heading.
+ *
+ * A characteristic value is legitimately rendered twice on this page: once in the
+ * product header summary and once in the specification table. Assertions about
+ * the specification rows query the table they are meant to verify.
+ */
+function specsPanel() {
+  const heading = screen.getByRole('heading', { name: 'Характеристики' })
+  const section = heading.closest('section')
+  if (!section) throw new Error('specifications section missing')
+  return within(section)
+}
 beforeEach(() => { mockCatalogFetch(); useAccountStore.setState({ accounts: {}, activeAccountId: null }); useUIStore.setState({ authModalOpen: false }) })
 afterEach(() => { cleanup(); vi.unstubAllGlobals() })
 describe('server product page', () => {
@@ -18,7 +32,8 @@ describe('server product page', () => {
     expect(await screen.findByRole('heading', { name: 'AMD Ryzen 5 7600' })).toBeTruthy()
     expect(screen.getByText('Server description')).toBeTruthy()
     expect(screen.getByText(/18\s*990/)).toBeTruthy()
-    expect(screen.getByText('5.1 ГГц')).toBeTruthy()
+    // The header summary shows the same unit, so the row is asserted in the table.
+    expect(specsPanel().getByText('5.1 ГГц')).toBeTruthy()
     const availability = screen.getByText('В наличии')
     expect(availability.className).toContain('text-emerald-500')
     expect(availability.querySelector('span')?.className).toContain('bg-emerald-500')
@@ -26,7 +41,8 @@ describe('server product page', () => {
   it('renders the show_in_details characteristic rows and never internal metadata', async () => {
     setup('gaming-pc-powerplay')
     expect(await screen.findByText('Кэш L3')).toBeTruthy()
-    expect(screen.getByText('32 МБ')).toBeTruthy()
+    // The header summary repeats the first rows, so the row is asserted in the table.
+    expect(specsPanel().getByText('32 МБ')).toBeTruthy()
     expect(screen.getByText('Техпроцесс')).toBeTruthy()
     expect(screen.queryByText(/test-fixture-must-not-render/)).toBeNull()
     // Technical (compatibility-engine) keys must not be shown as customer specs.

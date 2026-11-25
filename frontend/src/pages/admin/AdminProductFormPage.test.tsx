@@ -258,13 +258,57 @@ describe('admin product editing', () => {
     expect(screen.queryByRole('link', { name: 'В магазин' })).toBeNull()
   })
 
+  it('keeps the save button disabled and relabelled until the definitions resolve', async () => {
+    // Proves the precondition the save flows rely on: while the definitions are in
+    // flight the submit button is disabled and shows the pending label, so neither a
+    // click nor a query by the idle label can succeed yet.
+    let resolveDefinitions: (value: Response) => void = () => {}
+    const pending = new Promise<Response>((resolve) => { resolveDefinitions = resolve })
+    stubAdminFetch({
+      handler: (url, init) => {
+        const method = init.method ?? 'GET'
+        if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
+        if (url.pathname === '/api/v1/products/filters') {
+          return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
+        }
+        if (url.pathname === '/api/v1/admin/categories/8/characteristics') return pending
+        if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') {
+          return jsonResponse(productDetailFixture)
+        }
+        return undefined
+      },
+    })
+    render(
+      <MemoryRouter initialEntries={['/admin/products/7/edit']}>
+        <Routes>
+          <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+
+    const price = (await screen.findByLabelText(/Цена, ₽/)) as HTMLInputElement
+    expect(price.value.replace(/\s/g, ' ')).toBe('64 990')
+    const submitButton = () => document.querySelector('form button[type="submit"]') as HTMLButtonElement
+    expect(submitButton().disabled).toBe(true)
+    expect(submitButton().textContent).toContain('Сохранение')
+    expect(screen.queryByRole('button', { name: 'Сохранить изменения' })).toBeNull()
+
+    resolveDefinitions(jsonResponse(characteristicDefinitionsFixture))
+    await screen.findByLabelText('Объём памяти')
+    await waitFor(() => expect(submitButton().disabled).toBe(false))
+    expect(screen.getByRole('button', { name: 'Сохранить изменения' })).toBeTruthy()
+  })
+
   it('saves an unchanged grouped price as a numeric API value', async () => {
     const fetchMock = setupEdit()
     expect(await screen.findByRole('heading', { name: 'Редактирование товара' })).toBeTruthy()
     const price = (await screen.findByLabelText(/Цена, ₽/)) as HTMLInputElement
     expect(price.value.replace(/\s/g, ' ')).toBe('64 990')
 
-    fireEvent.click(screen.getByRole('button', { name: 'Сохранить изменения' }))
+    // The submit button stays disabled until the category definitions resolve, so
+    // the save goes through the shared helper that awaits them: a direct click can
+    // land on a disabled button and silently send nothing.
+    await submitForm()
     expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
 
     const patch = callsTo(fetchMock, '/api/v1/admin/products/7').find(([, init]) => init.method === 'PATCH')
@@ -1599,23 +1643,35 @@ describe('admin product characteristic editing', () => {
     expect(screen.queryByLabelText('Габариты 2')).toBeNull()
   })
 
-  it('filters the dictionary by the typed search and never creates a value', async () => {
+  it('renders one ordinary dropdown per fixed characteristic without a search field', async () => {
     setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
     fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
     await screen.findByLabelText('Объём памяти')
 
-    const search = screen.getByLabelText('Поиск значений: Объём памяти')
-    fireEvent.change(search, { target: { value: '16' } })
+    // One control per value: no separate search input and no option counter.
+    expect(screen.queryByLabelText('Поиск значений: Объём памяти')).toBeNull()
+    // The counter is only part of the multiple-choice checklist, never of a
+    // single-value control.
+    expect(screen.getAllByText(/Доступно значений/)).toHaveLength(1)
     const memory = screen.getByLabelText('Объём памяти') as HTMLSelectElement
-    expect([...memory.options].map((option) => option.value)).toEqual(['', '13'])
+    expect(memory.tagName).toBe('SELECT')
+    expect([...memory.options].map((option) => option.textContent)).toEqual([
+      'Снять выбор',
+      '8 ГБ',
+      '12 ГБ',
+      '16 ГБ',
+    ])
 
-    // An option that does not exist in the dictionary is not offered at all.
-    fireEvent.change(search, { target: { value: '32 ГБ' } })
-    expect(screen.getByLabelText('Объём памяти')).toBeTruthy()
-    expect((screen.getByLabelText('Объём памяти') as HTMLSelectElement).options).toHaveLength(1)
-    expect(screen.getByText('Нет подходящих значений')).toBeTruthy()
+    // A boolean stays an ordinary Yes/No dropdown with an unset state.
+    const boolean = screen.getByLabelText('Подсветка') as HTMLSelectElement
+    expect(boolean.tagName).toBe('SELECT')
+    expect([...boolean.options].map((option) => option.textContent)).toEqual([
+      'Снять выбор',
+      'Да',
+      'Нет',
+    ])
   })
 
   it('sends explicit option ids and quantities, never free text', async () => {
@@ -1686,6 +1742,108 @@ describe('admin product characteristic editing', () => {
       code: 'dimensions_mm',
       dimensions: [320, 134.85, 61.57],
     })
+  })
+
+  it('edits an allowlisted numeric field with one integrated ComboBox', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+
+    // A single integrated control: an editable combobox, no second search field.
+    const combo = screen.getByRole('combobox', { name: 'Длина' }) as HTMLInputElement
+    expect(combo.tagName).toBe('INPUT')
+    expect(combo.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByLabelText('Поиск значений: Длина')).toBeNull()
+    expect(document.querySelectorAll('#characteristic-length_mm-listbox')).toHaveLength(0)
+
+    // Focusing it offers the existing dictionary values by numeric magnitude.
+    fireEvent.focus(combo)
+    const listValues = () => [...document.querySelectorAll('#characteristic-length_mm-listbox [role="option"]')]
+      .map((node) => node.textContent)
+    expect(listValues()).toEqual(['234.1 мм', '305 мм', '357.6 мм'])
+
+    // Typing filters the dictionary inside the popup and calls no endpoint.
+    const before = fetchMock.mock.calls.length
+    fireEvent.change(combo, { target: { value: '305' } })
+    expect(listValues()).toEqual(['305 мм'])
+    expect(fetchMock.mock.calls.length).toBe(before)
+
+    // Picking an option keeps its original dictionary id.
+    fireEvent.click(screen.getByRole('option', { name: '305 мм' }))
+    expect(combo.value).toBe('305')
+    expect(combo.getAttribute('aria-expanded')).toBe('false')
+
+    await submitForm()
+    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    const body = requestBody(post?.[1] ?? {}) as PatchBody
+    expect(submittedEntry(body, 'length_mm')).toEqual({
+      code: 'length_mm', options: [{ option_id: 62, quantity: 1 }],
+    })
+  })
+
+  it('submits a typed numeric value as a plain decimal and converts one comma', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Длина' }), {
+      target: { value: '269,1' },
+    })
+    await submitForm()
+    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    const body = requestBody(post?.[1] ?? {}) as PatchBody
+    expect(submittedEntry(body, 'length_mm')).toEqual({
+      code: 'length_mm', numeric_value: '269.1',
+    })
+  })
+
+  it('rejects an invalid numeric value instead of repairing it', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+
+    fireEvent.change(screen.getByRole('combobox', { name: 'Длина' }), {
+      target: { value: '1 2' },
+    })
+    await submitForm()
+    expect(await screen.findByText(/Введите число без пробелов и единиц/)).toBeTruthy()
+    expect(
+      callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST'),
+    ).toBe(false)
+  })
+
+  it('hydrates a stored numeric value and clears it explicitly', async () => {
+    const numericRow = characteristicRow({
+      code: 'length_mm', name: 'Длина', data_type: 'number', editor: 'numeric', unit: 'мм',
+      sort_order: 5, is_required: false, value: 269.1, display_value: '269.1 мм',
+      options: [{ option_id: 32, value: '269.1 мм', quantity: 1 }],
+    })
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), numericRow])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+
+    const combo = (await screen.findByRole('combobox', { name: 'Длина' })) as HTMLInputElement
+    expect(combo.value).toBe('269.1')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Очистить значение' }))
+    expect(combo.value).toBe('')
+
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(body.remove_characteristics).toEqual(['length_mm'])
+    expect(submittedEntry(body, 'length_mm')).toBeUndefined()
   })
 
   it('removes an optional stored characteristic the administrator cleared', async () => {
@@ -1777,6 +1935,82 @@ describe('admin product characteristic editing', () => {
       code: 'dimensions_mm', dimensions: [320, 134.85, 61.57],
     })
     expect(body.remove_characteristics).toBeUndefined()
+  })
+
+  it('never deletes a stored numeric value because the input is whitespace', async () => {
+    const numericRow = characteristicRow({
+      code: 'length_mm', name: 'Длина', data_type: 'number', editor: 'numeric', unit: 'мм',
+      sort_order: 5, is_required: false, value: 269.1, display_value: '269.1 мм',
+      options: [{ option_id: 32, value: '269.1 мм', quantity: 1 }],
+    })
+    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), numericRow])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    const combo = (await screen.findByRole('combobox', { name: 'Длина' })) as HTMLInputElement
+    expect(combo.value).toBe('269.1')
+
+    // A single-line input cannot hold a newline (the HTML value sanitization
+    // algorithm strips it), so the newline case is asserted on the draft level in
+    // `characteristicDrafts.test.ts` instead.
+    for (const whitespace of [' ', '   ', '\t', ' 1 2 ']) {
+      fireEvent.change(combo, { target: { value: whitespace } })
+      await submitForm()
+      // Malformed text is a validation error, never a removal request.
+      expect(await screen.findByText(/Введите число без пробелов и единиц/)).toBeTruthy()
+      expect(patchBody(fetchMock)).toBeNull()
+    }
+
+    // A genuine clear still removes the stored value explicitly.
+    fireEvent.change(combo, { target: { value: '269.1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Очистить значение' }))
+    expect(combo.value).toBe('')
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    expect(patchBody(fetchMock)?.remove_characteristics).toEqual(['length_mm'])
+  })
+
+  it('keeps the saved numeric value and dimensions after a save', async () => {
+    const numericRow = characteristicRow({
+      code: 'length_mm', name: 'Длина', data_type: 'number', editor: 'numeric', unit: 'мм',
+      sort_order: 5, is_required: false, value: 234.1, display_value: '234.1 мм',
+      options: [{ option_id: 61, value: '234.1 мм', quantity: 1 }],
+    })
+    const dimensionsRow = characteristicRow({
+      code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', editor: 'dimensions',
+      unit: 'мм', sort_order: 4, is_required: false,
+      value: [307, 125, 46], display_value: '307 × 125 × 46 мм',
+      options: [{ option_id: 51, value: '307 × 125 × 46 мм', quantity: 1 }],
+    })
+    const fetchMock = setupEditCharacteristics([
+      memorySizeRow(), memoryBusRow(), numericRow, dimensionsRow,
+    ])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    const combo = (await screen.findByRole('combobox', { name: 'Длина' })) as HTMLInputElement
+    expect(combo.value).toBe('234.1')
+
+    fireEvent.focus(combo)
+    fireEvent.click(screen.getByRole('option', { name: '305 мм' }))
+    fireEvent.change(screen.getByLabelText('Ширина, мм'), { target: { value: '130' } })
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+
+    // The committed response hydrates the editor again: nothing is lost or removed.
+    await waitFor(() => expect(
+      (screen.getByRole('combobox', { name: 'Длина' }) as HTMLInputElement).value,
+    ).toBe('305'))
+    expect((screen.getByLabelText('Длина, мм') as HTMLInputElement).value).toBe('307')
+    expect((screen.getByLabelText('Ширина, мм') as HTMLInputElement).value).toBe('130')
+    expect((screen.getByLabelText('Высота, мм') as HTMLInputElement).value).toBe('46')
+
+    await submitForm()
+    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(2))
+    const second = patchBodies(fetchMock)[1]
+    expect(submittedEntry(second, 'length_mm')).toEqual({
+      code: 'length_mm', options: [{ option_id: 62, quantity: 1 }],
+    })
+    expect(submittedEntry(second, 'dimensions_mm')).toEqual({
+      code: 'dimensions_mm', dimensions: [307, 130, 46],
+    })
+    expect(second.remove_characteristics).toBeUndefined()
   })
 })
 
@@ -1983,5 +2217,55 @@ describe('admin product category transition', () => {
     expect((requestBody(attempts[1][1]) as PatchBody).remove_characteristics?.slice().sort())
       .toEqual(['chipset', 'memory_bus', 'memory_size'])
     expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
+  })
+
+  it('restores numeric values, option ids and all three dimensions on the way back', async () => {
+    const fetchMock = setupEditTransition([
+      memorySizeRow(),
+      memoryBusRow(),
+      characteristicRow({
+        code: 'length_mm', name: 'Длина', data_type: 'number', editor: 'numeric', unit: 'мм',
+        sort_order: 5, is_required: false, value: 305, display_value: '305 мм',
+        options: [{ option_id: 62, value: '305 мм', quantity: 1 }],
+      }),
+      characteristicRow({
+        code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', editor: 'dimensions',
+        unit: 'мм', sort_order: 4, is_required: false,
+        value: [307, 125, 46], display_value: '307 × 125 × 46 мм',
+        options: [{ option_id: 51, value: '307 × 125 × 46 мм', quantity: 1 }],
+      }),
+    ])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    const combo = (await screen.findByRole('combobox', { name: 'Длина' })) as HTMLInputElement
+    expect(combo.value).toBe('305')
+    expect((screen.getByLabelText('Длина, мм') as HTMLInputElement).value).toBe('307')
+
+    // Another category: the GPU controls and their option ids no longer apply.
+    await selectCategory('9', '10')
+    await screen.findByLabelText('Сокет')
+    expect(screen.queryByRole('combobox', { name: 'Длина' })).toBeNull()
+    expect(screen.queryByLabelText('Длина, мм')).toBeNull()
+
+    // Back to the original category: the server snapshot restores everything.
+    await selectCategory('8', '8')
+    const restored = (await screen.findByRole('combobox', { name: 'Длина' })) as HTMLInputElement
+    expect(restored.value).toBe('305')
+    expect((screen.getByLabelText('Длина, мм') as HTMLInputElement).value).toBe('307')
+    expect((screen.getByLabelText('Ширина, мм') as HTMLInputElement).value).toBe('125')
+    expect((screen.getByLabelText('Высота, мм') as HTMLInputElement).value).toBe('46')
+    // Every stored code is usable again, so no transition decision is required.
+    expect(screen.queryByText(/Характеристики предыдущей категории/)).toBeNull()
+
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(submittedEntry(body, 'length_mm')).toEqual({
+      code: 'length_mm', options: [{ option_id: 62, quantity: 1 }],
+    })
+    expect(submittedEntry(body, 'dimensions_mm')).toEqual({
+      code: 'dimensions_mm', dimensions: [307, 125, 46],
+    })
+    expect(body.remove_characteristics).toBeUndefined()
   })
 })

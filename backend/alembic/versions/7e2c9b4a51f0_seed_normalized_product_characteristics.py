@@ -21,15 +21,16 @@ export before running on a different catalog/database.
 from __future__ import annotations
 
 import json
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision: str = "7e2c9b4a51f0"
-down_revision: Union[str, Sequence[str], None] = "5d91c7e2a604"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "5d91c7e2a604"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 # Each category is located by stable slug, never by hard-coded category_id.
 # (code, localized label, data_type, unit, display sort order, show_in_short)

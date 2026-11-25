@@ -21,8 +21,9 @@ from __future__ import annotations
 import math
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB, insert
+
+from alembic import op
 
 revision = "b83f4e91c2a7"
 down_revision = "7e2c9b4a51f0"

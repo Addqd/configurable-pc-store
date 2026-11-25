@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FiMinus, FiPlus, FiSearch } from 'react-icons/fi'
 import { adminControl } from './adminStyles'
+import { NumericComboBox } from './NumericComboBox'
 import {
   DIMENSION_COUNT,
   DIMENSION_UNIT,
@@ -29,9 +30,10 @@ const optionLabelFor = (
  * One category-scoped characteristic control.
  *
  * Every selectable value comes from the category definitions endpoint, so the
- * editor can only pick an existing dictionary option — typing into the search box
- * filters that dictionary and never creates a new value. The only field that is
- * not a dictionary pick is the GPU dimensions triple.
+ * editor can only pick an existing dictionary option or, for the explicitly
+ * allowlisted numeric fields, type a new number that the backend canonicalises.
+ * Typing never writes to the dictionary — a new value is persisted only when the
+ * product itself is saved.
  */
 export function CharacteristicFieldEditor({
   field,
@@ -56,6 +58,18 @@ export function CharacteristicFieldEditor({
   // same dictionary the storefront uses, keyed by the stable `code`.
   const name = characteristicLabel(field, language)
   const unitText = translateCharacteristicUnit(field.unit, language)
+  // The editable number shows the affix of its own dictionary wording. A constant
+  // unit is localized like every other unit; `CL` and `″` pass through unchanged.
+  // The count word of a plural field depends on the typed number, so the ComboBox
+  // derives it from the active language itself.
+  const numericLimits = field.limits?.numeric
+    ? {
+        ...field.limits.numeric,
+        affix: field.limits.numeric.affix
+          ? translateCharacteristicUnit(field.limits.numeric.affix, language)
+          : field.limits.numeric.affix,
+      }
+    : null
   const unit = unitText ? (
     <span className="ml-1 whitespace-nowrap text-text-muted">{unitText}</span>
   ) : null
@@ -96,6 +110,21 @@ export function CharacteristicFieldEditor({
             invalid={Boolean(error)}
             onChange={(dimensions) => onChange({ dimensions })}
           />
+        ) : editor === 'numeric' ? (
+          <NumericComboBox
+            id={controlId}
+            name={name}
+            text={draft.numericText}
+            limits={numericLimits}
+            options={options}
+            disabled={disabled}
+            invalid={Boolean(error)}
+            required={field.is_required}
+            onChangeText={(numericText) => onChange({ numericText, selected: [] })}
+            onPick={(optionId, numericText) =>
+              onChange({ numericText, selected: [optionId] })}
+            onClear={() => onChange({ numericText: '', selected: [] })}
+          />
         ) : editor === 'select' || editor === 'boolean' ? (
           <SingleOptionSelect
             id={controlId}
@@ -126,7 +155,7 @@ export function CharacteristicFieldEditor({
   )
 }
 
-/** Searchable single choice over the existing dictionary values. */
+/** One ordinary single-choice dropdown over the existing dictionary values. */
 function SingleOptionSelect({
   id,
   name,
@@ -147,56 +176,28 @@ function SingleOptionSelect({
   onChange: (optionId: number | null) => void
 }) {
   const { t } = useTranslation()
-  const [search, setSearch] = useState('')
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase()
-    if (!needle) return options
-    return options.filter((option) =>
-      optionLabel(option.value).toLocaleLowerCase().includes(needle),
-    )
-  }, [options, search, optionLabel])
   const unknown = value !== undefined && !options.some((option) => option.option_id === value)
 
   return (
-    <div className="space-y-2">
-      <div className="relative">
-        <FiSearch aria-hidden="true" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-        <input
-          type="search"
-          value={search}
-          disabled={disabled}
-          aria-label={`${t('admin.form.char_select_search')}: ${name}`}
-          placeholder={t('admin.form.char_select_placeholder')}
-          onChange={(event) => setSearch(event.target.value)}
-          className={`${adminControl} pl-9`}
-        />
-      </div>
-      <select
-        id={id}
-        value={value === undefined ? '' : String(value)}
-        disabled={disabled}
-        aria-invalid={invalid}
-        aria-label={name}
-        onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))}
-        className={adminControl}
-      >
-        <option value="">{t('admin.form.char_select_clear')}</option>
-        {unknown && (
-          <option value={String(value)}>{t('admin.form.char_option_unknown', { id: value })}</option>
-        )}
-        {filtered.map((option) => (
-          <option key={option.option_id} value={String(option.option_id)}>
-            {optionLabel(option.value)}
-          </option>
-        ))}
-      </select>
-      {filtered.length === 0 && (
-        <p className="text-xs text-text-muted">{t('admin.form.char_select_empty')}</p>
+    <select
+      id={id}
+      value={value === undefined ? '' : String(value)}
+      disabled={disabled}
+      aria-invalid={invalid}
+      aria-label={name}
+      onChange={(event) => onChange(event.target.value === '' ? null : Number(event.target.value))}
+      className={adminControl}
+    >
+      <option value="">{t('admin.form.char_select_clear')}</option>
+      {unknown && (
+        <option value={String(value)}>{t('admin.form.char_option_unknown', { id: value })}</option>
       )}
-      <p className="text-xs text-text-muted">
-        {t('admin.form.char_options_count', { count: options.length })}
-      </p>
-    </div>
+      {options.map((option) => (
+        <option key={option.option_id} value={String(option.option_id)}>
+          {optionLabel(option.value)}
+        </option>
+      ))}
+    </select>
   )
 }
 

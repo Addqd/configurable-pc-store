@@ -3,12 +3,15 @@
  *
  * Every selectable value comes from the server dictionary
  * (`characteristic_options`), so a draft stores **option ids** and a repeat count
- * — never free text. The only exception is the GPU `dimensions_mm` field, which
- * is edited as three measurements and canonicalised by the backend.
+ * — never free text. Two editors build a value from numbers instead: the GPU
+ * `dimensions_mm` field (three measurements) and the editable numeric fields,
+ * which keep the administrator's text and let the backend canonicalise it.
  *
  * Drafts are converted to the API payload only at submit time, so the
  * unchanged / replaced / explicitly-removed distinction stays intact until then.
  */
+
+import { z } from 'zod'
 
 export type CharacteristicEditor =
   | 'select'
@@ -16,11 +19,21 @@ export type CharacteristicEditor =
   | 'multiselect'
   | 'connector_quantity'
   | 'dimensions'
+  | 'numeric'
 
 /** One selectable dictionary value offered by the definitions endpoint. */
 export interface CharacteristicOptionLike {
   option_id: number
   value: string
+}
+
+/** Validation metadata of one editable numeric field, served by the API. */
+export interface NumericLimitsInput {
+  max_value: string
+  decimal_places: number
+  style: 'suffix' | 'prefix' | 'symbol'
+  affix?: string | null
+  plural_forms?: { one: string; few: string; many: string } | null
 }
 
 /** The subset of the generated definition schema the editor needs. */
@@ -39,6 +52,7 @@ export interface CharacteristicDefinitionLike {
     max_selections: number
     max_quantity: number
     repeatable: boolean
+    numeric?: NumericLimitsInput | null
   } | null
 }
 
@@ -54,6 +68,15 @@ export interface CharacteristicDraft {
   /** Raw text of the three dimension inputs, in length/width/height order. */
   dimensions: DimensionInputs
   /**
+   * Text of the editable numeric control.
+   *
+   * An empty text means "no value"; otherwise the text is either the number of
+   * the selected dictionary option or a value the administrator typed. It is
+   * never written to the dictionary while typing — only a successful product save
+   * persists a new value.
+   */
+  numericText: string
+  /**
    * Whether the administrator actually edited this characteristic.
    *
    * The draft alone cannot answer that: a stored value is hydrated into a draft
@@ -64,11 +87,12 @@ export interface CharacteristicDraft {
   edited: boolean
 }
 
-export type DraftIssue = 'required' | 'quantity' | 'dimension'
+export type DraftIssue = 'required' | 'quantity' | 'dimension' | 'numeric'
 
 export type CharacteristicValueDraft =
   | { code: string; options: { option_id: number; quantity: number }[] }
   | { code: string; dimensions: number[] }
+  | { code: string; numeric_value: string }
 
 export type DraftResult =
   | { ok: true; value: CharacteristicValueDraft }
@@ -87,6 +111,7 @@ const EDITORS: readonly CharacteristicEditor[] = [
   'multiselect',
   'connector_quantity',
   'dimensions',
+  'numeric',
 ]
 
 export function editorOf(definition: {
@@ -118,6 +143,7 @@ export function emptyDraft(definition: {
     selected: [],
     quantities: {},
     dimensions: emptyDimensions(),
+    numericText: '',
     edited: false,
   }
 }
@@ -175,6 +201,154 @@ export function dimensionInputsFrom(
 export interface StoredOption {
   optionId: number
   quantity: number
+  /** Display-ready dictionary text, e.g. `3.4 ГГц` or `CL36`. */
+  value?: string
+}
+
+/** Editable number of a stored numeric value. */
+function numericTextFromStored(
+  stored: StoredCharacteristic | undefined,
+  value: unknown,
+): string {
+  const optionValue = stored?.options[0]?.value
+  if (optionValue) return numericTextFromOptionValue(optionValue)
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value)
+  if (typeof value === 'string') return numericTextFromOptionValue(value)
+  return ''
+}
+
+/** A numeric text the backend would accept, or the reason it would not. */
+export type NumericIssue = 'format' | 'range' | 'precision'
+
+/** Longest numeric text the API accepts for one custom value. */
+export const MAX_NUMERIC_TEXT_LENGTH = 20
+
+/** A plain unsigned decimal: ASCII digits, an optional fraction after a point. */
+const PLAIN_DECIMAL = /^\d+(?:\.\d+)?$/
+const FIRST_NUMBER = /\d+(?:[.,]\d+)?/
+
+/**
+ * The editable number of a stored dictionary value.
+ *
+ * The dictionary stores display-ready wording (`3.4 ГГц`, `CL36`, `24″`,
+ * `6 ядер`), so the number is read from the text itself. This is used only for a
+ * numeric editor, where such a number always exists.
+ */
+export function numericTextFromOptionValue(value: string): string {
+  const match = FIRST_NUMBER.exec(value)
+  return match ? match[0].replace(',', '.') : ''
+}
+
+/**
+ * A single decimal comma becomes a decimal point.
+ *
+ * This is the only lexical normalization the editor performs: exactly one comma
+ * and no point. Nothing is trimmed, so surrounding or embedded whitespace stays
+ * in the text and is rejected by the validator instead of silently disappearing.
+ */
+export function normalizeNumericText(text: string): string {
+  const commas = text.split(',').length - 1
+  if (commas === 1 && !text.includes('.')) return text.replace(',', '.')
+  return text
+}
+
+/** Integer magnitude of an unsigned decimal text, scaled to `scale` digits. */
+function scaledDigits(text: string, scale: number): bigint {
+  const [integer = '0', fraction = ''] = text.split('.')
+  return BigInt(`${integer || '0'}${fraction.padEnd(scale, '0')}`)
+}
+
+/**
+ * Exact comparison against the field maximum.
+ *
+ * Both sides are compared as scaled integers, so a boundary value can never be
+ * accepted here and rejected by the backend because of a floating-point rounding
+ * of the same decimal text.
+ */
+function exceedsNumericMaximum(normalized: string, maximum: string): boolean {
+  if (!PLAIN_DECIMAL.test(maximum)) return false
+  const [, fraction = ''] = normalized.split('.')
+  const [, maxFraction = ''] = maximum.split('.')
+  const scale = Math.max(fraction.length, maxFraction.length)
+  return scaledDigits(normalized, scale) > scaledDigits(maximum, scale)
+}
+
+/**
+ * Classifies the numeric text against the backend-provided limits.
+ *
+ * The rules mirror the server exactly: a plain unsigned decimal without a sign,
+ * exponent notation, grouping separators, spaces or a unit; at most the shared
+ * 20-character limit; greater than zero; at most the field's maximum; at most the
+ * field's decimal places (trailing zeros are not precision). Nothing is rounded,
+ * truncated or clamped here, and an empty text is not a number.
+ */
+export function numericTextIssue(
+  text: string,
+  limits?: NumericLimitsInput | null,
+): NumericIssue | null {
+  const normalized = normalizeNumericText(text)
+  if (normalized.length === 0 || normalized.length > MAX_NUMERIC_TEXT_LENGTH) {
+    return 'format'
+  }
+  if (!PLAIN_DECIMAL.test(normalized)) return 'format'
+  const [integer = '', fraction = ''] = normalized.split('.')
+  const significant = fraction.replace(/0+$/, '')
+  if (limits && significant.length > limits.decimal_places) return 'precision'
+  if (!/[1-9]/.test(`${integer}${fraction}`)) return 'range'
+  if (limits?.max_value && exceedsNumericMaximum(normalized, limits.max_value)) {
+    return 'range'
+  }
+  return null
+}
+
+/** Zod schema of one numeric draft, built from the backend limits. */
+export function numericDraftSchema(limits?: NumericLimitsInput | null) {
+  return z.string().superRefine((text, ctx) => {
+    const issue = numericTextIssue(text, limits)
+    if (issue !== null) ctx.addIssue({ code: 'custom', message: issue })
+  })
+}
+
+/** Russian count word of a number, matching the server's plural rule. */
+export function pluralWord(
+  forms: { one: string; few: string; many: string },
+  number: number,
+): string {
+  if (!Number.isInteger(number)) return forms.few
+  const count = Math.abs(number)
+  if (count % 100 >= 11 && count % 100 <= 14) return forms.many
+  const last = count % 10
+  if (last === 1) return forms.one
+  if (last >= 2 && last <= 4) return forms.few
+  return forms.many
+}
+
+/**
+ * The fixed part of a numeric value, rendered separately from the input.
+ *
+ * A prefix (`CL`) and a symbol (`″`) are constant; the count word of a plural
+ * field follows the current number. The word belongs to the dictionary wording and
+ * is therefore never taken from the UI dictionary; `countWord` lets the caller pick
+ * the count rule of the active language.
+ */
+export function numericAffixOf(
+  limits: NumericLimitsInput | null | undefined,
+  text: string,
+  countWord: (
+    forms: { one: string; few: string; many: string },
+    number: number,
+  ) => string = pluralWord,
+): string {
+  if (!limits) return ''
+  if (limits.style === 'prefix' || limits.style === 'symbol') {
+    return limits.affix ?? ''
+  }
+  if (limits.plural_forms) {
+    const normalized = normalizeNumericText(text)
+    if (!PLAIN_DECIMAL.test(normalized)) return ''
+    return countWord(limits.plural_forms, Number(normalized))
+  }
+  return limits.affix ?? ''
 }
 
 /** A characteristic value exactly as the API currently stores it. */
@@ -182,6 +356,10 @@ export interface StoredCharacteristic {
   options: StoredOption[]
   /** Data type declared by the definition the stored row belongs to. */
   dataType: string
+  /** Structured value of the row: a triple, a number, a boolean or a list. */
+  value?: unknown
+  /** Server-rendered display string, kept for the dimensions fallback. */
+  displayValue?: string | null
 }
 
 /** Server-confirmed values keyed by characteristic code. */
@@ -191,7 +369,10 @@ export type StoredCharacteristics = Readonly<Record<string, StoredCharacteristic
  * Draft for a stored value coming back from the API.
  *
  * The result is never `edited`: hydrating a value is not an action of the
- * administrator and must not authorize a removal.
+ * administrator and must not authorize a removal. The structured value and its
+ * display string are read from the explicit arguments, and otherwise from the
+ * stored snapshot, so a rehydration that only has the snapshot restores exactly
+ * what the response carried.
  */
 export function draftFromStored(
   definition: { editor?: string | null; data_type: string },
@@ -201,8 +382,19 @@ export function draftFromStored(
 ): CharacteristicDraft {
   const editor = editorOf(definition)
   const draft = emptyDraft(definition)
+  const structuredValue = value !== undefined ? value : stored?.value
+  const display = displayValue ?? stored?.displayValue ?? null
   if (editor === 'dimensions') {
-    return { ...draft, dimensions: dimensionInputsFrom(value, displayValue) }
+    return { ...draft, dimensions: dimensionInputsFrom(structuredValue, display) }
+  }
+  if (editor === 'numeric') {
+    return {
+      ...draft,
+      // The dictionary wording of the stored option is the source of the number;
+      // the structured value is only a fallback for a row without options.
+      numericText: numericTextFromStored(stored, structuredValue),
+      selected: stored ? stored.options.slice(0, 1).map((option) => option.optionId) : [],
+    }
   }
   if (!stored) return draft
   return {
@@ -214,11 +406,18 @@ export function draftFromStored(
   }
 }
 
+/**
+ * Whether a draft carries no value at all.
+ *
+ * Only a genuinely empty numeric text is empty: whitespace is a (malformed)
+ * value, so it must be validated and can never pose as a cleared field.
+ */
 export function isDraftEmpty(draft: CharacteristicDraft | undefined): boolean {
   if (!draft) return true
   if (draft.editor === 'dimensions') {
     return draft.dimensions.every((text) => !text.trim())
   }
+  if (draft.editor === 'numeric') return draft.numericText === ''
   return draft.selected.length === 0
 }
 
@@ -243,6 +442,33 @@ export function draftToValue(
       ok: true,
       value: { code: definition.code, dimensions: measurements as number[] },
     }
+  }
+
+  if (editor === 'numeric') {
+    const text = current.numericText
+    // Only a genuinely empty input is "no value". Whitespace-only and every other
+    // nonempty text is validated below, so malformed input blocks submission and
+    // can never authorize the removal of a stored characteristic.
+    if (text === '') return blank()
+    const limits = definition.limits?.numeric ?? null
+    const parsed = numericDraftSchema(limits).safeParse(text)
+    if (!parsed.success) return { ok: false, issue: 'numeric' }
+    const normalized = normalizeNumericText(text)
+    // A value the administrator picked from the list keeps its dictionary id;
+    // typed text travels as a number and the backend reuses an equivalent option.
+    const picked = current.selected.length === 1
+      ? definition.options?.find((option) => option.option_id === current.selected[0])
+      : undefined
+    if (picked && numericTextFromOptionValue(picked.value) === normalized) {
+      return {
+        ok: true,
+        value: {
+          code: definition.code,
+          options: [{ option_id: picked.option_id, quantity: 1 }],
+        },
+      }
+    }
+    return { ok: true, value: { code: definition.code, numeric_value: normalized } }
   }
 
   // Duplicated ids are collapsed; an id the dictionary no longer offers is kept

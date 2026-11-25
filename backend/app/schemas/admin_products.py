@@ -42,7 +42,7 @@ CharacteristicDataType = Literal[
     "string", "number", "boolean", "string_list", "number_list"
 ]
 CharacteristicEditor = Literal[
-    "select", "boolean", "multiselect", "connector_quantity", "dimensions"
+    "select", "boolean", "multiselect", "connector_quantity", "dimensions", "numeric"
 ]
 
 MAX_IMAGE_COUNT = 10
@@ -52,6 +52,13 @@ MAX_QUANTITY = 32
 MAX_DIMENSION_MM = 1000
 # A plain decimal literal: no exponent, no sign, no grouping, no whitespace.
 _DIMENSION_TEXT = re.compile(r"^\d{1,4}(?:\.\d{1,2})?$")
+# Lexical form of a custom scalar number: unsigned ASCII decimal digits only, so
+# a leading `+`/`-` is rejected exactly like the service rejects it. Exponent
+# notation, grouping separators and whitespace never match. The field specific
+# limits (maximum, decimal places, allowlist) are enforced by the service, which
+# owns the per-field policy.
+_NUMERIC_TEXT = re.compile(r"[0-9]+(?:\.[0-9]+)?")
+MAX_NUMERIC_TEXT_LENGTH = 20
 _SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _NON_NULLABLE_UPDATE_FIELDS = (
     "name",
@@ -87,6 +94,30 @@ class CharacteristicDimensionLimitsOut(BaseModel):
     decimal_places: int
 
 
+class CharacteristicNumericPluralOut(BaseModel):
+    """Russian count word of one numeric field in all three forms."""
+
+    one: str
+    few: str
+    many: str
+
+
+class CharacteristicNumericLimitsOut(BaseModel):
+    """Validation limits and wording of one editable numeric field.
+
+    The frontend renders the affix from this metadata and validates against the
+    same bounds, so the allowlist and its limits exist only on the server.
+    """
+
+    max_value: str
+    decimal_places: int
+    # `suffix` (number + space + affix), `prefix` (affix + number) or `symbol`
+    # (number + symbol without a space).
+    style: Literal["suffix", "prefix", "symbol"]
+    affix: str | None = None
+    plural_forms: CharacteristicNumericPluralOut | None = None
+
+
 class CharacteristicEditorLimitsOut(BaseModel):
     """Limits the editor enforces for one definition."""
 
@@ -94,6 +125,7 @@ class CharacteristicEditorLimitsOut(BaseModel):
     max_quantity: int
     repeatable: bool
     dimensions: CharacteristicDimensionLimitsOut | None = None
+    numeric: CharacteristicNumericLimitsOut | None = None
 
 
 class CharacteristicDefinitionOut(BaseModel):
@@ -226,8 +258,59 @@ class CharacteristicDimensionsIn(BaseModel):
         return tuple(_dimension_text(item) for item in value)
 
 
+class CharacteristicNumericIn(BaseModel):
+    """A custom scalar number of an editable numeric characteristic.
+
+    The number travels as a plain decimal string, so no precision is lost or
+    rounded by a JSON float and the lexical form can be validated strictly. What
+    the value is allowed to be (maximum, decimal places, allowlist) depends on the
+    definition and is enforced by the service that knows the field policy.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=64)
+    numeric_value: str = Field(min_length=1, max_length=MAX_NUMERIC_TEXT_LENGTH)
+
+    @field_validator("code")
+    @classmethod
+    def clean_code(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Characteristic code must not be blank")
+        return cleaned
+
+    @field_validator("numeric_value", mode="before")
+    @classmethod
+    def require_string(cls, value: object) -> object:
+        # A JSON number, boolean, array, object or `null` is not a decimal string.
+        # `noqa: TRY004` — Pydantic only converts `ValueError`/`AssertionError`, so a
+        # `TypeError` here would escape as a runtime error (HTTP 500) instead.
+        if not isinstance(value, str):
+            raise ValueError("A custom numeric value must be a decimal string")  # noqa: TRY004
+        return value
+
+    @field_validator("numeric_value")
+    @classmethod
+    def validate_numeric_value(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("A custom numeric value must not be empty")
+        # `fullmatch`: a trailing newline would otherwise be accepted by `$`.
+        if _NUMERIC_TEXT.fullmatch(value) is None:
+            raise ValueError(
+                "A custom numeric value must be a plain decimal number without "
+                "exponent notation, spaces, grouping separators or a unit"
+            )
+        number = Decimal(value)
+        if not number.is_finite():
+            raise ValueError("A custom numeric value must be finite")
+        if number <= 0:
+            raise ValueError("A custom numeric value must be greater than zero")
+        return value
+
+
 CharacteristicValueIn = Annotated[
-    CharacteristicOptionsIn | CharacteristicDimensionsIn,
+    CharacteristicOptionsIn | CharacteristicDimensionsIn | CharacteristicNumericIn,
     Field(union_mode="left_to_right"),
 ]
 

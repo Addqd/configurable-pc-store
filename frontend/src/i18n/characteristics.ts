@@ -1,4 +1,5 @@
 import i18n from './index'
+import { pluralWord } from '../admin/characteristicDrafts'
 
 /**
  * Locale-aware presentation of product characteristics.
@@ -384,13 +385,15 @@ export function appendUnit(text: string, unit: string | null | undefined): strin
  * Translations of the unit tokens that appear inside stored dictionary values.
  *
  * Keyed by the stored Russian unit; the replacement keeps the number intact, so
- * `750 Вт` becomes `750 W` and `6 ядер` becomes `6 cores`. Applied only for
+ * `750 Вт` becomes `750 W` and `905.5 г` becomes `905.5 g`. Applied only for
  * English; Russian never rewrites a stored value.
  */
 const UNIT_TOKEN_RULES: ReadonlyArray<[RegExp, string]> = [
   [/\b(\d+(?:[.,]\d+)?)\s*ГБ(?![А-Яа-яA-Za-z0-9])/g, '$1 GB'],
   [/\b(\d+(?:[.,]\d+)?)\s*ТБ(?![А-Яа-яA-Za-z0-9])/g, '$1 TB'],
   [/\b(\d+(?:[.,]\d+)?)\s*МБ\/с(?![А-Яа-яA-Za-z0-9])/g, '$1 MB/s'],
+  [/\b(\d+(?:[.,]\d+)?)\s*МБ(?![А-Яа-яA-Za-z0-9/])/g, '$1 MB'],
+  [/\b(\d+(?:[.,]\d+)?)\s*КБ(?![А-Яа-яA-Za-z0-9])/g, '$1 KB'],
   [/\b(\d+(?:[.,]\d+)?)\s*Гбит\/с(?![А-Яа-яA-Za-z0-9])/g, '$1 Gbps'],
   [/\b(\d+(?:[.,]\d+)?)\s*об\/мин(?![А-Яа-яA-Za-z0-9])/g, '$1 RPM'],
   [/\b(\d+(?:[.,]\d+)?)\s*МГц(?![А-Яа-яA-Za-z0-9])/g, '$1 MHz'],
@@ -398,14 +401,74 @@ const UNIT_TOKEN_RULES: ReadonlyArray<[RegExp, string]> = [
   [/\b(\d+(?:[.,]\d+)?)\s*Гц(?![А-Яа-яA-Za-z0-9])/g, '$1 Hz'],
   [/\b(\d+(?:[.,]\d+)?)\s*Вт(?![А-Яа-яA-Za-z0-9])/g, '$1 W'],
   [/\b(\d+)\s*бит(?![А-Яа-яA-Za-z0-9])/g, '$1 bit'],
-  [/\b(\d+)\s*(?:ядер|ядра|ядро)(?![А-Яа-яA-Za-z0-9])/g, '$1 cores'],
-  [/\b(\d+)\s*(?:потоков|потока|поток)(?![А-Яа-яA-Za-z0-9])/g, '$1 threads'],
-  [/\b(\d+(?:[.,]\d+)?)\s*слота?(?![А-Яа-яA-Za-z0-9])/g, '$1 slots'],
+  [/\b(\d+(?:[.,]\d+)?)\s*г(?![А-Яа-яA-Za-z0-9])/g, '$1 g'],
   [/\b(\d+(?:[.,]\d+)?)\s*шт\.(?![А-Яа-яA-Za-z0-9])/g, '$1 pcs'],
   [/\b(\d+(?:[.,]\d+)?)\s*мм(?![А-Яа-яA-Za-z0-9])/g, '$1 mm'],
   [/\b(\d+(?:[.,]\d+)?)\s*мс(?![А-Яа-яA-Za-z0-9])/g, '$1 ms'],
   [/\b(\d+(?:[.,]\d+)?)\s*дюйм(?![А-Яа-яA-Za-z0-9])/g, '$1 in'],
 ]
+
+/**
+ * Count nouns of the plural numeric fields and their English wording.
+ *
+ * The Russian singular identifies the field, so the same table serves both the
+ * stored wording and the affix the editor renders.
+ */
+const COUNT_NOUNS: ReadonlyArray<{
+  readonly pattern: RegExp
+  readonly russianSingular: string
+  readonly words: readonly [string, string]
+}> = [
+  {
+    pattern: /\b(\d+(?:[.,]\d+)?)\s*(?:ядер|ядра|ядро)(?![А-Яа-яA-Za-z0-9])/g,
+    russianSingular: 'ядро',
+    words: ['core', 'cores'],
+  },
+  {
+    pattern: /\b(\d+(?:[.,]\d+)?)\s*(?:потоков|потока|поток)(?![А-Яа-яA-Za-z0-9])/g,
+    russianSingular: 'поток',
+    words: ['thread', 'threads'],
+  },
+  {
+    pattern: /\b(\d+(?:[.,]\d+)?)\s*слота?(?![А-Яа-яA-Za-z0-9])/g,
+    russianSingular: 'слот',
+    words: ['slot', 'slots'],
+  },
+]
+
+/**
+ * Singular or plural English noun of a written number.
+ *
+ * English has one singular form, taken only by an integer `1`; a fraction and
+ * every other number (including `0` and `21`) take the plural.
+ */
+function englishCountNoun(
+  count: string,
+  words: readonly [string, string],
+): string {
+  const value = Number(count.replace(',', '.'))
+  return Number.isInteger(value) && Math.abs(value) === 1 ? words[0] : words[1]
+}
+
+/**
+ * Count word of a plural numeric field for the active language.
+ *
+ * Russian keeps the three forms of the field policy and the server's own plural
+ * rule, so the wording is exactly what the dictionary stores. English uses one
+ * singular and one plural form, so `1 core`, `2 cores` and `21 cores` are right.
+ */
+export function localizedCountWord(
+  forms: { one: string; few: string; many: string },
+  number: number,
+  language = currentLanguage(),
+): string {
+  if (!isEnglish(language)) return pluralWord(forms, number)
+  const noun = COUNT_NOUNS.find((entry) => entry.russianSingular === forms.one.trim())
+  if (!noun) return forms.few
+  return Number.isInteger(number) && Math.abs(number) === 1
+    ? noun.words[0]
+    : noun.words[1]
+}
 
 /** Translates the units embedded in a stored dictionary value (English only). */
 export function translateCharacteristicUnits(
@@ -414,10 +477,35 @@ export function translateCharacteristicUnits(
 ): string {
   if (!isEnglish(language)) return text
   let out = text
+  // Count nouns first: their number decides between the singular and the plural.
+  for (const noun of COUNT_NOUNS) {
+    out = out.replace(
+      noun.pattern,
+      (_matched: string, count: string) =>
+        `${count} ${englishCountNoun(count, noun.words)}`,
+    )
+  }
   for (const [pattern, replacement] of UNIT_TOKEN_RULES) {
     out = out.replace(pattern, replacement)
   }
   return out
+}
+
+/**
+ * Localized label of one numeric dictionary option.
+ *
+ * The stored wording is presentation only: the option id and the canonical string
+ * are never changed and no language-specific dictionary value is created. Russian
+ * keeps the stored wording verbatim; English renders the units and count words
+ * through the same rules the storefront uses. A prefix (`CL`) and a symbol (`″`)
+ * have no translation and are kept as they are.
+ */
+export function localizedNumericOptionValue(
+  value: string,
+  language = currentLanguage(),
+): string {
+  if (!isEnglish(language)) return value
+  return translateCharacteristicUnits(value, language)
 }
 
 /** Deterministic decimal rendering that never switches to exponent notation. */
@@ -527,12 +615,12 @@ export function characteristicValue(
       const quantity = typeof option.quantity === 'number' ? option.quantity : 1
       return quantity > 1 ? `${text} × ${quantity}` : text
     })
-    // Containment is checked against the *stored* unit and the stored value, so
-    // the English translation below cannot introduce a second unit.
-    const joined = appendUnit(
-      parts.filter((part) => part.trim().length > 0).join(', '),
-      row.unit,
-    )
+    // A numeric definition stores the whole wording of its field (`750 Вт`,
+    // `CL36`, `24″`, `6 ядер`), so its unit is never appended a second time.
+    // Every other editor keeps the containment check against the *stored* unit,
+    // so the English translation below cannot introduce a second unit either.
+    const text = parts.filter((part) => part.trim().length > 0).join(', ')
+    const joined = row.editor === 'numeric' ? text : appendUnit(text, row.unit)
     return english ? translateCharacteristicUnits(joined, language) : joined
   }
 

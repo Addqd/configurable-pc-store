@@ -48,6 +48,10 @@ export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOne
 export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin = 0;
 export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneMax = 1000;
 
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemThreeCodeMax = 64;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemThreeNumericValueMax = 20;
+
 export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax = 200;
 
 export const updateProductApiV1AdminProductsProductIdPatchBodyRemoveCharacteristicsOneMax = 200;
@@ -75,7 +79,10 @@ export const UpdateProductApiV1AdminProductsProductIdPatchBody = zod.object({
   "dimensions": zod.tuple([zod.union([zod.number().gt(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions0ItemOneExclusiveMin).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions0ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions1ItemOneExclusiveMin).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions1ItemOneMax),zod.string()]),
 zod.union([zod.number().gt(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneMax),zod.string()])])
-}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax),zod.null()]).optional(),
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.'),zod.object({
+  "code": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemThreeCodeMax),
+  "numeric_value": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemThreeNumericValueMax)
+}).describe('A custom scalar number of an editable numeric characteristic.\n\nThe number travels as a plain decimal string, so no precision is lost or\nrounded by a JSON float and the lexical form can be validated strictly. What\nthe value is allowed to be (maximum, decimal places, allowlist) depends on the\ndefinition and is enforced by the service that knows the field policy.')])).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax),zod.null()]).optional(),
   "remove_characteristics": zod.union([zod.array(zod.string()).max(updateProductApiV1AdminProductsProductIdPatchBodyRemoveCharacteristicsOneMax),zod.null()]).optional(),
   "on_sale": zod.union([zod.boolean(),zod.null()]).optional(),
   "is_active": zod.union([zod.boolean(),zod.null()]).optional(),
