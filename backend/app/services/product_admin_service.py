@@ -22,6 +22,10 @@ from app.schemas.admin_products import (
     CharacteristicDataType,
     CharacteristicDefinitionOut,
     CharacteristicDefinitionsOut,
+    CharacteristicDimensionsIn,
+    CharacteristicEditor,
+    CharacteristicEditorLimitsOut,
+    CharacteristicOptionOut,
     ProductFormOptionsOut,
     ProductTypeWithCategoryOut,
 )
@@ -276,11 +280,36 @@ def _assert_slug_free(db: Session, slug: str, exclude_id: int | None = None) -> 
 
 def _submitted_characteristics(
     data: AdminProductCreate | AdminProductUpdate,
-) -> list[tuple[str, Any]]:
+) -> list[spec_service.CharacteristicSubmission]:
+    """Translate the validated payload into service submissions.
+
+    Dictionary picks keep their explicit option ids and quantities; a dimensions
+    entry keeps its three measurements. Nothing is coerced by guessing.
+    """
     items = getattr(data, "characteristics", None)
     if items is None:
         return []
-    return [(item.code, item.value) for item in items]
+    submissions: list[spec_service.CharacteristicSubmission] = []
+    for item in items:
+        if isinstance(item, CharacteristicDimensionsIn):
+            submissions.append(
+                spec_service.CharacteristicSubmission(
+                    code=item.code, dimensions=item.dimensions
+                )
+            )
+        else:
+            submissions.append(
+                spec_service.CharacteristicSubmission(
+                    code=item.code,
+                    options=tuple(
+                        spec_service.OptionSelection(
+                            option_id=option.option_id, quantity=option.quantity
+                        )
+                        for option in item.options
+                    ),
+                )
+            )
+    return submissions
 
 
 def list_products(
@@ -421,6 +450,7 @@ def update_product(
     changed: list[str] = []
 
     target_type: ProductType | None = None
+    original_category_id = product.product_type.category.id
     if "product_type_id" in provided and data.product_type_id is not None:
         target_type = _resolve_type(db, data.product_type_id)
         if target_type.id != product.product_type_id:
@@ -480,13 +510,12 @@ def update_product(
     # product into another category, so the definitions of the *target* category
     # are authoritative here, not the relation still cached on the instance.
     category_id = (
-        target_type.category_id
-        if target_type is not None
-        else product.product_type.category.id
+        target_type.category_id if target_type is not None else original_category_id
     )
-    category_changed = target_type is not None and (
-        target_type.category_id != product.product_type.category.id
-    )
+    category_changed = category_id != original_category_id
+    # Option identifiers belong to one definition, so a stored selection can only
+    # be carried over while the product stays inside its category. After a change
+    # every stored code needs an explicit replacement or removal.
     if (
         category_changed
         or "characteristics" in provided
@@ -498,6 +527,7 @@ def update_product(
             _submitted_characteristics(data),
             spec_service.values_for_product(db, product.id),
             data.remove_characteristics or [],
+            carry_over=not category_changed,
         )
         spec_service.replace_values(db, product.id, definitions, values)
         changed.append("characteristics")
@@ -579,24 +609,36 @@ def form_options(db: Session) -> ProductFormOptionsOut:
 def characteristic_definitions(
     db: Session, category_id: int
 ) -> CharacteristicDefinitionsOut:
-    """Category-scoped definitions rendered dynamically by the admin editor."""
+    """Category-scoped definitions and their dictionary, for the admin editor."""
     category = db.get(Category, category_id)
     if category is None:
         raise InvalidInputError("Unknown category")
+    definitions = spec_service.definitions_for_category(db, category.id)
+    dictionary = spec_service.load_options(
+        db, [definition.id for definition in definitions]
+    )
     return CharacteristicDefinitionsOut(
         category_id=category.id,
         category_name=category.name,
         fields=[
             CharacteristicDefinitionOut(
-                code=definition.code,
-                name=definition.name,
-                data_type=cast(CharacteristicDataType, definition.data_type),
-                unit=definition.unit,
-                sort_order=definition.sort_order,
-                is_required=definition.is_required,
-                show_in_short=definition.show_in_short,
-                show_in_details=definition.show_in_details,
+                id=field["id"],
+                code=field["code"],
+                name=field["name"],
+                data_type=cast(CharacteristicDataType, field["data_type"]),
+                editor=cast(CharacteristicEditor, field["editor"]),
+                unit=field["unit"],
+                sort_order=field["sort_order"],
+                is_required=field["is_required"],
+                show_in_short=field["show_in_short"],
+                show_in_details=field["show_in_details"],
+                options=[
+                    CharacteristicOptionOut(**option) for option in field["options"]
+                ],
+                limits=CharacteristicEditorLimitsOut(**field["limits"]),
             )
-            for definition in spec_service.definitions_for_category(db, category.id)
+            for field in spec_service.serialize_definition_fields(
+                definitions, dictionary
+            )
         ],
     )

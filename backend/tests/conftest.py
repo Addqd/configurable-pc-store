@@ -13,7 +13,7 @@ from secrets import token_hex
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -205,6 +205,15 @@ def apply_compatible_build(db: Session, products: dict) -> dict[str, int]:
     return {slot: product.id for slot, product in products.items()}
 
 
+def _dictionary_text(value: object) -> str:
+    """Dictionary text of one value, matching how the writers store it."""
+    from app.services import spec_service
+
+    if isinstance(value, bool):
+        return spec_service.TRUE_LABEL if value else spec_service.FALSE_LABEL
+    return str(value)
+
+
 def apply_characteristics(
     db: Session, product: Product, values: dict[str, object]
 ) -> None:
@@ -212,9 +221,13 @@ def apply_characteristics(
 
     Missing definitions are created in the product's category with a data type
     inferred from the Python value; an existing definition keeps its declared
-    type. Used by tests that need a technically complete build.
+    type. Every value becomes a row of the `characteristic_options` dictionary of
+    that definition, and repeated list items are folded into one association with
+    a `quantity`, exactly like the production writers do.
     """
-    from app.models import Characteristic, ProductCharacteristic
+    from collections import Counter
+
+    from app.models import Characteristic, CharacteristicOption, ProductCharacteristic
     from app.services import spec_service
 
     category_id = product.product_type.category_id
@@ -226,7 +239,7 @@ def apply_characteristics(
     def _type_of(value: object) -> str:
         if isinstance(value, bool):
             return "boolean"
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             return "number"
         if isinstance(value, str):
             return "string"
@@ -246,21 +259,92 @@ def apply_characteristics(
             )
             db.add(row)
             db.flush()
-            definition = spec_service.CharacteristicDefinition.from_row(row)
-            known[code] = definition
-        db.add(
-            ProductCharacteristic(
-                product_id=product.id,
-                characteristic_id=definition.id,
-                value=value,
+            definition = spec_service.CharacteristicDefinition.from_row(
+                row, product.product_type.category.slug
             )
-        )
+            known[code] = definition
+        items = value if isinstance(value, list) else [value]
+        for text, quantity in Counter(_dictionary_text(item) for item in items).items():
+            option = db.scalar(
+                select(CharacteristicOption).where(
+                    CharacteristicOption.characteristic_name_id == definition.id,
+                    CharacteristicOption.value == text,
+                )
+            )
+            if option is None:
+                option = CharacteristicOption(
+                    characteristic_name_id=definition.id, value=text
+                )
+                db.add(option)
+                db.flush()
+            db.add(
+                ProductCharacteristic(
+                    product_id=product.id,
+                    characteristic_id=definition.id,
+                    characteristic_option_id=option.id,
+                    quantity=quantity,
+                )
+            )
     db.flush()
 
 
 @pytest.fixture()
 def registered_user(api_client: TestClient) -> dict:
     return create_account(api_client)
+
+
+def override_characteristic(
+    db: Session, product: Product, code: str, value: object
+) -> int:
+    """Replace the stored value of one single-value characteristic.
+
+    The normalized schema links an option id instead of holding free text, so
+    changing a value means associating another option of the same definition. The
+    option is created inside the calling test transaction, and the association the
+    product previously had for that code is removed, so the caller sees exactly one
+    value — which is what the compatibility rules read.
+    """
+    from app.models import Characteristic, CharacteristicOption, ProductCharacteristic
+
+    category_id = product.product_type.category_id
+    definition = db.scalar(
+        select(Characteristic).where(
+            Characteristic.category_id == category_id,
+            Characteristic.code == code,
+        )
+    )
+    assert definition is not None, f"category {category_id} does not define {code}"
+
+    for stored in db.scalars(
+        select(ProductCharacteristic).where(
+            ProductCharacteristic.product_id == product.id,
+            ProductCharacteristic.characteristic_id == definition.id,
+        )
+    ).all():
+        db.delete(stored)
+    db.flush()
+
+    text = _dictionary_text(value)
+    option = db.scalar(
+        select(CharacteristicOption).where(
+            CharacteristicOption.characteristic_name_id == definition.id,
+            CharacteristicOption.value == text,
+        )
+    )
+    if option is None:
+        option = CharacteristicOption(characteristic_name_id=definition.id, value=text)
+        db.add(option)
+        db.flush()
+    db.add(
+        ProductCharacteristic(
+            product_id=product.id,
+            characteristic_id=definition.id,
+            characteristic_option_id=option.id,
+            quantity=1,
+        )
+    )
+    db.flush()
+    return option.id
 
 
 def create_account(api_client: TestClient, role: str = "user") -> dict:

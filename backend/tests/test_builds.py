@@ -6,14 +6,13 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.orm import Session
 
-from app.models import (
-    Characteristic,
-    ProductCharacteristic,
-    SavedBuild,
-    User,
-)
+from app.models import SavedBuild, User
 from app.services import build_service
-from tests.conftest import apply_compatible_build, create_account
+from tests.conftest import (
+    apply_compatible_build,
+    create_account,
+    override_characteristic,
+)
 
 
 def test_build_rejects_wrong_category(
@@ -175,19 +174,9 @@ def test_compatibility_reports_structured_conflicts(
 
     # A verified socket conflict is reported with both values, not a generic text.
     test_db_session.flush()
-    cpu_id = sample_products["cpu"].id
-    socket_id = (
-        test_db_session.query(Characteristic.id)
-        .filter(
-            Characteristic.category_id
-            == sample_products["cpu"].product_type.category_id,
-            Characteristic.code == "socket",
-        )
-        .scalar()
+    override_characteristic(
+        test_db_session, sample_products["cpu"], "socket", "LGA1700"
     )
-    row = test_db_session.get(ProductCharacteristic, (cpu_id, socket_id))
-    row.value = "LGA1700"
-    test_db_session.flush()
 
     report = api_client.post(
         "/api/v1/builds/compatibility", json={"items": items}
@@ -226,17 +215,9 @@ def test_incomplete_and_incompatible_builds_can_be_saved(
     # Incompatible but structurally valid: a conflicting socket is still saved.
     apply_compatible_build(test_db_session, sample_products)
     test_db_session.flush()
-    cpu = sample_products["cpu"]
-    socket_id = (
-        test_db_session.query(Characteristic.id)
-        .filter(
-            Characteristic.category_id == cpu.product_type.category_id,
-            Characteristic.code == "socket",
-        )
-        .scalar()
+    override_characteristic(
+        test_db_session, sample_products["cpu"], "socket", "LGA1700"
     )
-    test_db_session.get(ProductCharacteristic, (cpu.id, socket_id)).value = "LGA1700"
-    test_db_session.flush()
 
     incompatible = api_client.post(
         "/api/v1/builds",

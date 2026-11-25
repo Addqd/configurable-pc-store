@@ -1,4 +1,5 @@
 import { catalogDisplay } from '../i18n/catalogDisplay'
+import { buildSlotLabel } from '../i18n/characteristics'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import type { BuildCartItem } from '../stores/cartStore'
@@ -14,7 +15,8 @@ interface BuildCartCardProps {
 }
 
 export function BuildCartCard({ item, onQuantityChange: updateQuantity, onRemove: removeItem, pending }: BuildCartCardProps) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n.resolvedLanguage ?? 'ru'
   const [expanded, setExpanded] = useState(true)
 
   return (
@@ -90,10 +92,10 @@ export function BuildCartCard({ item, onQuantityChange: updateQuantity, onRemove
             {item.components.map((comp, index) => (
               <div key={`${comp.category}-${index}`} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-2 py-2 sm:grid-cols-[38px_110px_minmax(0,1fr)_110px_35px]">
                 <img src={comp.image || placeholder} alt="" className="h-8 w-8 rounded bg-surface-3 object-contain" />
-                <span className="hidden text-xs text-text-muted sm:block">{catalogDisplay(comp.category)}</span>
+                <span className="hidden text-xs text-text-muted sm:block">{buildSlotLabel(comp.category, language)}</span>
                 <div className="min-w-0">
                   <p className="truncate text-xs font-medium text-text-primary sm:text-sm">{comp.name}</p>
-                  <p className="truncate text-xs text-text-muted sm:hidden">{catalogDisplay(comp.category)} · {catalogDisplay(comp.specs)}</p>
+                  <p className="truncate text-xs text-text-muted sm:hidden">{buildSlotLabel(comp.category, language)} · {catalogDisplay(comp.specs)}</p>
                 </div>
                 <span className="hidden truncate text-xs text-text-muted sm:block">{comp.specs}</span>
                 <span className="whitespace-nowrap text-xs text-text-muted">× {comp.quantity}</span>

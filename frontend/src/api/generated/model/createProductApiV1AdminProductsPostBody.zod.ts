@@ -30,7 +30,25 @@ export const createProductApiV1AdminProductsPostBodyColorOneMax = 80;
 
 export const createProductApiV1AdminProductsPostBodyGraphicsChipBrandOneMax = 40;
 
-export const createProductApiV1AdminProductsPostBodyCharacteristicsItemCodeMax = 64;
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemOneCodeMax = 64;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsItemOptionIdExclusiveMin = 0;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsItemQuantityDefault = 1;
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsItemQuantityMax = 32;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsMax = 50;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoCodeMax = 64;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions0ItemOneExclusiveMin = 0;
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions0ItemOneMax = 1000;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions1ItemOneExclusiveMin = 0;
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions1ItemOneMax = 1000;
+
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneExclusiveMin = 0;
+export const createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneMax = 1000;
 
 export const createProductApiV1AdminProductsPostBodyCharacteristicsMax = 200;
 
@@ -47,10 +65,18 @@ export const CreateProductApiV1AdminProductsPostBody = zod.object({
   "slug": zod.union([zod.string().max(createProductApiV1AdminProductsPostBodySlugOneMax),zod.null()]).optional(),
   "color": zod.union([zod.string().max(createProductApiV1AdminProductsPostBodyColorOneMax),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string().max(createProductApiV1AdminProductsPostBodyGraphicsChipBrandOneMax),zod.null()]).optional(),
-  "characteristics": zod.array(zod.object({
-  "code": zod.string().min(1).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemCodeMax),
-  "value": zod.unknown()
-}).describe('One submitted value.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse. `null` is never\na legal value: use `remove_characteristics` to delete an existing one.')).max(createProductApiV1AdminProductsPostBodyCharacteristicsMax).optional(),
+  "characteristics": zod.array(zod.union([zod.object({
+  "code": zod.string().min(1).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemOneCodeMax),
+  "options": zod.array(zod.object({
+  "option_id": zod.int().gt(createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsItemOptionIdExclusiveMin),
+  "quantity": zod.int().min(1).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsItemQuantityMax).default(createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsItemQuantityDefault)
+}).describe('One submitted dictionary pick with its repeat count.\n\nBoth integers are strict, so a JSON `true`, `1.0` or `"1"` is rejected here\ninstead of being coerced into a number the service would then accept.')).min(1).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemOneOptionsMax)
+}).describe('An ordinary characteristic write: explicit dictionary selections.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse.'),zod.object({
+  "code": zod.string().min(1).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoCodeMax),
+  "dimensions": zod.tuple([zod.union([zod.number().gt(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions0ItemOneExclusiveMin).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions0ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions1ItemOneExclusiveMin).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions1ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneExclusiveMin).max(createProductApiV1AdminProductsPostBodyCharacteristicsItemTwoDimensions2ItemOneMax),zod.string()])])
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(createProductApiV1AdminProductsPostBodyCharacteristicsMax).optional(),
   "on_sale": zod.boolean().default(createProductApiV1AdminProductsPostBodyOnSaleDefault),
   "is_active": zod.boolean().default(createProductApiV1AdminProductsPostBodyIsActiveDefault),
   "listed_at": zod.union([zod.iso.date(),zod.null()]).optional()

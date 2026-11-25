@@ -6,6 +6,8 @@
  */
 import * as zod from 'zod';
 
+export const productDetailOutCharacteristicsItemOptionsItemQuantityDefault = 1;
+export const productDetailOutCharacteristicsItemOptionsDefault = [];
 export const productDetailOutCharacteristicsDefault = [];
 export const productDetailOutImagesDefault = [];
 export const productDetailOutAverageRatingDefault = 0;
@@ -24,14 +26,20 @@ export const ProductDetailOut = zod.object({
   "code": zod.string(),
   "name": zod.string(),
   "data_type": zod.string(),
+  "editor": zod.string(),
   "unit": zod.union([zod.string(),zod.null()]).optional(),
   "sort_order": zod.int(),
   "is_required": zod.boolean(),
   "show_in_short": zod.boolean(),
   "show_in_details": zod.boolean(),
   "value": zod.unknown(),
+  "options": zod.array(zod.object({
+  "option_id": zod.int(),
+  "value": zod.string(),
+  "quantity": zod.int().default(productDetailOutCharacteristicsItemOptionsItemQuantityDefault)
+}).describe('One selected dictionary option of a product characteristic.')).default(productDetailOutCharacteristicsItemOptionsDefault),
   "display_value": zod.string()
-}).describe('One category-scoped characteristic value of a product.\n\n`value` keeps its native JSON type (number, boolean, ordered list) so clients\ncan reason about it structurally. `display_value` is the ready-to-render\nstring: unit appended once, no raw JSON and no Python representation.')).default(productDetailOutCharacteristicsDefault),
+}).describe('One category-scoped characteristic value of a product.\n\nSelections always come from the `characteristic_options` dictionary, so every\nrow carries the explicit `options` (with their `quantity`) next to a\nready-to-render `display_value`. `value` keeps a native shape so clients can\nreason about it structurally: a scalar string/number, a boolean, a list of\noption values (repeated as many times as its quantity) or an ordered triple of\ndimensions. No unit is ever appended twice.')).default(productDetailOutCharacteristicsDefault),
   "on_sale": zod.boolean(),
   "is_active": zod.boolean(),
   "listed_at": zod.iso.date(),

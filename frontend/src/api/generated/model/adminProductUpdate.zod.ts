@@ -28,7 +28,25 @@ export const adminProductUpdateColorOneMax = 80;
 
 export const adminProductUpdateGraphicsChipBrandOneMax = 40;
 
-export const adminProductUpdateCharacteristicsOneItemCodeMax = 64;
+export const adminProductUpdateCharacteristicsOneItemOneCodeMax = 64;
+
+export const adminProductUpdateCharacteristicsOneItemOneOptionsItemOptionIdExclusiveMin = 0;
+
+export const adminProductUpdateCharacteristicsOneItemOneOptionsItemQuantityDefault = 1;
+export const adminProductUpdateCharacteristicsOneItemOneOptionsItemQuantityMax = 32;
+
+export const adminProductUpdateCharacteristicsOneItemOneOptionsMax = 50;
+
+export const adminProductUpdateCharacteristicsOneItemTwoCodeMax = 64;
+
+export const adminProductUpdateCharacteristicsOneItemTwoDimensions0ItemOneExclusiveMin = 0;
+export const adminProductUpdateCharacteristicsOneItemTwoDimensions0ItemOneMax = 1000;
+
+export const adminProductUpdateCharacteristicsOneItemTwoDimensions1ItemOneExclusiveMin = 0;
+export const adminProductUpdateCharacteristicsOneItemTwoDimensions1ItemOneMax = 1000;
+
+export const adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin = 0;
+export const adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneMax = 1000;
 
 export const adminProductUpdateCharacteristicsOneMax = 200;
 
@@ -46,10 +64,18 @@ export const AdminProductUpdate = zod.object({
   "slug": zod.union([zod.string().max(adminProductUpdateSlugOneMax),zod.null()]).optional(),
   "color": zod.union([zod.string().max(adminProductUpdateColorOneMax),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string().max(adminProductUpdateGraphicsChipBrandOneMax),zod.null()]).optional(),
-  "characteristics": zod.union([zod.array(zod.object({
-  "code": zod.string().min(1).max(adminProductUpdateCharacteristicsOneItemCodeMax),
-  "value": zod.unknown()
-}).describe('One submitted value.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse. `null` is never\na legal value: use `remove_characteristics` to delete an existing one.')).max(adminProductUpdateCharacteristicsOneMax),zod.null()]).optional(),
+  "characteristics": zod.union([zod.array(zod.union([zod.object({
+  "code": zod.string().min(1).max(adminProductUpdateCharacteristicsOneItemOneCodeMax),
+  "options": zod.array(zod.object({
+  "option_id": zod.int().gt(adminProductUpdateCharacteristicsOneItemOneOptionsItemOptionIdExclusiveMin),
+  "quantity": zod.int().min(1).max(adminProductUpdateCharacteristicsOneItemOneOptionsItemQuantityMax).default(adminProductUpdateCharacteristicsOneItemOneOptionsItemQuantityDefault)
+}).describe('One submitted dictionary pick with its repeat count.\n\nBoth integers are strict, so a JSON `true`, `1.0` or `"1"` is rejected here\ninstead of being coerced into a number the service would then accept.')).min(1).max(adminProductUpdateCharacteristicsOneItemOneOptionsMax)
+}).describe('An ordinary characteristic write: explicit dictionary selections.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse.'),zod.object({
+  "code": zod.string().min(1).max(adminProductUpdateCharacteristicsOneItemTwoCodeMax),
+  "dimensions": zod.tuple([zod.union([zod.number().gt(adminProductUpdateCharacteristicsOneItemTwoDimensions0ItemOneExclusiveMin).max(adminProductUpdateCharacteristicsOneItemTwoDimensions0ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(adminProductUpdateCharacteristicsOneItemTwoDimensions1ItemOneExclusiveMin).max(adminProductUpdateCharacteristicsOneItemTwoDimensions1ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin).max(adminProductUpdateCharacteristicsOneItemTwoDimensions2ItemOneMax),zod.string()])])
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(adminProductUpdateCharacteristicsOneMax),zod.null()]).optional(),
   "remove_characteristics": zod.union([zod.array(zod.string()).max(adminProductUpdateRemoveCharacteristicsOneMax),zod.null()]).optional(),
   "on_sale": zod.union([zod.boolean(),zod.null()]).optional(),
   "is_active": zod.union([zod.boolean(),zod.null()]).optional(),

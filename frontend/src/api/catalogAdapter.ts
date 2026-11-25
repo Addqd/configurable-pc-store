@@ -6,8 +6,11 @@ import { CATEGORY_SLUG_MAP, type FilterState } from '../data/catalogModel'
 /** One API characteristic row mapped to the front-end shape. */
 function toCharacteristic(row: CharacteristicValueOut): ProductCharacteristic {
   return {
-    code: row.code, name: row.name, dataType: row.data_type, unit: row.unit ?? null,
-    value: row.value, displayValue: row.display_value,
+    code: row.code, name: row.name, dataType: row.data_type, editor: row.editor,
+    unit: row.unit ?? null, value: row.value, displayValue: row.display_value,
+    options: (row.options ?? []).map((option) => ({
+      optionId: option.option_id, value: option.value, quantity: option.quantity ?? 1,
+    })),
     showInShort: row.show_in_short, showInDetails: row.show_in_details,
   }
 }

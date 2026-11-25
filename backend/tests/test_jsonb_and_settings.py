@@ -58,14 +58,20 @@ def test_product_has_no_legacy_specification_columns() -> None:
     assert not any(isinstance(column.type, JSONB) for column in Product.__table__.c)
 
 
-def test_characteristic_value_is_jsonb_without_any_default() -> None:
-    # One definition can hold a string, number, boolean, string list or number
-    # list; the column must not coerce or default the value.
-    column = ProductCharacteristic.__table__.c.value
-    assert isinstance(column.type, JSONB)
-    assert column.nullable is False
-    assert column.default is None
-    assert column.server_default is None
+def test_product_characteristics_store_dictionary_associations() -> None:
+    # The characteristic value is no longer a JSON document: a product links one
+    # dictionary option of its own definition with a positive quantity.
+    columns = set(ProductCharacteristic.__table__.c.keys())
+    assert columns == {
+        "product_id",
+        "characteristic_id",
+        "characteristic_option_id",
+        "quantity",
+    }
+    assert not any(
+        isinstance(column.type, JSONB) for column in ProductCharacteristic.__table__.c
+    )
+    assert ProductCharacteristic.__table__.c.quantity.nullable is False
 
 
 def test_cart_snapshot_uses_sql_null_for_regular_products() -> None:

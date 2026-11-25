@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+﻿import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router'
 import { act } from 'react'
@@ -103,13 +103,13 @@ describe('admin product creation', () => {
     expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
   })
 
-  it('sends the contract payload, including the typed characteristics', async () => {
+  it('sends the contract payload, including the dictionary selections', async () => {
     const fetchMock = setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    const memory = await screen.findByLabelText('Объём памяти')
-    fireEvent.change(memory, { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192' } })
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
 
     fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
     expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
@@ -125,76 +125,19 @@ describe('admin product creation', () => {
       description: '',
       color: null,
       characteristics: [
-        { code: 'memory_size', value: '12 ГБ' },
-        { code: 'memory_bus', value: 192 },
+        { code: 'memory_size', options: [{ option_id: 12, quantity: 1 }] },
+        { code: 'memory_bus', options: [{ option_id: 22, quantity: 1 }] },
       ],
       is_active: true,
     })
-  })
-
-  it('renders a control that matches each declared data type', async () => {
-    setup()
-    await screen.findByRole('heading', { name: 'Добавление товара' })
-    fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
-    fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
-
-    const text = await screen.findByLabelText('Объём памяти')
-    expect((text as HTMLInputElement).type).toBe('text')
-    const numeric = screen.getByLabelText('Шина памяти')
-    expect((numeric as HTMLInputElement).type).toBe('text')
-    expect(numeric.getAttribute('inputmode')).toBe('decimal')
-    // An optional boolean gets a three-state control, not a checkbox that would
-    // turn the "not set" state into an explicit `false`.
-    const boolean = screen.getByLabelText('Подсветка') as HTMLSelectElement
-    expect(boolean.tagName).toBe('SELECT')
-    expect([...boolean.options].map((option) => option.value)).toEqual(['', 'true', 'false'])
-    expect(boolean.value).toBe('')
-    expect(boolean.options[boolean.selectedIndex].textContent).toBe('Не задано')
-    // Only the fixed label column states the definition name and its unit.
-    expect(screen.getByText('бит')).toBeTruthy()
-    expect(screen.getByText('Объём памяти').textContent).toContain('Объём памяти')
-  })
-
-  it('edits list values as individual rows so order and duplicates survive', async () => {
-    const fetchMock = setup()
-    await screen.findByRole('heading', { name: 'Добавление товара' })
-    fillRequiredFields()
-    const memory = await screen.findByLabelText('Объём памяти')
-    fireEvent.change(memory, { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192' } })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Добавить значение' }))
-    fireEvent.change(screen.getByLabelText('Разъёмы питания 1'), { target: { value: 'pcie-8pin' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Добавить значение' }))
-    fireEvent.change(screen.getByLabelText('Разъёмы питания 2'), { target: { value: 'pcie-8pin' } })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
-    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
-    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
-    const body = requestBody(post?.[1] ?? {}) as { characteristics: { code: string; value: unknown }[] }
-    expect(body.characteristics).toContainEqual({
-      code: 'power_connectors',
-      value: ['pcie-8pin', 'pcie-8pin'],
-    })
-  })
-
-  it('rejects a non-numeric value for a numeric characteristic', async () => {
-    const fetchMock = setup()
-    await screen.findByRole('heading', { name: 'Добавление товара' })
-    fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: 'много' } })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
-    expect(await screen.findByText('Введите число')).toBeTruthy()
-    expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
   })
 
   it('reports a missing required characteristic before submitting', async () => {
     const fetchMock = setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
 
     fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
     expect(await screen.findByText(/Заполните обязательные характеристики: Шина памяти/)).toBeTruthy()
@@ -228,8 +171,8 @@ describe('admin product creation', () => {
     const fetchMock = setup({ failFirstUpload: true })
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '22' } })
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' })
@@ -252,8 +195,8 @@ describe('admin product creation', () => {
     const fetchMock = setup({ failFirstOrder: true })
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '22' } })
 
     const input = document.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File([new Uint8Array([1, 2, 3])], 'photo.png', { type: 'image/png' })
@@ -289,7 +232,9 @@ function setupEdit(price = '64990.00', extra?: (url: URL, init: RequestInit) => 
     if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
     if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
       const body = requestBody(init) as { price?: string }
-      return jsonResponse({ ...detail, ...body, price: body.price ?? detail.price })
+      // The stored rows are returned unchanged: a real API answers with the
+      // committed product, never with the submitted payload shape.
+      return jsonResponse({ ...detail, price: body.price ?? detail.price })
     }
     return extra?.(url, init)
   }
@@ -624,8 +569,8 @@ describe('admin product price precision', () => {
     const fetchMock = setup()
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '22' } })
     const price = screen.getByLabelText('Цена, ₽') as HTMLInputElement
 
     fireEvent.change(price, { target: { value: '0,001' } })
@@ -796,8 +741,8 @@ const creationHandler = (options: { failFirstUpload?: boolean; failOrder?: boole
 const submitCreationWithFile = async () => {
   await screen.findByRole('heading', { name: 'Добавление товара' })
   fillRequiredFields()
-  fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-  fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+  fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12' } })
+  fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '22' } })
   addGalleryFiles([tileFile('photo.png')])
   fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
   const banner = (await screen.findByText('Товар создан, но не удалось загрузить изображения: 1.')).closest('[role="alert"]')
@@ -1155,8 +1100,8 @@ describe('admin product upload invalidation and stale navigation', () => {
 
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '22' } })
     addGalleryFiles([tileFile('photo.png')])
     fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
 
@@ -1221,8 +1166,8 @@ describe('admin product upload invalidation and stale navigation', () => {
 
     await screen.findByRole('heading', { name: 'Добавление товара' })
     fillRequiredFields()
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12 ГБ' } })
-    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '192 бит' } })
+    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '12' } })
+    fireEvent.change(screen.getByLabelText('Шина памяти'), { target: { value: '22' } })
     addGalleryFiles([tileFile('photo.png')])
     fireEvent.click(screen.getByRole('button', { name: 'Добавить товар' }))
 
@@ -1491,42 +1436,66 @@ describe('admin product gallery concurrency', () => {
   })
 })
 
-/* ── Characteristic removal and tri-state booleans ─────────────────────────── */
+
+/* ── Dictionary-backed characteristic editing ──────────────────────────────── */
 
 /** One API characteristic row of the GPU category fixture. */
 const characteristicRow = (overrides: Record<string, unknown>) => ({
-  code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null,
+  code: 'memory_size', name: 'Объём памяти', data_type: 'string', editor: 'select', unit: null,
   sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
-  value: '12 ГБ', display_value: '12 ГБ', ...overrides,
+  value: '12 ГБ', display_value: '12 ГБ',
+  options: [{ option_id: 12, value: '12 ГБ', quantity: 1 }], ...overrides,
 })
 
 const memorySizeRow = () => characteristicRow({})
 const memoryBusRow = () => characteristicRow({
-  code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит',
+  code: 'memory_bus', name: 'Шина памяти', data_type: 'number', editor: 'select', unit: 'бит',
   sort_order: 1, is_required: true, show_in_short: false, value: 192, display_value: '192 бит',
+  options: [{ option_id: 22, value: '192 бит', quantity: 1 }],
 })
 const rgbRow = (value: boolean) => characteristicRow({
-  code: 'has_rgb', name: 'Подсветка', data_type: 'boolean', unit: null,
-  sort_order: 2, is_required: false, show_in_short: false, value, display_value: value ? 'Да' : 'Нет',
+  code: 'has_rgb', name: 'Подсветка', data_type: 'boolean', editor: 'boolean', unit: null,
+  sort_order: 2, is_required: false, show_in_short: false, value,
+  display_value: value ? 'Да' : 'Нет',
+  options: [{ option_id: value ? 31 : 32, value: value ? 'Да' : 'Нет', quantity: 1 }],
 })
-const connectorsRow = (value: string[]) => characteristicRow({
-  code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list', unit: null,
-  sort_order: 3, is_required: false, show_in_short: false, value, display_value: value.join(', '),
+const connectorsRow = (value: string[], quantity = 1) => characteristicRow({
+  code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list',
+  editor: 'connector_quantity', unit: null,
+  sort_order: 3, is_required: false, show_in_short: false,
+  value, display_value: value.join(', '),
+  options: [...new Set(value)].map((item) => ({
+    option_id: item === 'PCIe 8-pin' ? 41 : 42, value: item, quantity,
+  })),
 })
 const chipsetRow = () => characteristicRow({
-  code: 'chipset', name: 'Чипсет', data_type: 'string', unit: null, sort_order: 0,
+  code: 'chipset', name: 'Чипсет', data_type: 'string', editor: 'select', unit: null, sort_order: 0,
   is_required: false, show_in_short: false, value: 'B650', display_value: 'B650',
+  options: [{ option_id: 61, value: 'B650', quantity: 1 }],
 })
 
-/**
- * Edit screen whose stored characteristics are known. The PATCH handler applies
- * the submitted payload to the stored rows, so a re-render shows exactly what
- * the server would return after the update.
- */
-function setupEditCharacteristics(
-  rows: Array<Record<string, unknown>>,
-  definitions: Record<string, unknown> = characteristicDefinitionsFixture,
-) {
+/** Display text of one dictionary option, resolved from the definitions fixture. */
+const optionText = (optionId: number): string => {
+  for (const field of characteristicDefinitionsFixture.fields) {
+    const match = field.options.find((option) => option.option_id === optionId)
+    if (match) return match.value
+  }
+  return ''
+}
+
+interface CharacteristicPayloadEntry {
+  code: string
+  options?: { option_id: number; quantity: number }[]
+  dimensions?: number[]
+}
+
+interface PatchBody {
+  characteristics?: CharacteristicPayloadEntry[]
+  remove_characteristics?: string[]
+}
+
+/** Edit screen whose stored characteristics are known. */
+function setupEditCharacteristics(rows: Array<Record<string, unknown>>) {
   const detail = { ...productDetailFixture, characteristics: rows }
   const fetchMock = stubAdminFetch({
     handler: (url, init) => {
@@ -1535,18 +1504,34 @@ function setupEditCharacteristics(
       if (url.pathname === '/api/v1/products/filters') {
         return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
       }
-      if (url.pathname === '/api/v1/admin/categories/8/characteristics') return jsonResponse(definitions)
+      if (url.pathname === '/api/v1/admin/categories/8/characteristics') {
+        return jsonResponse(characteristicDefinitionsFixture)
+      }
       if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') return jsonResponse(detail)
       if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
-        const body = requestBody(init) as {
-          characteristics?: { code: string; value: unknown }[]
-          remove_characteristics?: string[]
-        }
+        const body = requestBody(init) as PatchBody
         const removed = new Set(body.remove_characteristics ?? [])
-        const submitted = new Map((body.characteristics ?? []).map((entry) => [entry.code, entry.value]))
+        const submitted = new Map((body.characteristics ?? []).map((entry) => [entry.code, entry]))
         const updated = rows
           .filter((row) => !removed.has(String(row.code)))
-          .map((row) => (submitted.has(String(row.code)) ? { ...row, value: submitted.get(String(row.code)) } : row))
+          .map((row) => {
+            const entry = submitted.get(String(row.code))
+            if (!entry) return row
+            const options = entry.options ?? []
+            const texts = options.map((option) => optionText(option.option_id))
+            return {
+              ...row,
+              value: entry.dimensions ?? texts,
+              display_value: entry.dimensions
+                ? `${entry.dimensions.join(' × ')} мм`
+                : texts.join(', '),
+              options: options.map((option) => ({
+                option_id: option.option_id,
+                value: optionText(option.option_id),
+                quantity: option.quantity,
+              })),
+            }
+          })
         return jsonResponse({ ...detail, characteristics: updated })
       }
       return undefined
@@ -1562,182 +1547,261 @@ function setupEditCharacteristics(
   return fetchMock
 }
 
-const patchBody = (fetchMock: ReturnType<typeof vi.fn>) => {
-  const patch = callsTo(fetchMock, '/api/v1/admin/products/7').find(([, init]) => init.method === 'PATCH')
-  return patch ? requestBody(patch[1]) as {
-    characteristics?: { code: string; value: unknown }[]
-    remove_characteristics?: string[]
-  } : null
+const patchBodies = (fetchMock: ReturnType<typeof vi.fn>) => callsTo(fetchMock, '/api/v1/admin/products/7')
+  .filter(([, init]) => init.method === 'PATCH')
+  .map(([, init]) => requestBody(init) as PatchBody)
+
+const patchBody = (fetchMock: ReturnType<typeof vi.fn>) => patchBodies(fetchMock).at(-1) ?? null
+
+const submittedEntry = (body: PatchBody, code: string) =>
+  body.characteristics?.find((entry) => entry.code === code)
+
+/** Picks one dictionary option of a select-based characteristic. */
+const pickOption = (label: string, optionId: number | '') => {
+  fireEvent.change(screen.getByLabelText(label), { target: { value: String(optionId) } })
 }
 
-const submittedValue = (
-  body: { characteristics?: { code: string; value: unknown }[] },
-  code: string,
-) => body.characteristics?.find((entry) => entry.code === code)
+/** Toggles one option of a multiselect or connector characteristic. */
+const toggleOption = (label: string) => {
+  fireEvent.click(screen.getByLabelText(label))
+}
 
-describe('admin product characteristic removal', () => {
-  it('removes an optional stored characteristic that the administrator cleared', async () => {
+const renameProduct = () => {
+  fireEvent.change(screen.getByLabelText(/Название товара/), { target: { value: 'Другой товар' } })
+}
+
+describe('admin product characteristic editing', () => {
+  it('renders a control per declared editor and offers only dictionary values', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
+
+    // Scalar characteristics are a searchable single select over the dictionary.
+    const memory = (await screen.findByLabelText('Объём памяти')) as HTMLSelectElement
+    expect(memory.tagName).toBe('SELECT')
+    expect([...memory.options].map((option) => option.value)).toEqual(['', '11', '12', '13'])
+    expect(memory.value).toBe('')
+
+    // A boolean starts "not set" instead of an unchecked box.
+    const boolean = screen.getByLabelText('Подсветка') as HTMLSelectElement
+    expect([...boolean.options].map((option) => option.value)).toEqual(['', '31', '32'])
+    expect(boolean.value).toBe('')
+
+    // Repeated connectors are checkboxes with a quantity control, not free text.
+    const connector = screen.getByLabelText('PCIe 8-pin') as HTMLInputElement
+    expect(connector.type).toBe('checkbox')
+
+    // The dimensions field is exactly three numbered inputs.
+    for (const label of ['Длина, мм', 'Ширина, мм', 'Высота, мм']) {
+      expect(screen.getByLabelText(label).tagName).toBe('INPUT')
+    }
+    expect(screen.queryByLabelText('Габариты 2')).toBeNull()
+  })
+
+  it('filters the dictionary by the typed search and never creates a value', async () => {
+    setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fireEvent.change(screen.getByLabelText('Категория'), { target: { value: '8' } })
+    fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '8' } })
+    await screen.findByLabelText('Объём памяти')
+
+    const search = screen.getByLabelText('Поиск значений: Объём памяти')
+    fireEvent.change(search, { target: { value: '16' } })
+    const memory = screen.getByLabelText('Объём памяти') as HTMLSelectElement
+    expect([...memory.options].map((option) => option.value)).toEqual(['', '13'])
+
+    // An option that does not exist in the dictionary is not offered at all.
+    fireEvent.change(search, { target: { value: '32 ГБ' } })
+    expect(screen.getByLabelText('Объём памяти')).toBeTruthy()
+    expect((screen.getByLabelText('Объём памяти') as HTMLSelectElement).options).toHaveLength(1)
+    expect(screen.getByText('Нет подходящих значений')).toBeTruthy()
+  })
+
+  it('sends explicit option ids and quantities, never free text', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+    toggleOption('PCIe 8-pin')
+    fireEvent.change(screen.getByLabelText('Количество: PCIe 8-pin'), { target: { value: '4' } })
+
+    await submitForm()
+    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    const body = requestBody(post?.[1] ?? {}) as PatchBody
+    expect(body.characteristics).toEqual([
+      { code: 'memory_size', options: [{ option_id: 12, quantity: 1 }] },
+      { code: 'memory_bus', options: [{ option_id: 22, quantity: 1 }] },
+      { code: 'power_connectors', options: [{ option_id: 41, quantity: 4 }] },
+    ])
+  })
+
+  it('reports a missing required characteristic before submitting', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+
+    await submitForm()
+    expect(await screen.findByText(/Заполните обязательные характеристики: Шина памяти/)).toBeTruthy()
+    expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
+  })
+
+  it('rejects an invalid dimension instead of repairing it', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+    fireEvent.change(screen.getByLabelText('Длина, мм'), { target: { value: '1 2' } })
+    fireEvent.change(screen.getByLabelText('Ширина, мм'), { target: { value: '125' } })
+    fireEvent.change(screen.getByLabelText('Высота, мм'), { target: { value: '46' } })
+
+    await submitForm()
+    expect(await screen.findByText(/Каждое измерение — число больше 0/)).toBeTruthy()
+    expect(callsTo(fetchMock, '/api/v1/admin/products').some(([, init]) => init.method === 'POST')).toBe(false)
+  })
+
+  it('submits exactly three measurements for the dimensions field', async () => {
+    const fetchMock = setup()
+    await screen.findByRole('heading', { name: 'Добавление товара' })
+    fillRequiredFields()
+    await screen.findByLabelText('Объём памяти')
+    pickOption('Объём памяти', 12)
+    pickOption('Шина памяти', 22)
+    fireEvent.change(screen.getByLabelText('Длина, мм'), { target: { value: '320' } })
+    fireEvent.change(screen.getByLabelText('Ширина, мм'), { target: { value: '134,85' } })
+    fireEvent.change(screen.getByLabelText('Высота, мм'), { target: { value: '61.57' } })
+
+    await submitForm()
+    expect(await screen.findByText('EDIT PAGE')).toBeTruthy()
+    const post = callsTo(fetchMock, '/api/v1/admin/products').find(([, init]) => init.method === 'POST')
+    const body = requestBody(post?.[1] ?? {}) as PatchBody
+    expect(submittedEntry(body, 'dimensions_mm')).toEqual({
+      code: 'dimensions_mm',
+      dimensions: [320, 134.85, 61.57],
+    })
+  })
+
+  it('removes an optional stored characteristic the administrator cleared', async () => {
     const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), rgbRow(true)])
     await screen.findByRole('heading', { name: 'Редактирование товара' })
     const toggle = (await screen.findByLabelText('Подсветка')) as HTMLSelectElement
-    expect(toggle.value).toBe('true')
+    expect(toggle.value).toBe('31')
 
-    // Clearing the field must delete the stored row, not just stop sending it.
-    fireEvent.change(toggle, { target: { value: '' } })
+    pickOption('Подсветка', '')
     await submitForm()
     await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
 
     const body = patchBody(fetchMock)
     if (!body) throw new Error('PATCH body missing')
     expect(body.remove_characteristics).toEqual(['has_rgb'])
-    expect(submittedValue(body, 'has_rgb')).toBeUndefined()
-    // Unrelated values are preserved and no code appears in both arrays.
-    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
-    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 192 })
+    expect(submittedEntry(body, 'has_rgb')).toBeUndefined()
+    // Untouched values are re-submitted with their own option ids.
+    expect(submittedEntry(body, 'memory_size')).toEqual({
+      code: 'memory_size', options: [{ option_id: 12, quantity: 1 }],
+    })
     const submitted = new Set((body.characteristics ?? []).map((entry) => entry.code))
     expect((body.remove_characteristics ?? []).filter((code) => submitted.has(code))).toEqual([])
 
-    // The saved form reflects the server state: the value is gone.
     await waitFor(() => expect((screen.getByLabelText('Подсветка') as HTMLSelectElement).value).toBe(''))
   })
 
-  it('keeps an optional characteristic the product never stored out of both arrays', async () => {
-    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow()])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await screen.findByLabelText('Подсветка')
-    await submitForm()
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    expect(body.remove_characteristics).toBeUndefined()
-    expect(submittedValue(body, 'has_rgb')).toBeUndefined()
-  })
-
-  it('submits an explicit false instead of omitting it', async () => {
+  it('submits an explicit negative boolean instead of omitting it', async () => {
     const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), rgbRow(true)])
     await screen.findByRole('heading', { name: 'Редактирование товара' })
-    fireEvent.change(await screen.findByLabelText('Подсветка'), { target: { value: 'false' } })
+    await screen.findByLabelText('Подсветка')
+    pickOption('Подсветка', 32)
     await submitForm()
     await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
 
     const body = patchBody(fetchMock)
     if (!body) throw new Error('PATCH body missing')
-    expect(submittedValue(body, 'has_rgb')).toEqual({ code: 'has_rgb', value: false })
-    expect(body.remove_characteristics).toBeUndefined()
-  })
-
-  it('preserves stored zero, false and list values when another field changes', async () => {
-    const fetchMock = setupEditCharacteristics([
-      memorySizeRow(), memoryBusRow(), rgbRow(false), connectorsRow(['pcie-8pin', 'pcie-8pin']),
-    ])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    fireEvent.change(await screen.findByLabelText('Шина памяти'), { target: { value: '256' } })
-    await submitForm()
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 256 })
-    expect(submittedValue(body, 'has_rgb')).toEqual({ code: 'has_rgb', value: false })
-    expect(submittedValue(body, 'power_connectors')).toEqual({
-      code: 'power_connectors', value: ['pcie-8pin', 'pcie-8pin'],
+    expect(submittedEntry(body, 'has_rgb')).toEqual({
+      code: 'has_rgb', options: [{ option_id: 32, quantity: 1 }],
     })
     expect(body.remove_characteristics).toBeUndefined()
   })
 
-  it('blocks clearing a required characteristic', async () => {
-    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow()])
+  it('preserves a stored connector quantity when another field changes', async () => {
+    const fetchMock = setupEditCharacteristics([
+      memorySizeRow(), memoryBusRow(), rgbRow(false), connectorsRow(['PCIe 8-pin', 'PCIe 8-pin'], 2),
+    ])
     await screen.findByRole('heading', { name: 'Редактирование товара' })
-    fireEvent.change(await screen.findByLabelText('Объём памяти'), { target: { value: '   ' } })
-    await submitForm()
-
-    expect(await screen.findByText(/Заполните обязательные характеристики: Объём памяти/)).toBeTruthy()
-    expect(patchBody(fetchMock)).toBeNull()
-  })
-
-  it('drops values of the previous category only after the explicit confirmation', async () => {
-    const fetchMock = setupEditCharacteristics([chipsetRow(), memorySizeRow(), memoryBusRow()])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    const confirm = await screen.findByLabelText('Удалить эти характеристики при смене категории')
-    expect(screen.getByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-
-    fireEvent.click(confirm)
+    await screen.findByLabelText('Шина памяти')
+    pickOption('Шина памяти', 23)
     await submitForm()
     await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
 
     const body = patchBody(fetchMock)
     if (!body) throw new Error('PATCH body missing')
-    expect(body.remove_characteristics).toEqual(['chipset'])
-    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
-  })
-
-  it('does not remove previous-category values without the confirmation', async () => {
-    const fetchMock = setupEditCharacteristics([chipsetRow(), memorySizeRow(), memoryBusRow()])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await screen.findByText('Характеристики предыдущей категории: 1')
-    await submitForm()
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    // The server rejects such a transition itself; the editor never discards it.
+    expect(submittedEntry(body, 'memory_bus')).toEqual({
+      code: 'memory_bus', options: [{ option_id: 23, quantity: 1 }],
+    })
+    expect(submittedEntry(body, 'has_rgb')).toEqual({
+      code: 'has_rgb', options: [{ option_id: 32, quantity: 1 }],
+    })
+    expect(submittedEntry(body, 'power_connectors')).toEqual({
+      code: 'power_connectors', options: [{ option_id: 41, quantity: 2 }],
+    })
     expect(body.remove_characteristics).toBeUndefined()
   })
 
-  it('shows the characteristic labels and units in the active language', async () => {
-    const definitions = {
-      category_id: 8,
-      category_name: 'Видеокарты',
-      fields: [{
-        code: 'vram_gb', name: 'Объём видеопамяти', data_type: 'number', unit: 'ГБ',
-        sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
-      }],
-    }
-    const rows = [characteristicRow({
-      code: 'vram_gb', name: 'Объём видеопамяти', data_type: 'number', unit: 'ГБ',
-      sort_order: 0, value: 12, display_value: '12 ГБ',
-    })]
-    await act(async () => { await i18n.changeLanguage('en') })
-    setupEditCharacteristics(rows, definitions)
+  it('hydrates the stored dimensions into the three inputs', async () => {
+    const fetchMock = setupEditCharacteristics([
+      memorySizeRow(), memoryBusRow(),
+      characteristicRow({
+        code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', editor: 'dimensions',
+        unit: 'мм', sort_order: 4, is_required: false, show_in_short: false,
+        value: [320, 134.85, 61.57], display_value: '320 × 134.85 × 61.57 мм',
+        options: [{ option_id: 51, value: '320 × 134.85 × 61.57 мм', quantity: 1 }],
+      }),
+    ])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await waitFor(() => expect((screen.getByLabelText('Длина, мм') as HTMLInputElement).value).toBe('320'))
+    expect((screen.getByLabelText('Ширина, мм') as HTMLInputElement).value).toBe('134.85')
+    expect((screen.getByLabelText('Высота, мм') as HTMLInputElement).value).toBe('61.57')
 
-    expect(await screen.findByLabelText('Video memory capacity')).toBeTruthy()
-    expect(screen.queryByText(/Объём видеопамяти/)).toBeNull()
-    // The stored unit is presented in English, the stored definition is untouched.
-    expect(document.body.textContent).toContain('GB')
+    // An unrelated edit keeps the stored value as it is.
+    renameProduct()
+    await submitForm()
+    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
+    const body = patchBody(fetchMock)
+    if (!body) throw new Error('PATCH body missing')
+    expect(submittedEntry(body, 'dimensions_mm')).toEqual({
+      code: 'dimensions_mm', dimensions: [320, 134.85, 61.57],
+    })
+    expect(body.remove_characteristics).toBeUndefined()
   })
 })
 
 /* ── Category transitions and removal confirmation scope ─────────────────────── */
 
-/**
- * Definitions of the CPU category (id 9).
- *
- * `memory_bus` is shared with the GPU category *with the same data type*, so a
- * stored value survives the transition; `memory_size` and `chipset` are not
- * defined here and therefore need an explicit decision by the administrator.
- */
+/** Definitions of the CPU category (id 9): it shares no stored option with the GPU. */
 const cpuDefinitionsFixture = {
   category_id: 9,
   category_name: 'Процессоры',
   fields: [
     {
-      code: 'socket', name: 'Сокет', data_type: 'string', unit: null,
+      id: 201, code: 'socket', name: 'Сокет', data_type: 'string', editor: 'select', unit: null,
       sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
+      options: [{ option_id: 71, value: 'AM5' }, { option_id: 72, value: 'LGA1700' }],
+      limits: { max_selections: 1, max_quantity: 1, repeatable: false, dimensions: null },
     },
     {
-      code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит',
-      sort_order: 1, is_required: false, show_in_short: false, show_in_details: true,
+      id: 202, code: 'memory_bus', name: 'Шина памяти', data_type: 'number', editor: 'select',
+      unit: 'бит', sort_order: 1, is_required: false, show_in_short: false, show_in_details: true,
+      options: [{ option_id: 81, value: '192 бит' }],
+      limits: { max_selections: 1, max_quantity: 1, repeatable: false, dimensions: null },
     },
   ],
 }
 
-/**
- * The GPU *category group* also offers a CPU type. The real API keeps every type
- * inside its own category; this is the one shape in which choosing a type moves
- * the editor into another category, which is exactly what must reset the removal
- * confirmation.
- */
 const crossCategoryOptionsFixture = {
   ...productOptionsFixture,
   categories: [
@@ -1752,25 +1816,9 @@ const crossCategoryOptionsFixture = {
   ],
 }
 
-/**
- * Edit screen for a category transition.
- *
- * The PATCH handler stores what it accepts, so a refetch and the next save both
- * see the committed state, and `failPatch` can reject the first update to check
- * that a failed save neither reports success nor loses the confirmation.
- */
 function setupEditTransition(
   rows: Array<Record<string, unknown>>,
-  {
-    failFirstPatch = false,
-    optionsPayload,
-    cpuDefinitions = cpuDefinitionsFixture,
-  }: {
-    failFirstPatch?: boolean
-    optionsPayload?: unknown
-    /** Definitions of the CPU category the transition moves into. */
-    cpuDefinitions?: Record<string, unknown>
-  } = {},
+  options: { failFirstPatch?: boolean; optionsPayload?: unknown } = {},
 ) {
   const detail = { ...productDetailFixture, characteristics: rows }
   let committed = rows
@@ -1779,7 +1827,7 @@ function setupEditTransition(
     handler: (url, init) => {
       const method = init.method ?? 'GET'
       if (url.pathname === '/api/v1/admin/product-options') {
-        return jsonResponse(optionsPayload ?? productOptionsFixture)
+        return jsonResponse(options.optionsPayload ?? productOptionsFixture)
       }
       if (url.pathname === '/api/v1/products/filters') {
         return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
@@ -1788,25 +1836,20 @@ function setupEditTransition(
         return jsonResponse(characteristicDefinitionsFixture)
       }
       if (url.pathname === '/api/v1/admin/categories/9/characteristics') {
-        return jsonResponse(cpuDefinitions)
+        return jsonResponse(cpuDefinitionsFixture)
       }
       if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') {
         return jsonResponse({ ...detail, characteristics: committed })
       }
       if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
         patchAttempts += 1
-        if (failFirstPatch && patchAttempts === 1) {
+        if (options.failFirstPatch && patchAttempts === 1) {
           return jsonResponse({ detail: 'Характеристика не подходит категории' }, 422)
         }
-        const body = requestBody(init) as {
-          characteristics?: { code: string; value: unknown }[]
-          remove_characteristics?: string[]
-        }
-        const removed = new Set(body.remove_characteristics ?? [])
-        const submitted = new Map((body.characteristics ?? []).map((entry) => [entry.code, entry.value]))
-        committed = committed
-          .filter((row) => !removed.has(String(row.code)))
-          .map((row) => (submitted.has(String(row.code)) ? { ...row, value: submitted.get(String(row.code)) } : row))
+        const body = requestBody(init) as PatchBody
+        committed = committed.filter(
+          (row) => !new Set(body.remove_characteristics ?? []).has(String(row.code)),
+        )
         return jsonResponse({ ...detail, characteristics: committed })
       }
       return undefined
@@ -1822,47 +1865,63 @@ function setupEditTransition(
   return fetchMock
 }
 
-/** Submits the form once the given field proves the definitions have loaded. */
-const submitTransition = async (label: string) => {
-  await screen.findByLabelText(label)
-  fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
-}
-
 const confirmLabel = 'Удалить эти характеристики при смене категории'
-
 const confirmationBox = () => screen.queryByLabelText(confirmLabel) as HTMLInputElement | null
-
-/** The warning only renders once the target category's definitions are loaded. */
-const findConfirmationBox = async () =>
-  (await screen.findByLabelText(confirmLabel)) as HTMLInputElement
+const findConfirmationBox = async () => (await screen.findByLabelText(confirmLabel)) as HTMLInputElement
 
 const selectCategory = async (categoryId: string, typeId: string) => {
   fireEvent.change(screen.getByLabelText('Категория'), { target: { value: categoryId } })
   fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: typeId } })
 }
 
-describe('admin product category transition confirmation', () => {
-  it('resets the confirmation when the selected category changes', async () => {
+const unresolvedText = /Подтвердите удаление характеристик предыдущей категории/
+const clickSubmit = () => {
+  fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
+}
+
+describe('admin product category transition', () => {
+  it('requires a decision for every stored value because option ids are category-scoped', async () => {
     const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
     await screen.findByRole('heading', { name: 'Редактирование товара' })
-    const first = await findConfirmationBox()
-    fireEvent.click(first)
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
-
-    // The target category no longer defines `chipset` and `memory_size`.
     await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+    // None of the stored options belongs to a CPU definition, so all three need a
+    // replacement or an explicit removal — a matching code is not enough.
+    expect(await screen.findByText('Характеристики предыдущей категории: 3')).toBeTruthy()
+    pickOption('Сокет', 71)
+    clickSubmit()
+    expect(await screen.findByText(unresolvedText)).toBeTruthy()
+    expect(patchBody(fetchMock)).toBeNull()
+  })
 
-    // A confirmation for the GPU transition cannot authorize the CPU one.
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-    await submitTransition('Сокет')
+  it('accepts a confirmed removal for the current transition only', async () => {
+    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
+    await findConfirmationBox()
+    fireEvent.click(await findConfirmationBox())
+    pickOption('Сокет', 71)
+    clickSubmit()
+
     await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
     const body = patchBody(fetchMock)
     if (!body) throw new Error('PATCH body missing')
-    expect(body.remove_characteristics).toBeUndefined()
-    // The value both categories share with the same data type is preserved.
-    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 192 })
+    expect([...(body.remove_characteristics ?? [])].sort()).toEqual([
+      'chipset', 'memory_bus', 'memory_size',
+    ])
+    expect(submittedEntry(body, 'socket')).toEqual({
+      code: 'socket', options: [{ option_id: 71, quantity: 1 }],
+    })
+  })
+
+  it('resets the confirmation when the selected category changes', async () => {
+    setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
+    await screen.findByRole('heading', { name: 'Редактирование товара' })
+    fireEvent.click(await findConfirmationBox())
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
+
+    await selectCategory('9', '10')
+    expect(await screen.findByText('Характеристики предыдущей категории: 3')).toBeTruthy()
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
   })
 
   it('resets the confirmation when a type selection moves to another category', async () => {
@@ -1874,49 +1933,30 @@ describe('admin product category transition confirmation', () => {
     expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
 
     fireEvent.change(screen.getByLabelText('Тип товара'), { target: { value: '10' } })
-    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
+    expect(await screen.findByText('Характеристики предыдущей категории: 3')).toBeTruthy()
     expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
     expect((screen.getByLabelText('Категория') as HTMLSelectElement).value).toBe('9')
   })
 
-  it('never reuses a confirmation when the category is switched back', async () => {
+  it('keeps the confirmation while unrelated form fields change', async () => {
     const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
     await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
     fireEvent.click(await findConfirmationBox())
 
-    await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
-    // Back to the very same orphan set that was confirmed before.
-    await selectCategory('8', '8')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+    renameProduct()
+    fireEvent.change(screen.getByLabelText(/Количество на складе/), { target: { value: '12' } })
+    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
 
-    await submitTransition('Объём памяти')
+    await screen.findByLabelText('Сокет')
+    pickOption('Сокет', 71)
+    clickSubmit()
     await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
     const body = patchBody(fetchMock)
     if (!body) throw new Error('PATCH body missing')
-    expect(body.remove_characteristics).toBeUndefined()
-  })
-
-  it('requires a fresh confirmation for the transition after a confirmed save', async () => {
-    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    fireEvent.click(await findConfirmationBox())
-    await submitTransition('Объём памяти')
-
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-    const first = patchBody(fetchMock)
-    if (!first) throw new Error('PATCH body missing')
-    expect(first.remove_characteristics).toEqual(['chipset'])
-    // The save is committed: the value is gone and the warning with it.
-    expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
-    await waitFor(() => expect(confirmationBox()).toBeNull())
-
-    // The next transition starts unconfirmed even though the previous one was
-    // confirmed and saved.
-    await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
+    expect([...(body.remove_characteristics ?? [])].sort()).toEqual([
+      'chipset', 'memory_bus', 'memory_size',
+    ])
   })
 
   it('does not report a rejected save as saved and keeps the confirmation', async () => {
@@ -1925,450 +1965,23 @@ describe('admin product category transition confirmation', () => {
       { failFirstPatch: true },
     )
     await screen.findByRole('heading', { name: 'Редактирование товара' })
+    await selectCategory('9', '10')
     fireEvent.click(await findConfirmationBox())
-    await submitTransition('Объём памяти')
+    await screen.findByLabelText('Сокет')
+    pickOption('Сокет', 71)
+    clickSubmit()
 
     expect(await screen.findByText(/Характеристика не подходит категории/)).toBeTruthy()
     expect(screen.queryByText('Изменения сохранены')).toBeNull()
-    // Nothing was persisted, so the confirmed transition is still pending.
     expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
 
-    fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
+    clickSubmit()
     await waitFor(() => expect(callsTo(fetchMock, '/api/v1/admin/products/7')
       .filter(([, init]) => init.method === 'PATCH')).toHaveLength(2))
     const attempts = callsTo(fetchMock, '/api/v1/admin/products/7')
       .filter(([, init]) => init.method === 'PATCH')
-    expect((requestBody(attempts[1][1]) as { remove_characteristics?: string[] }).remove_characteristics)
-      .toEqual(['chipset'])
+    expect((requestBody(attempts[1][1]) as PatchBody).remove_characteristics?.slice().sort())
+      .toEqual(['chipset', 'memory_bus', 'memory_size'])
     expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
-  })
-
-  it('does not offer an incompatible stored value for implicit deletion', async () => {
-    // The target category declares `memory_size` as a list while the product stores
-    // a string: the value cannot be reused, so it needs a replacement or a
-    // confirmed removal instead of being cleared behind the administrator's back.
-    const changedTypeDefinitions = {
-      category_id: 9,
-      category_name: 'Процессоры',
-      fields: [
-        ...cpuDefinitionsFixture.fields,
-        {
-          code: 'memory_size', name: 'Объём памяти', data_type: 'string_list',
-          unit: null, sort_order: 2, is_required: false, show_in_short: false, show_in_details: true,
-        },
-      ],
-    }
-    const rows = [memorySizeRow(), memoryBusRow()]
-    const fetchMock = stubAdminFetch({
-      handler: (url, init) => {
-        const method = init.method ?? 'GET'
-        if (url.pathname === '/api/v1/admin/product-options') return jsonResponse(productOptionsFixture)
-        if (url.pathname === '/api/v1/products/filters') {
-          return jsonResponse({ categories: [], types: [], colors: ['Чёрный'], manufacturers: [] })
-        }
-        if (url.pathname === '/api/v1/admin/categories/8/characteristics') {
-          return jsonResponse(characteristicDefinitionsFixture)
-        }
-        if (url.pathname === '/api/v1/admin/categories/9/characteristics') {
-          return jsonResponse(changedTypeDefinitions)
-        }
-        if (url.pathname === '/api/v1/admin/products/7' && method === 'GET') {
-          return jsonResponse({ ...productDetailFixture, characteristics: rows })
-        }
-        if (url.pathname === '/api/v1/admin/products/7' && method === 'PATCH') {
-          return jsonResponse({ ...productDetailFixture, characteristics: rows })
-        }
-        return undefined
-      },
-    })
-    render(
-      <MemoryRouter initialEntries={['/admin/products/7/edit']}>
-        <Routes>
-          <Route path="/admin/products/:productId/edit" element={<AdminProductFormPage />} />
-        </Routes>
-      </MemoryRouter>,
-    )
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-
-    await selectCategory('9', '10')
-    // `memory_bus` keeps its number type and survives; only `memory_size` needs a
-    // decision, and it is not silently turned into a removal.
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
-
-    // A typed replacement replaces the stored value instead of deleting it.
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Добавить значение' }))
-    fireEvent.change(screen.getByLabelText('Объём памяти 1'), { target: { value: '12 ГБ' } })
-    await submitTransition('Объём памяти 1')
-
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: ['12 ГБ'] })
-    expect(submittedValue(body, 'memory_bus')).toEqual({ code: 'memory_bus', value: 192 })
-    expect(body.remove_characteristics).toBeUndefined()
-  })
-})
-
-/* ── Transitions the selected category cannot settle on its own ──────────────── */
-
-/** CPU category that declares the GPU `memory_size` with another data type. */
-const listMemoryDefinitionsFixture = {
-  category_id: 9,
-  category_name: 'Процессоры',
-  fields: [
-    cpuDefinitionsFixture.fields[0],
-    cpuDefinitionsFixture.fields[1],
-    {
-      code: 'memory_size', name: 'Объём памяти', data_type: 'string_list', unit: null,
-      sort_order: 2, is_required: false, show_in_short: false, show_in_details: true,
-    },
-  ],
-}
-
-/** Same as above, but the target category makes the code required. */
-const requiredMemoryDefinitionsFixture = {
-  ...listMemoryDefinitionsFixture,
-  fields: listMemoryDefinitionsFixture.fields.map((field) => (
-    field.code === 'memory_size' ? { ...field, is_required: true } : field
-  )),
-}
-
-/** Same as above, but the replacement has to be numeric. */
-const numberMemoryDefinitionsFixture = {
-  ...listMemoryDefinitionsFixture,
-  fields: listMemoryDefinitionsFixture.fields.map((field) => (
-    field.code === 'memory_size' ? { ...field, data_type: 'number_list' } : field
-  )),
-}
-
-/** Categories that share every stored code with the same data type. */
-const sharedCodesDefinitionsFixture = {
-  category_id: 9,
-  category_name: 'Процессоры',
-  fields: [
-    cpuDefinitionsFixture.fields[0],
-    {
-      code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null,
-      sort_order: 1, is_required: false, show_in_short: false, show_in_details: true,
-    },
-    cpuDefinitionsFixture.fields[1],
-    {
-      code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list', unit: null,
-      sort_order: 3, is_required: false, show_in_short: false, show_in_details: true,
-    },
-  ],
-}
-
-const unresolvedText = /Подтвердите удаление характеристик предыдущей категории/
-
-/** Clicks the form's submit button without waiting for any field. */
-const clickSubmit = () => {
-  fireEvent.click(document.querySelector('form button[type="submit"]') as HTMLButtonElement)
-}
-
-/** Types a `memory_size` replacement row into the CPU editor. */
-const typeMemorySizeReplacement = async (value: string) => {
-  fireEvent.click(await screen.findByRole('button', { name: 'Добавить значение' }))
-  fireEvent.change(await screen.findByLabelText('Объём памяти 1'), { target: { value } })
-}
-
-/** Clears the only `memory_size` row again. */
-const clearMemorySizeReplacement = () => {
-  fireEvent.click(screen.getByRole('button', { name: 'Удалить значение 1' }))
-}
-
-describe('admin product unresolved category transitions', () => {
-  it('never sends an unconfirmed removal when a replacement is cleared again', async () => {
-    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
-      cpuDefinitions: listMemoryDefinitionsFixture,
-    })
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-
-    // A replacement is typed and cleared again: the draft is empty again, but an
-    // empty draft is not a decision about a value the category cannot reuse.
-    await typeMemorySizeReplacement('12 ГБ')
-    expect(screen.queryByText('Характеристики предыдущей категории: 1')).toBeNull()
-    clearMemorySizeReplacement()
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    expect((await findConfirmationBox()).checked).toBe(false)
-
-    clickSubmit()
-    expect(await screen.findByText(unresolvedText)).toBeTruthy()
-    // Nothing was persisted: the removal was never confirmed for this transition.
-    expect(patchBody(fetchMock)).toBeNull()
-  })
-
-  it('removes the unusable value once the current transition is confirmed', async () => {
-    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
-      cpuDefinitions: listMemoryDefinitionsFixture,
-    })
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-    await typeMemorySizeReplacement('12 ГБ')
-    clearMemorySizeReplacement()
-
-    fireEvent.click(await findConfirmationBox())
-    await submitTransition('Сокет')
-
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    expect(body.remove_characteristics).toEqual(['memory_size'])
-    expect(submittedValue(body, 'memory_size')).toBeUndefined()
-    expect(submittedValue(body, 'socket')).toEqual({ code: 'socket', value: 'AM5' })
-    const submitted = new Set((body.characteristics ?? []).map((entry) => entry.code))
-    expect((body.remove_characteristics ?? []).filter((code) => submitted.has(code))).toEqual([])
-  })
-
-  it('accepts a valid replacement without any confirmation', async () => {
-    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
-      cpuDefinitions: listMemoryDefinitionsFixture,
-    })
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-    await typeMemorySizeReplacement('12 ГБ')
-
-    // Replacing the value is a decision of its own: no warning, no confirmation.
-    expect(screen.queryByText(/Характеристики предыдущей категории/)).toBeNull()
-    clickSubmit()
-
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: ['12 ГБ'] })
-    expect(body.remove_characteristics).toBeUndefined()
-    expect(screen.queryByText(unresolvedText)).toBeNull()
-  })
-
-  it('rejects an invalid replacement instead of deleting the stored value', async () => {
-    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
-      cpuDefinitions: numberMemoryDefinitionsFixture,
-    })
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-    await typeMemorySizeReplacement('12 ГБ')
-
-    clickSubmit()
-    expect(await screen.findByText('Введите число')).toBeTruthy()
-    expect(patchBody(fetchMock)).toBeNull()
-  })
-
-  it('keeps a required target characteristic from being removed', async () => {
-    const fetchMock = setupEditTransition([memorySizeRow(), memoryBusRow()], {
-      cpuDefinitions: requiredMemoryDefinitionsFixture,
-    })
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await selectCategory('9', '10')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-
-    // Even a confirmed removal cannot satisfy a required target characteristic.
-    fireEvent.click(await findConfirmationBox())
-    clickSubmit()
-
-    expect(await screen.findByText(/Заполните обязательные характеристики: Объём памяти/)).toBeTruthy()
-    expect(patchBody(fetchMock)).toBeNull()
-  })
-})
-
-describe('admin product removal confirmation invalidation', () => {
-  it('invalidates the confirmation permanently when a replacement appears and disappears', async () => {
-    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()], {
-      cpuDefinitions: listMemoryDefinitionsFixture,
-    })
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await selectCategory('9', '10')
-    // `chipset` is unknown to the CPU category, `memory_size` changed its type.
-    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
-    fireEvent.click(await findConfirmationBox())
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
-
-    // A replacement changes which codes need a decision, so the confirmation for
-    // the previous set is dropped — not kept for a later match.
-    await typeMemorySizeReplacement('12 ГБ')
-    expect(await screen.findByText('Характеристики предыдущей категории: 1')).toBeTruthy()
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
-
-    // Clearing it restores the exact category and orphan set that were confirmed.
-    clearMemorySizeReplacement()
-    expect(await screen.findByText('Характеристики предыдущей категории: 2')).toBeTruthy()
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(false)
-
-    fireEvent.change(screen.getByLabelText('Сокет'), { target: { value: 'AM5' } })
-    clickSubmit()
-    expect(await screen.findByText(unresolvedText)).toBeTruthy()
-    expect(patchBody(fetchMock)).toBeNull()
-
-    // Only a fresh confirmation resolves the transition.
-    fireEvent.click(await findConfirmationBox())
-    clickSubmit()
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    expect([...(body.remove_characteristics ?? [])].sort()).toEqual(['chipset', 'memory_size'])
-  })
-
-  it('keeps the confirmation while unrelated form fields change', async () => {
-    const fetchMock = setupEditTransition([chipsetRow(), memorySizeRow(), memoryBusRow()])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    fireEvent.click(await findConfirmationBox())
-
-    fireEvent.change(screen.getByLabelText(/Название товара/), { target: { value: 'Другой товар' } })
-    fireEvent.change(screen.getByLabelText(/Количество на складе/), { target: { value: '12' } })
-    expect((confirmationBox() as HTMLInputElement).checked).toBe(true)
-
-    await submitTransition('Объём памяти')
-    await waitFor(() => expect(patchBody(fetchMock)).toBeTruthy())
-    const body = patchBody(fetchMock)
-    if (!body) throw new Error('PATCH body missing')
-    expect(body.remove_characteristics).toEqual(['chipset'])
-  })
-})
-
-/* ── Editing intent: untouched values survive a save ─────────────────────────── */
-
-/** GPU definitions plus an optional numeric list the API may store empty. */
-const listDefinitionsFixture = {
-  ...characteristicDefinitionsFixture,
-  fields: [
-    ...characteristicDefinitionsFixture.fields,
-    {
-      code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', unit: 'мм',
-      sort_order: 4, is_required: false, show_in_short: false, show_in_details: true,
-    },
-  ],
-}
-
-const dimensionsRow = (value: number[]) => characteristicRow({
-  code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', unit: 'мм',
-  sort_order: 4, is_required: false, show_in_short: false, value,
-  display_value: value.join(', '),
-})
-
-/** Every PATCH body sent for the edited product, in order. */
-const patchBodies = (fetchMock: ReturnType<typeof vi.fn>) => callsTo(fetchMock, '/api/v1/admin/products/7')
-  .filter(([, init]) => init.method === 'PATCH')
-  .map(([, init]) => requestBody(init) as {
-    characteristics?: { code: string; value: unknown }[]
-    remove_characteristics?: string[]
-  })
-
-const renameProduct = () => {
-  fireEvent.change(screen.getByLabelText(/Название товара/), { target: { value: 'Другой товар' } })
-}
-
-describe('admin product characteristic editing intent', () => {
-  it('preserves a stored empty string list during an unrelated edit', async () => {
-    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), connectorsRow([])])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    // The definitions are loaded: the empty list renders no rows at all.
-    await screen.findByLabelText('Объём памяти')
-    expect(screen.getByText('Значений пока нет.')).toBeTruthy()
-
-    renameProduct()
-    await submitForm()
-    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
-    const [body] = patchBodies(fetchMock)
-    // The stored row is neither re-submitted nor deleted: it was never touched.
-    expect(body.remove_characteristics).toBeUndefined()
-    expect(submittedValue(body, 'power_connectors')).toBeUndefined()
-  })
-
-  it('preserves a stored empty number list during an unrelated edit', async () => {
-    const fetchMock = setupEditCharacteristics(
-      [memorySizeRow(), memoryBusRow(), dimensionsRow([])],
-      listDefinitionsFixture,
-    )
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await screen.findByLabelText('Объём памяти')
-    // `power_connectors` holds no value, so it renders as an empty list too.
-    expect(screen.getAllByText('Значений пока нет.')).toHaveLength(2)
-
-    renameProduct()
-    await submitForm()
-    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
-    const [body] = patchBodies(fetchMock)
-    expect(body.remove_characteristics).toBeUndefined()
-    expect(submittedValue(body, 'dimensions_mm')).toBeUndefined()
-  })
-
-  it('replaces an empty stored list with valid entries', async () => {
-    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), connectorsRow([])])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    fireEvent.click(await screen.findByRole('button', { name: 'Добавить значение' }))
-    fireEvent.change(await screen.findByLabelText('Разъёмы питания 1'), { target: { value: 'pcie-8pin' } })
-    await submitForm()
-
-    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
-    const [body] = patchBodies(fetchMock)
-    expect(submittedValue(body, 'power_connectors')).toEqual({
-      code: 'power_connectors', value: ['pcie-8pin'],
-    })
-    expect(body.remove_characteristics).toBeUndefined()
-    // The saved form shows the committed value.
-    expect(await screen.findByLabelText('Разъёмы питания 1')).toBeTruthy()
-  })
-
-  it('removes a populated optional list the administrator cleared', async () => {
-    const fetchMock = setupEditCharacteristics([
-      memorySizeRow(), memoryBusRow(), connectorsRow(['pcie-8pin', 'pcie-16pin']),
-    ])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    fireEvent.click(await screen.findByRole('button', { name: 'Удалить значение 1' }))
-    fireEvent.click(screen.getByRole('button', { name: 'Удалить значение 1' }))
-    await submitForm()
-
-    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
-    const [body] = patchBodies(fetchMock)
-    expect(body.remove_characteristics).toEqual(['power_connectors'])
-    expect(submittedValue(body, 'power_connectors')).toBeUndefined()
-    // Unrelated values stay untouched.
-    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
-  })
-
-  it('keeps an untouched empty list across repeated saves', async () => {
-    const fetchMock = setupEditCharacteristics([memorySizeRow(), memoryBusRow(), connectorsRow([])])
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-    await submitForm()
-    expect(await screen.findByText('Изменения сохранены')).toBeTruthy()
-
-    await submitForm()
-    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(2))
-    for (const body of patchBodies(fetchMock)) {
-      expect(body.remove_characteristics).toBeUndefined()
-      expect(submittedValue(body, 'power_connectors')).toBeUndefined()
-    }
-  })
-
-  it('does not treat a hydrated empty list as cleared by a category change', async () => {
-    const fetchMock = setupEditTransition(
-      [memorySizeRow(), memoryBusRow(), connectorsRow([])],
-      { cpuDefinitions: sharedCodesDefinitionsFixture },
-    )
-    await screen.findByRole('heading', { name: 'Редактирование товара' })
-
-    // Every stored code exists in the CPU category with the same data type, so no
-    // removal confirmation is involved — the shared empty list must survive.
-    await selectCategory('9', '10')
-    expect(screen.queryByText(/Характеристики предыдущей категории/)).toBeNull()
-    fireEvent.change(await screen.findByLabelText('Сокет'), { target: { value: 'AM5' } })
-    clickSubmit()
-
-    await waitFor(() => expect(patchBodies(fetchMock)).toHaveLength(1))
-    const [body] = patchBodies(fetchMock)
-    expect(body.remove_characteristics).toBeUndefined()
-    expect(submittedValue(body, 'power_connectors')).toBeUndefined()
-    expect(submittedValue(body, 'memory_size')).toEqual({ code: 'memory_size', value: '12 ГБ' })
   })
 })

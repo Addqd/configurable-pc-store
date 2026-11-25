@@ -34,23 +34,36 @@ class ManufacturerOut(BaseModel):
 # ── Product characteristics ──────────────────────────────────────────────────
 
 
+class CharacteristicOptionValueOut(BaseModel):
+    """One selected dictionary option of a product characteristic."""
+
+    option_id: int
+    value: str
+    quantity: int = 1
+
+
 class CharacteristicValueOut(BaseModel):
     """One category-scoped characteristic value of a product.
 
-    `value` keeps its native JSON type (number, boolean, ordered list) so clients
-    can reason about it structurally. `display_value` is the ready-to-render
-    string: unit appended once, no raw JSON and no Python representation.
+    Selections always come from the `characteristic_options` dictionary, so every
+    row carries the explicit `options` (with their `quantity`) next to a
+    ready-to-render `display_value`. `value` keeps a native shape so clients can
+    reason about it structurally: a scalar string/number, a boolean, a list of
+    option values (repeated as many times as its quantity) or an ordered triple of
+    dimensions. No unit is ever appended twice.
     """
 
     code: str
     name: str
     data_type: str
+    editor: str
     unit: str | None = None
     sort_order: int
     is_required: bool
     show_in_short: bool
     show_in_details: bool
     value: Any
+    options: list[CharacteristicOptionValueOut] = []
     display_value: str
 
 

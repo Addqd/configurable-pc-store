@@ -1,14 +1,25 @@
 /**
  * Structured product characteristic, mirroring one entry of the API
- * `CharacteristicValueOut`. `value` keeps its native JSON type; `displayValue`
- * is the server-rendered, ready-to-show string.
+ * `CharacteristicValueOut`. `value` keeps its native shape (a scalar, a boolean,
+ * a list of option values or an ordered triple of dimensions); `options` carries
+ * the explicit dictionary selections with their repeat count; `displayValue` is
+ * the server-rendered, ready-to-show string.
  */
+export interface ProductCharacteristicOption {
+  optionId: number
+  value: string
+  quantity: number
+}
+
 export interface ProductCharacteristic {
   code: string
   name: string
   dataType: string
+  /** Editor behaviour: select, boolean, multiselect, connector_quantity, dimensions. */
+  editor?: string
   unit?: string | null
   value: unknown
+  options?: ProductCharacteristicOption[]
   displayValue: string
   showInShort: boolean
   showInDetails: boolean
@@ -77,4 +88,18 @@ export function characteristicTextList(
   return value.every((item) => typeof item === 'string')
     ? (value as string[])
     : null
+}
+
+/**
+ * Explicit dictionary selections of one characteristic, with their repeat count.
+ *
+ * Connector coverage and any other quantity-sensitive display read from here, so
+ * no client has to count duplicates inside a list.
+ */
+export function characteristicOptions(
+  product: Product | null | undefined,
+  code: string,
+): ProductCharacteristicOption[] | null {
+  const options = characteristicOf(product, code)?.options
+  return options && options.length > 0 ? options : null
 }

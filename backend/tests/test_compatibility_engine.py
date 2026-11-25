@@ -1,21 +1,27 @@
 """Database-free regression tests for the approved compatibility rule set.
 
 The evaluator reads products, characteristic values and characteristic
-definitions through `db` helpers, so the fake session serves exactly those three
-bulk reads: one `select(Product)`, one value join and one `select(Characteristic)`.
-Nothing is fetched per rule, which these tests also pin down.
+definitions through `db` helpers, so the fake session serves exactly those bulk
+reads: one `select(Product)`, one definition join and one value join. Nothing is
+fetched per rule, which these tests also pin down.
+
+Each fake product declares plain Python values. The fake session turns them into
+the normalized shape the service reads: one `characteristic_options` entry per
+distinct display value and one association per value with a `quantity`, exactly
+like the production writers.
 """
 
 from __future__ import annotations
 
+from collections import Counter
 from copy import deepcopy
 from decimal import Decimal
 from types import SimpleNamespace
-from typing import Any
 
 import pytest
 
 from app.models import Characteristic
+from app.services import spec_service
 from app.services.cart_service import _build_snapshot
 from app.services.compatibility import RULES, SLOT_CATEGORIES, check_selections
 
@@ -29,10 +35,10 @@ class _Scalars:
 
 
 class _Result:
-    def __init__(self, rows: list[tuple[int, str, Any]]) -> None:
+    def __init__(self, rows: list[tuple]) -> None:
         self._rows = rows
 
-    def all(self) -> list[tuple[int, str, Any]]:
+    def all(self) -> list[tuple]:
         return self._rows
 
     def __iter__(self):  # pragma: no cover - defensive convenience
@@ -65,16 +71,24 @@ def _data_type(value: object) -> str:
     return "number_list"
 
 
+def _option_text(value: object) -> str:
+    if isinstance(value, bool):
+        return spec_service.TRUE_LABEL if value else spec_service.FALSE_LABEL
+    return str(value)
+
+
 class FakeSession:
-    """The read interface of the compatibility evaluator."""
+    """The read interface of the characteristic service and the evaluator."""
 
     def __init__(self, parts: dict[int, SimpleNamespace]) -> None:
         self.parts = parts
         # One definition per (category, code), as the normalized model stores them.
         self.definitions: list[SimpleNamespace] = []
+        self.slugs: dict[int, str] = {}
         seen: set[tuple[int, str]] = set()
         for part in parts.values():
             category_id = part.product_type.category_id
+            self.slugs[category_id] = part.product_type.category.slug
             for code, value in part.values.items():
                 if (category_id, code) in seen:
                     continue
@@ -93,14 +107,61 @@ class FakeSession:
                         show_in_details=True,
                     )
                 )
+        # Dictionaries and associations are derived lazily from the current test
+        # values, so a test may change a value after the session was created.
+        self.options: dict[tuple[int, str], int] = {}
+
+    def _option_id(self, definition_id: int, text: str) -> int:
+        key = (definition_id, text)
+        if key not in self.options:
+            self.options[key] = len(self.options) + 1
+        return self.options[key]
+
+    def _associations(self, part: SimpleNamespace) -> list[tuple[int, str, int]]:
+        """Normalized (definition id, display value, quantity) of one product."""
+        category_id = part.product_type.category_id
+        result: list[tuple[int, str, int]] = []
+        for code, value in part.values.items():
+            definition = self._definition(category_id, code, value)
+            if definition is None:
+                continue
+            items = value if isinstance(value, list) else [value]
+            counts = Counter(_option_text(item) for item in items)
+            for text, quantity in counts.items():
+                result.append((definition.id, text, quantity))
+        return result
+
+    def _definition(
+        self, category_id: int, code: str, value: object = None
+    ) -> SimpleNamespace | None:
+        for row in self.definitions:
+            if row.category_id == category_id and row.code == code:
+                return row
+        if value is None:
+            return None
+        # A value introduced after construction still gets its definition, so a
+        # test may add a characteristic it did not declare up front.
+        row = SimpleNamespace(
+            id=len(self.definitions) + 1,
+            category_id=category_id,
+            code=code,
+            name=code,
+            data_type=_data_type(value),
+            unit=None,
+            sort_order=0,
+            is_required=False,
+            show_in_short=False,
+            show_in_details=True,
+        )
+        self.definitions.append(row)
+        return row
 
     def get(self, _model: object, key: int) -> SimpleNamespace | None:
         return self.parts.get(key)
 
     @staticmethod
-    def _entity(statement: object) -> object:
-        descriptions = getattr(statement, "column_descriptions", ())
-        return descriptions[0].get("entity") if descriptions else None
+    def _descriptions(statement: object) -> tuple[dict, ...]:
+        return tuple(getattr(statement, "column_descriptions", ()))
 
     def _requested(self, statement: object) -> list[SimpleNamespace]:
         ids = _requested_ids(statement)
@@ -109,21 +170,38 @@ class FakeSession:
         return [part for key, part in self.parts.items() if key in ids]
 
     def scalars(self, statement: object) -> _Scalars:
-        if self._entity(statement) is Characteristic:
-            wanted = _requested_ids(statement)
-            return _Scalars(
-                [row for row in self.definitions if row.category_id in wanted]
-            )
         return _Scalars(self._requested(statement))
 
     def execute(self, statement: object) -> _Result:
-        return _Result(
-            [
-                (product.id, code, value)
-                for product in self._requested(statement)
-                for code, value in product.values.items()
-            ]
-        )
+        descriptions = self._descriptions(statement)
+        if descriptions and descriptions[0].get("entity") is Characteristic:
+            wanted = _requested_ids(statement)
+            return _Result(
+                [
+                    (row, self.slugs[row.category_id])
+                    for row in self.definitions
+                    if row.category_id in wanted
+                ]
+            )
+        rows: list[tuple] = []
+        for product in self._requested(statement):
+            for definition_id, text, quantity in self._associations(product):
+                code = next(
+                    row.code for row in self.definitions if row.id == definition_id
+                )
+                rows.append(
+                    (
+                        product.id,
+                        definition_id,
+                        quantity,
+                        code,
+                        0,
+                        self._option_id(definition_id, text),
+                        text,
+                    )
+                )
+        rows.sort(key=lambda row: (row[0], row[4], row[1], row[6], row[5]))
+        return _Result(rows)
 
 
 def _parts() -> tuple[FakeSession, dict[str, int]]:
@@ -397,7 +475,7 @@ def test_empty_connector_lists_are_missing_data_not_a_verified_match() -> None:
     assert result.status == "unknown"
 
 
-@pytest.mark.parametrize("bad_value", ["750", True, 0, -1])
+@pytest.mark.parametrize("bad_value", ["N/A", True, 0, -1])
 def test_invalid_numeric_values_never_prove_a_match(bad_value: object) -> None:
     db, selections = _parts()
     db.parts[selections["psu"]].values["wattage_w"] = bad_value

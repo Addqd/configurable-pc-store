@@ -6,8 +6,10 @@ import {
   characteristicPairs,
   characteristicValue,
   formatCharacteristicNumber,
+  parseStoredBoolean,
   translateCharacteristicCategoricalValue,
   translateCharacteristicLabel,
+  translateCharacteristicOptionValue,
   translateCharacteristicUnit,
   type CharacteristicLike,
 } from './characteristics'
@@ -113,6 +115,77 @@ describe('characteristic localization', () => {
   it('never fabricates a boolean that is not stored as one', () => {
     const notBoolean = row({ code: 'flag', name: 'Флаг', data_type: 'boolean', value: 'maybe', display_value: 'может быть' })
     expect(characteristicValue(notBoolean, 'en')).toBe('может быть')
+  })
+
+  it('localizes the stored Да/Нет options of an option-based boolean row', () => {
+    // The exact payload the API returns for a boolean definition: the state lives
+    // in `options[0].value`, the structured `value` repeats it as a real boolean.
+    const trueRow = {
+      code: 'has_3d_vcache', name: '3D V-Cache', data_type: 'boolean', editor: 'boolean',
+      unit: null, value: true, display_value: 'Да',
+      options: [{ option_id: 41, value: 'Да', quantity: 1 }],
+    }
+    const falseRow = {
+      code: 'has_integrated_graphics', name: 'Встроенная графика', data_type: 'boolean',
+      editor: 'boolean', unit: null, value: false, display_value: 'Нет',
+      options: [{ option_id: 42, value: 'Нет', quantity: 1 }],
+    }
+
+    expect(characteristicValue(trueRow, 'en')).toBe('Yes')
+    expect(characteristicValue(falseRow, 'en')).toBe('No')
+    expect(characteristicValue(trueRow, 'ru')).toBe('Да')
+    expect(characteristicValue(falseRow, 'ru')).toBe('Нет')
+    // The stored values are never rewritten, whichever language is active.
+    expect(trueRow.options[0].value).toBe('Да')
+    expect(falseRow.options[0].value).toBe('Нет')
+    expect(trueRow.options[0].option_id).toBe(41)
+    expect(falseRow.options[0].option_id).toBe(42)
+
+    expect(characteristicPairs([trueRow, falseRow], 'en')).toEqual([
+      { label: '3D V-Cache', value: 'Yes' },
+      { label: 'Integrated graphics', value: 'No' },
+    ])
+    expect(characteristicPairs([trueRow, falseRow], 'ru')).toEqual([
+      { label: '3D V-Cache', value: 'Да' },
+      { label: 'Встроенная графика', value: 'Нет' },
+    ])
+  })
+
+  it('keeps an unset boolean distinct from an explicit Нет', () => {
+    // An unset field has no row and no stored option; it never renders as `No`.
+    const unset = row({
+      code: 'unlocked_multiplier', name: 'Разблокированный множитель', data_type: 'boolean',
+      editor: 'boolean', value: undefined, display_value: '', options: [],
+    })
+    const explicitNo = row({
+      code: 'unlocked_multiplier', name: 'Разблокированный множитель', data_type: 'boolean',
+      editor: 'boolean', value: false, display_value: 'Нет',
+      options: [{ option_id: 43, value: 'Нет', quantity: 1 }],
+    })
+
+    expect(characteristicValue(unset, 'en')).toBe('')
+    expect(characteristicValue(unset, 'ru')).toBe('')
+    expect(characteristicValue(explicitNo, 'en')).toBe('No')
+    // An empty selection is dropped from the rendered lines, an explicit `Нет` is not.
+    expect(characteristicPairs([unset], 'en')).toEqual([])
+    expect(characteristicPairs([explicitNo], 'en')).toEqual([
+      { label: 'Unlocked multiplier', value: 'No' },
+    ])
+  })
+
+  it('translates only the two boolean dictionary values of a boolean field', () => {
+    // A non-boolean definition whose dictionary stores a word like `Да` keeps it.
+    expect(translateCharacteristicOptionValue('Да', 'boolean', 'boolean', 'en')).toBe('Yes')
+    expect(translateCharacteristicOptionValue('Нет', 'boolean', 'boolean', 'en')).toBe('No')
+    expect(translateCharacteristicOptionValue(' Да ', 'boolean', 'boolean', 'en')).toBe('Yes')
+    expect(translateCharacteristicOptionValue('Да', 'select', 'string', 'en')).toBe('Да')
+    expect(translateCharacteristicOptionValue('Да', 'boolean', 'boolean', 'ru')).toBe('Да')
+    expect(translateCharacteristicOptionValue('Чёрный', 'select', 'string', 'en')).toBe('Black')
+    expect(translateCharacteristicOptionValue('PCIe 8-pin', 'connector_quantity', 'string_list', 'en'))
+      .toBe('PCIe 8-pin')
+    expect(parseStoredBoolean('Да')).toBe(true)
+    expect(parseStoredBoolean('нет')).toBe(false)
+    expect(parseStoredBoolean('может быть')).toBeNull()
   })
 
   it('formats numbers without scientific notation', () => {

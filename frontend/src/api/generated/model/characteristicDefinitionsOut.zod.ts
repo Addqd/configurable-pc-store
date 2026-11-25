@@ -6,19 +6,37 @@
  */
 import * as zod from 'zod';
 
+export const characteristicDefinitionsOutFieldsItemOptionsDefault = [];
 export const characteristicDefinitionsOutFieldsDefault = [];
 export const CharacteristicDefinitionsOut = zod.object({
   "category_id": zod.int(),
   "category_name": zod.string(),
   "fields": zod.array(zod.object({
+  "id": zod.int(),
   "code": zod.string(),
   "name": zod.string(),
   "data_type": zod.enum(['string', 'number', 'boolean', 'string_list', 'number_list']),
+  "editor": zod.enum(['select', 'boolean', 'multiselect', 'connector_quantity', 'dimensions']),
   "unit": zod.union([zod.string(),zod.null()]).optional(),
   "sort_order": zod.int(),
   "is_required": zod.boolean(),
   "show_in_short": zod.boolean(),
-  "show_in_details": zod.boolean()
+  "show_in_details": zod.boolean(),
+  "options": zod.array(zod.object({
+  "option_id": zod.int(),
+  "value": zod.string()
+}).describe('One selectable dictionary value of a definition.')).default(characteristicDefinitionsOutFieldsItemOptionsDefault),
+  "limits": zod.object({
+  "max_selections": zod.int(),
+  "max_quantity": zod.int(),
+  "repeatable": zod.boolean(),
+  "dimensions": zod.union([zod.object({
+  "count": zod.int(),
+  "unit": zod.string(),
+  "max_value": zod.string(),
+  "decimal_places": zod.int()
+}).describe('Limits of the three-measurement dimensions editor.'),zod.null()]).optional()
+}).describe('Limits the editor enforces for one definition.')
 }).describe('One server-side field definition the admin editor renders dynamically.')).default(characteristicDefinitionsOutFieldsDefault)
 })
 

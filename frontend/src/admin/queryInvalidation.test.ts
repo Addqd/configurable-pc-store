@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { QueryClient } from '@tanstack/react-query'
 import {
-  invalidateAfterProductChange, invalidateAfterReviewChange, invalidatePath,
+  invalidateAfterProductChange, invalidateAfterReviewChange, invalidateCharacteristicDefinitions,
+  invalidatePath,
 } from './queryInvalidation'
 
 /** Seeds cache entries with the exact key shapes Orval generates. */
@@ -19,6 +20,10 @@ const filterKeys = [
   ['/api/v1/products/filters', {}],
   ['/api/v1/products/filters', { categories: ['gpu'], manufacturers: ['msi'] }],
 ] as const
+
+/** Category characteristic dictionaries, keyed exactly as Orval generates them. */
+const definitionsKey = (categoryId: number) =>
+  [`/api/v1/admin/categories/${categoryId}/characteristics`] as const
 
 describe('admin query invalidation', () => {
   it('matches path prefixes, which `[\'/api/v1/admin/products\', id]` never did', async () => {
@@ -111,5 +116,74 @@ describe('admin query invalidation', () => {
     await invalidateAfterReviewChange(client)
 
     for (const key of filterKeys) expect(isInvalidated(client, key), String(key)).toBe(false)
+  })
+
+  it('refreshes the characteristic dictionary of the affected category after a product change', async () => {
+    // A new `dimensions_mm` value is created in the dictionary of the written
+    // category, so the cached definitions of that category are stale.
+    const gpu = definitionsKey(8)
+    const cpu = definitionsKey(3)
+    const client = seededClient([gpu, cpu])
+
+    await invalidateAfterProductChange(client, [8])
+
+    expect(isInvalidated(client, gpu)).toBe(true)
+    expect(isInvalidated(client, cpu)).toBe(false)
+  })
+
+  it('covers a category transition by refreshing both categories', async () => {
+    const source = definitionsKey(8)
+    const target = definitionsKey(9)
+    const unrelated = definitionsKey(12)
+    const client = seededClient([source, target, unrelated])
+
+    await invalidateAfterProductChange(client, [9, 8])
+
+    expect(isInvalidated(client, source)).toBe(true)
+    expect(isInvalidated(client, target)).toBe(true)
+    expect(isInvalidated(client, unrelated)).toBe(false)
+  })
+
+  it('leaves the dictionaries cached for an image-only mutation', async () => {
+    // `[]` is what the form passes when only the gallery changed.
+    const client = seededClient([definitionsKey(8)])
+
+    await invalidateAfterProductChange(client, [])
+
+    expect(isInvalidated(client, definitionsKey(8))).toBe(false)
+  })
+
+  it('refreshes every dictionary when no category is given', async () => {
+    const keys = [definitionsKey(1), definitionsKey(8), definitionsKey(9)]
+    const client = seededClient(keys)
+
+    await invalidateCharacteristicDefinitions(client)
+
+    for (const key of keys) expect(isInvalidated(client, key), String(key)).toBe(true)
+  })
+
+  it('never treats a category endpoint as a characteristics dictionary', async () => {
+    const neighbours = [
+      ['/api/v1/admin/categories'],
+      ['/api/v1/admin/categories/8'],
+      ['/api/v1/admin/categories/8/products'],
+      ['/api/v1/admin/products/8/characteristics'],
+    ] as const
+    const client = seededClient([...neighbours, definitionsKey(8)])
+
+    await invalidateCharacteristicDefinitions(client, [8])
+
+    for (const key of neighbours) expect(isInvalidated(client, key), String(key)).toBe(false)
+    expect(isInvalidated(client, definitionsKey(8))).toBe(true)
+  })
+
+  it('does not cancel unrelated public queries while invalidating a dictionary', async () => {
+    const publicCatalog = ['/api/v1/products', { page: 1 }]
+    const client = seededClient([publicCatalog, definitionsKey(8)])
+
+    await invalidateCharacteristicDefinitions(client, [8])
+
+    expect(isInvalidated(client, definitionsKey(8))).toBe(true)
+    expect(isInvalidated(client, publicCatalog)).toBe(false)
   })
 })

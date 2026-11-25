@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+import math
 import re
 from datetime import date, datetime
 from decimal import Decimal
-from typing import Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    field_validator,
+    model_validator,
+)
 
 from app.schemas.catalog import (
     CategoryOut,
@@ -34,8 +41,17 @@ ProductSort = Literal[
 CharacteristicDataType = Literal[
     "string", "number", "boolean", "string_list", "number_list"
 ]
+CharacteristicEditor = Literal[
+    "select", "boolean", "multiselect", "connector_quantity", "dimensions"
+]
 
 MAX_IMAGE_COUNT = 10
+# Mirrors the service limits so an oversized payload fails before the service.
+MAX_SELECTION_COUNT = 50
+MAX_QUANTITY = 32
+MAX_DIMENSION_MM = 1000
+# A plain decimal literal: no exponent, no sign, no grouping, no whitespace.
+_DIMENSION_TEXT = re.compile(r"^\d{1,4}(?:\.\d{1,2})?$")
 _SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _NON_NULLABLE_UPDATE_FIELDS = (
     "name",
@@ -55,17 +71,47 @@ _NON_NULLABLE_UPDATE_FIELDS = (
 # ── Characteristic definitions (category-scoped) ─────────────────────────────
 
 
+class CharacteristicOptionOut(BaseModel):
+    """One selectable dictionary value of a definition."""
+
+    option_id: int
+    value: str
+
+
+class CharacteristicDimensionLimitsOut(BaseModel):
+    """Limits of the three-measurement dimensions editor."""
+
+    count: int
+    unit: str
+    max_value: str
+    decimal_places: int
+
+
+class CharacteristicEditorLimitsOut(BaseModel):
+    """Limits the editor enforces for one definition."""
+
+    max_selections: int
+    max_quantity: int
+    repeatable: bool
+    dimensions: CharacteristicDimensionLimitsOut | None = None
+
+
 class CharacteristicDefinitionOut(BaseModel):
     """One server-side field definition the admin editor renders dynamically."""
 
+    id: int
     code: str
     name: str
     data_type: CharacteristicDataType
+    editor: CharacteristicEditor
     unit: str | None = None
     sort_order: int
     is_required: bool
     show_in_short: bool
     show_in_details: bool
+    # The complete dictionary of this definition, including unused options.
+    options: list[CharacteristicOptionOut] = []
+    limits: CharacteristicEditorLimitsOut
 
 
 class CharacteristicDefinitionsOut(BaseModel):
@@ -74,18 +120,32 @@ class CharacteristicDefinitionsOut(BaseModel):
     fields: list[CharacteristicDefinitionOut] = []
 
 
-class CharacteristicValueIn(BaseModel):
-    """One submitted value.
+class CharacteristicOptionSelectionIn(BaseModel):
+    """One submitted dictionary pick with its repeat count.
+
+    Both integers are strict, so a JSON `true`, `1.0` or `"1"` is rejected here
+    instead of being coerced into a number the service would then accept.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    option_id: int = Field(strict=True, gt=0)
+    quantity: int = Field(default=1, strict=True, ge=1, le=MAX_QUANTITY)
+
+
+class CharacteristicOptionsIn(BaseModel):
+    """An ordinary characteristic write: explicit dictionary selections.
 
     A list of pairs (instead of an object) lets the API reject a duplicated code
-    in the same payload, which an object would silently collapse. `null` is never
-    a legal value: use `remove_characteristics` to delete an existing one.
+    in the same payload, which an object would silently collapse.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     code: str = Field(min_length=1, max_length=64)
-    value: Any
+    options: list[CharacteristicOptionSelectionIn] = Field(
+        min_length=1, max_length=MAX_SELECTION_COUNT
+    )
 
     @field_validator("code")
     @classmethod
@@ -94,6 +154,82 @@ class CharacteristicValueIn(BaseModel):
         if not cleaned:
             raise ValueError("Characteristic code must not be blank")
         return cleaned
+
+
+DimensionMeasurement = Annotated[
+    Decimal, Field(gt=0, le=MAX_DIMENSION_MM, allow_inf_nan=False)
+]
+
+
+def _dimension_text(value: object) -> str:
+    """Canonical plain-decimal text of one submitted measurement.
+
+    Exponent notation, grouping separators, signs, whitespace and non-numeric
+    text are rejected instead of being repaired; more than two decimal places is
+    rejected because the stored dictionary value cannot represent it faithfully.
+
+    Only `ValueError`/`AssertionError` become validation errors in Pydantic v2 — a
+    `TypeError` would escape as a runtime error and turn a malformed request into
+    HTTP 500 — so every rejection here is a `ValueError`.
+    """
+    if isinstance(value, bool) or value is None:
+        raise ValueError("A dimension measurement must be a number")
+    if isinstance(value, str):
+        text = value
+    elif isinstance(value, int):
+        text = str(value)
+    elif isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("A dimension measurement must be finite")
+        text = format(Decimal(repr(value)), "f")
+    elif isinstance(value, Decimal):
+        if not value.is_finite():
+            raise ValueError("A dimension measurement must be finite")
+        text = format(value, "f")
+    else:
+        # `noqa: TRY004` — Pydantic only converts `ValueError`/`AssertionError`, so a
+        # `TypeError` here would escape as a runtime error (HTTP 500) instead.
+        raise ValueError("A dimension measurement must be a number")  # noqa: TRY004
+    # `fullmatch`: `match` with `$` also accepts a trailing newline.
+    if _DIMENSION_TEXT.fullmatch(text) is None:
+        raise ValueError(
+            "A dimension measurement must be a plain number with at most two "
+            "decimal places"
+        )
+    return text
+
+
+class CharacteristicDimensionsIn(BaseModel):
+    """A GPU dimensions write: exactly three ordered millimetre measurements."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    code: str = Field(min_length=1, max_length=64)
+    dimensions: tuple[DimensionMeasurement, DimensionMeasurement, DimensionMeasurement]
+
+    @field_validator("code")
+    @classmethod
+    def clean_code(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Characteristic code must not be blank")
+        return cleaned
+
+    @field_validator("dimensions", mode="before")
+    @classmethod
+    def clean_dimensions(cls, value: object) -> object:
+        # A `ValueError` (never a `TypeError`) so a malformed body stays a 422.
+        if not isinstance(value, list | tuple):
+            raise ValueError("Exactly three dimensions are required")  # noqa: TRY004
+        if len(value) != 3:
+            raise ValueError("Exactly three dimensions are required")
+        return tuple(_dimension_text(item) for item in value)
+
+
+CharacteristicValueIn = Annotated[
+    CharacteristicOptionsIn | CharacteristicDimensionsIn,
+    Field(union_mode="left_to_right"),
+]
 
 
 # ── Shared catalogue payloads ────────────────────────────────────────────────
