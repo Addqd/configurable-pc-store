@@ -59,8 +59,9 @@ export function CharacteristicFieldEditor({
   const name = characteristicLabel(field, language)
   const unitText = translateCharacteristicUnit(field.unit, language)
   // The editable number shows the affix of its own dictionary wording. A constant
-  // unit is localized like every other unit; `CL` and `″` pass through unchanged,
-  // and a count word stays in the dictionary's language.
+  // unit is localized like every other unit; `CL` and `″` pass through unchanged.
+  // The count word of a plural field depends on the typed number, so the ComboBox
+  // derives it from the active language itself.
   const numericLimits = field.limits?.numeric
     ? {
         ...field.limits.numeric,

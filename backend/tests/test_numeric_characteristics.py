@@ -370,6 +370,56 @@ def test_field_specific_maximum_and_precision(
             numeric_spec.validate_numeric_value(policy, number)
 
 
+@pytest.mark.parametrize(
+    ("raw", "accepted"),
+    [
+        ("750", True),
+        ("3.40", True),
+        ("3.000", True),
+        (" 750", False),
+        ("750 ", False),
+        ("750\t", False),
+        ("750\n", False),
+        ("1 2", False),
+        ("+750", False),
+        ("-750", False),
+        ("1e3", False),
+        ("750 Вт", False),
+        (" ", False),
+        ("", False),
+        ("1" * 20, True),
+        ("1" * 21, False),
+    ],
+)
+def test_lexical_forms_match_the_frontend_validation(raw: str, accepted: bool) -> None:
+    """The same table is asserted by the frontend numeric editor.
+
+    Frontend counterpart: `src/admin/characteristicDrafts.test.ts`, so a value the
+    editor accepts can never be rejected by the service (or vice versa) because of
+    a sign, whitespace, exponent notation or the shared 20-character limit.
+    """
+    policy = numeric_spec.NumericFieldPolicy(
+        max_value=Decimal("1" + "0" * 30), decimal_places=2, affix="г"
+    )
+    if accepted:
+        assert numeric_spec.validate_numeric_value(policy, raw) > 0
+        return
+    with pytest.raises(InvalidInputError) as raised:
+        numeric_spec.validate_numeric_value(policy, raw)
+    assert raised.value.status_code == 422
+
+
+@pytest.mark.parametrize("raw", ["+750", "-750", "+0.5"])
+def test_contract_rejects_a_leading_sign(raw: str) -> None:
+    """The API contract rejects a sign before the service sees the value."""
+    from pydantic import ValidationError
+
+    from app.schemas.admin_products import CharacteristicNumericIn
+
+    with pytest.raises(ValidationError):
+        CharacteristicNumericIn(code="wattage_w", numeric_value=raw)
+
+
 def test_trailing_zeros_are_not_excess_precision() -> None:
     policy = numeric_spec.numeric_policy("cpu", "base_clock_ghz")
     assert policy is not None

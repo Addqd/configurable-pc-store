@@ -2,10 +2,12 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 import { FiChevronDown, FiX } from 'react-icons/fi'
 import {
+  normalizeNumericText,
   numericAffixOf,
   numericTextFromOptionValue,
   type NumericLimitsInput,
 } from '../../admin/characteristicDrafts'
+import { localizedCountWord, localizedNumericOptionValue } from '../../i18n/characteristics'
 
 /** One dictionary value of an editable numeric characteristic. */
 export interface NumericComboOption {
@@ -17,7 +19,10 @@ interface NumericComboEntry {
   option: NumericComboOption
   /** Stable per-option id fragment of the listbox option element. */
   key: number
+  /** Number read from the original dictionary wording, for filtering and ARIA. */
   numeric: string
+  /** Localized presentation of the original dictionary wording. */
+  label: string
 }
 
 /**
@@ -62,7 +67,8 @@ export function NumericComboBox({
   onPick: (optionId: number, text: string) => void
   onClear: () => void
 }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n.resolvedLanguage ?? i18n.language ?? 'ru'
   const listId = `${id}-listbox`
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -76,28 +82,38 @@ export function NumericComboBox({
   const [typedInPopup, setTypedInPopup] = useState(false)
 
   // The server orders the dictionary by numeric magnitude, so filtering keeps
-  // that order instead of sorting by text.
+  // that order instead of sorting by text. The original wording stays the value;
+  // only its presentation is localized.
   const entries = useMemo<NumericComboEntry[]>(
     () =>
       options.map((option) => ({
         option,
         key: option.option_id,
         numeric: numericTextFromOptionValue(option.value),
+        label: localizedNumericOptionValue(option.value, language),
       })),
-    [options],
+    [options, language],
   )
   const typed = text.trim()
   const needle = typedInPopup ? typed.toLocaleLowerCase() : ''
+  // A decimal comma typed for filtering is matched as a point; the draft itself is
+  // never rewritten by the popup.
+  const numericNeedle = normalizeNumericText(needle)
   const filtered = useMemo(() => {
     if (!needle) return entries
     return entries.filter(
       (entry) =>
-        entry.numeric.startsWith(needle) ||
+        (numericNeedle !== '' && entry.numeric.startsWith(numericNeedle)) ||
+        entry.label.toLocaleLowerCase().includes(needle) ||
         entry.option.value.toLocaleLowerCase().includes(needle),
     )
-  }, [entries, needle])
+  }, [entries, needle, numericNeedle])
 
-  const affix = numericAffixOf(limits, text)
+  const affix = numericAffixOf(
+    limits,
+    text,
+    (forms, number) => localizedCountWord(forms, number, language),
+  )
   const prefix = limits?.style === 'prefix' ? affix : ''
   const suffix = limits?.style === 'prefix' ? '' : affix
   const active = open && activeIndex >= 0 ? filtered[activeIndex] : undefined
@@ -156,6 +172,8 @@ export function NumericComboBox({
   const commit = (index: number) => {
     const entry = filtered[index]
     if (!entry) return
+    // The original option id and its number are reported; the localized label is
+    // presentation only and never becomes the value.
     onPick(entry.option.option_id, entry.numeric)
     closeList()
     stayClosedRef.current = true
@@ -328,7 +346,7 @@ export function NumericComboBox({
                 index === activeIndex ? 'bg-surface-3' : ''
               }`}
             >
-              {entry.option.value}
+              {entry.label}
             </li>
           ))}
         </ul>

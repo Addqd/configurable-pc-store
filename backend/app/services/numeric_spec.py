@@ -30,11 +30,13 @@ STYLE_SYMBOL: Final = "symbol"
 
 STYLES: Final = (STYLE_SUFFIX, STYLE_PREFIX, STYLE_SYMBOL)
 
-# A plain decimal literal. A leading sign is matched only so that a negative
-# number is rejected with its own message instead of a generic format error;
-# exponent notation, grouping separators and whitespace never match. Only ASCII
+# A plain unsigned decimal literal: at least one ASCII digit before an optional
+# decimal point and, when the point is present, at least one digit after it.
+# Signs (a leading `+` as well as `-`), exponent notation, grouping separators and
+# whitespace never match, so a malformed value is rejected instead of being
+# repaired — `1 2` never becomes `12` and `+750` never becomes `750`. Only ASCII
 # digits are accepted, so a mixed-script number cannot enter the dictionary.
-_NUMERIC_LITERAL: Final = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?")
+_NUMERIC_LITERAL: Final = re.compile(r"[0-9]+(?:\.[0-9]+)?")
 # Upper bound for one submitted value text (the dictionary column allows 500).
 MAX_NUMERIC_TEXT_LENGTH: Final = 20
 
@@ -197,9 +199,9 @@ def _decimal_places(number: Decimal) -> int:
 def parse_numeric_literal(raw: object) -> Decimal:
     """Strict lexical parse of a submitted numeric value.
 
-    Only a plain decimal literal is accepted. Exponent notation, grouping
-    separators, embedded whitespace, unit suffixes and non-string values are
-    rejected instead of being repaired — `1 2` never becomes `12`.
+    Only a plain unsigned decimal literal is accepted. Signs, exponent notation,
+    grouping separators, embedded whitespace, unit suffixes and non-string values
+    are rejected instead of being repaired — `1 2` never becomes `12`.
     """
     if isinstance(raw, bool) or not isinstance(raw, str):
         # A `ValueError`-free path: the caller maps this to HTTP 422.

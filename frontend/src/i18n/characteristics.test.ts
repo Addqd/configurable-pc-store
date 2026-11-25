@@ -6,6 +6,8 @@ import {
   characteristicPairs,
   characteristicValue,
   formatCharacteristicNumber,
+  localizedCountWord,
+  localizedNumericOptionValue,
   parseStoredBoolean,
   translateCharacteristicCategoricalValue,
   translateCharacteristicLabel,
@@ -277,5 +279,56 @@ describe('numeric characteristic rendering', () => {
         'en',
       ),
     ).toBe('3.4 GHz')
+  })
+})
+
+describe('numeric dictionary option localization', () => {
+  it('localizes the units of a stored numeric value for English', () => {
+    expect(localizedNumericOptionValue('3.4 ГГц', 'ru')).toBe('3.4 ГГц')
+    expect(localizedNumericOptionValue('3.4 ГГц', 'en')).toBe('3.4 GHz')
+    expect(localizedNumericOptionValue('2475 МГц', 'en')).toBe('2475 MHz')
+    expect(localizedNumericOptionValue('750 Вт', 'en')).toBe('750 W')
+    expect(localizedNumericOptionValue('12 ГБ', 'en')).toBe('12 GB')
+    expect(localizedNumericOptionValue('512 МБ', 'en')).toBe('512 MB')
+    expect(localizedNumericOptionValue('512 КБ', 'en')).toBe('512 KB')
+    expect(localizedNumericOptionValue('905.5 г', 'en')).toBe('905.5 g')
+    expect(localizedNumericOptionValue('234.1 мм', 'en')).toBe('234.1 mm')
+    expect(localizedNumericOptionValue('0.5 мс', 'en')).toBe('0.5 ms')
+    expect(localizedNumericOptionValue('7200 об/мин', 'en')).toBe('7200 RPM')
+    expect(localizedNumericOptionValue('20 Гбит/с', 'en')).toBe('20 Gbps')
+    expect(localizedNumericOptionValue('1000 МБ/с', 'en')).toBe('1000 MB/s')
+    // A prefix and a symbol have no translation and are kept verbatim.
+    expect(localizedNumericOptionValue('CL36', 'en')).toBe('CL36')
+    expect(localizedNumericOptionValue('24″', 'en')).toBe('24″')
+    // An unknown unit is shown exactly as stored.
+    expect(localizedNumericOptionValue('5 фунт', 'en')).toBe('5 фунт')
+  })
+
+  it('uses the English singular only for exactly one item', () => {
+    expect(localizedNumericOptionValue('1 ядро', 'en')).toBe('1 core')
+    expect(localizedNumericOptionValue('2 ядра', 'en')).toBe('2 cores')
+    expect(localizedNumericOptionValue('21 ядро', 'en')).toBe('21 cores')
+    expect(localizedNumericOptionValue('1 поток', 'en')).toBe('1 thread')
+    expect(localizedNumericOptionValue('12 потоков', 'en')).toBe('12 threads')
+    expect(localizedNumericOptionValue('1 слот', 'en')).toBe('1 slot')
+    expect(localizedNumericOptionValue('2.5 слота', 'en')).toBe('2.5 slots')
+    // Russian keeps the stored wording verbatim.
+    expect(localizedNumericOptionValue('21 ядро', 'ru')).toBe('21 ядро')
+    expect(localizedNumericOptionValue('2.5 слота', 'ru')).toBe('2.5 слота')
+  })
+
+  it('derives the count word of the editor affix in both languages', () => {
+    const cores = { one: 'ядро', few: 'ядра', many: 'ядер' }
+    expect(localizedCountWord(cores, 1, 'ru')).toBe('ядро')
+    expect(localizedCountWord(cores, 2, 'ru')).toBe('ядра')
+    expect(localizedCountWord(cores, 21, 'ru')).toBe('ядро')
+    expect(localizedCountWord(cores, 2.5, 'ru')).toBe('ядра')
+    expect(localizedCountWord(cores, 1, 'en')).toBe('core')
+    expect(localizedCountWord(cores, 2, 'en')).toBe('cores')
+    expect(localizedCountWord(cores, 21, 'en')).toBe('cores')
+    expect(localizedCountWord(cores, 2.5, 'en')).toBe('cores')
+    const slots = { one: 'слот', few: 'слота', many: 'слотов' }
+    expect(localizedCountWord(slots, 1, 'en')).toBe('slot')
+    expect(localizedCountWord(slots, 4, 'en')).toBe('slots')
   })
 })

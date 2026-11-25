@@ -7,7 +7,7 @@ import { CatalogPage } from './CatalogPage'
 
 vi.mock('../components/Header', () => ({ Header: () => <div /> }))
 vi.mock('../components/Footer', () => ({ Footer: () => <div /> }))
-vi.mock('../components/CatalogProductCard', () => ({ CatalogProductCard: ({ product }: { product: { name: string; category: string; shortSpecs?: string[] } }) => <article>{product.category}: {product.name}<span>{product.shortSpecs?.[0]}</span></article> }))
+vi.mock('../components/CatalogProductCard', () => ({ CatalogProductCard: ({ product }: { product: { name: string; category: string; shortSpecs?: string[] } }) => <article>{product.category}: {product.name}<span>{product.shortSpecs?.join(' · ')}</span></article> }))
 const setup = (path = '/catalog') => render(<MemoryRouter initialEntries={[path]}><Routes><Route path="/catalog" element={<CatalogPage />} /></Routes></MemoryRouter>)
 function deferred<T>() {
   let resolve!: (value: T) => void

@@ -52,11 +52,12 @@ MAX_QUANTITY = 32
 MAX_DIMENSION_MM = 1000
 # A plain decimal literal: no exponent, no sign, no grouping, no whitespace.
 _DIMENSION_TEXT = re.compile(r"^\d{1,4}(?:\.\d{1,2})?$")
-# Lexical form of a custom scalar number. A sign is matched only so that the
-# contract can report a non-positive value instead of a format error; the field
-# specific limits (maximum, decimal places, allowlist) are enforced by the
-# service, which owns the per-field policy. ASCII digits only.
-_NUMERIC_TEXT = re.compile(r"[+-]?[0-9]+(?:\.[0-9]+)?")
+# Lexical form of a custom scalar number: unsigned ASCII decimal digits only, so
+# a leading `+`/`-` is rejected exactly like the service rejects it. Exponent
+# notation, grouping separators and whitespace never match. The field specific
+# limits (maximum, decimal places, allowlist) are enforced by the service, which
+# owns the per-field policy.
+_NUMERIC_TEXT = re.compile(r"[0-9]+(?:\.[0-9]+)?")
 MAX_NUMERIC_TEXT_LENGTH = 20
 _SLUG_RE = re.compile(r"[a-z0-9]+(?:-[a-z0-9]+)*")
 _NON_NULLABLE_UPDATE_FIELDS = (

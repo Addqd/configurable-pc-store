@@ -55,6 +55,34 @@ const SELECT_FIELD: CharacteristicDefinitionLike = {
   limits: { max_selections: 1, max_quantity: 1, repeatable: false },
 }
 
+const CORES_FIELD: CharacteristicDefinitionLike = {
+  code: 'cores',
+  name: 'Количество ядер',
+  data_type: 'number',
+  editor: 'numeric',
+  unit: null,
+  sort_order: 3,
+  is_required: false,
+  show_in_short: false,
+  show_in_details: true,
+  options: [
+    { option_id: 81, value: '1 ядро' },
+    { option_id: 82, value: '6 ядер' },
+  ],
+  limits: {
+    max_selections: 1,
+    max_quantity: 1,
+    repeatable: false,
+    numeric: {
+      max_value: '1024',
+      decimal_places: 0,
+      style: 'suffix',
+      affix: null,
+      plural_forms: { one: 'ядро', few: 'ядра', many: 'ядер' },
+    },
+  },
+}
+
 const BOOLEAN_FIELD: CharacteristicDefinitionLike = {
   code: 'has_rgb',
   name: 'Подсветка',
@@ -89,6 +117,13 @@ function Harness({ field }: { field: CharacteristicDefinitionLike }) {
       onChange={(patch) => setDraft((current) => ({ ...current, ...patch }))}
     />
   )
+}
+
+/** Text of the control wrapper that holds the input and its affix. */
+function controlText(input: HTMLInputElement): string {
+  const wrapper = input.parentElement?.parentElement
+  if (!wrapper) throw new Error('control wrapper missing')
+  return wrapper.textContent ?? ''
 }
 
 describe('CharacteristicFieldEditor', () => {
@@ -158,6 +193,27 @@ describe('CharacteristicFieldEditor', () => {
       'Yes',
       'No',
     ])
+  })
+
+  it('localizes the count word of a plural numeric field', async () => {
+    render(<Harness field={CORES_FIELD} />)
+    const ru = screen.getByRole('combobox', { name: 'Количество ядер' }) as HTMLInputElement
+    fireEvent.change(ru, { target: { value: '6' } })
+    expect(controlText(ru)).toContain('ядер')
+
+    await i18n.changeLanguage('en')
+    cleanup()
+    render(<Harness field={CORES_FIELD} />)
+    const en = screen.getByRole('combobox', { name: 'Core count' }) as HTMLInputElement
+    fireEvent.focus(en)
+    expect(
+      [...document.querySelectorAll('#characteristic-cores-listbox [role="option"]')]
+        .map((node) => node.textContent),
+    ).toEqual(['1 core', '6 cores'])
+    fireEvent.change(en, { target: { value: '6' } })
+    expect(controlText(en)).toContain('cores')
+    fireEvent.change(en, { target: { value: '1' } })
+    expect(controlText(en)).toContain('core')
   })
 
   it('never turns a used value into a different control when disabled', () => {

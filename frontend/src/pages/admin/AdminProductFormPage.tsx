@@ -159,7 +159,15 @@ function formFromProduct(product: AdminProductDetailOut): ProductFormState {
   }
 }
 
-/** Values the API currently stores, keyed by characteristic code. */
+/**
+ * Values the API currently stores, keyed by characteristic code.
+ *
+ * The snapshot keeps everything the detail response confirms: data type, option
+ * ids, quantities, the original dictionary wording, the structured value and the
+ * rendered display string. Numeric text and the three GPU measurements are
+ * reconstructed from it, so a category transition back to the original category
+ * restores them without another request.
+ */
 function storedCharacteristicsOf(
   product: AdminProductDetailOut,
 ): Record<string, StoredCharacteristic> {
@@ -170,8 +178,11 @@ function storedCharacteristicsOf(
         options: (row.options ?? []).map((option) => ({
           optionId: option.option_id,
           quantity: option.quantity ?? 1,
+          value: option.value,
         })),
         dataType: row.data_type,
+        value: row.value,
+        displayValue: row.display_value,
       },
     ]),
   )
@@ -179,22 +190,15 @@ function storedCharacteristicsOf(
 
 /** Editable drafts of the values the API currently stores. */
 function draftsFrom(product: AdminProductDetailOut): Record<string, CharacteristicDraft> {
+  const stored = storedCharacteristicsOf(product)
   const drafts: Record<string, CharacteristicDraft> = {}
   for (const row of product.characteristics ?? []) {
+    // The detail response declares the editor and the data type of every stored
+    // value, and the snapshot carries its structured value, so hydration never
+    // depends on the definitions request.
     drafts[row.code] = draftFromStored(
-      // The detail response declares the editor and the data type of every stored
-      // value, so hydration never depends on the definitions request.
       { editor: row.editor, data_type: row.data_type },
-      {
-        options: (row.options ?? []).map((option) => ({
-          optionId: option.option_id,
-          quantity: option.quantity ?? 1,
-          value: option.value,
-        })),
-        dataType: row.data_type,
-      },
-      row.value,
-      row.display_value,
+      stored[row.code],
     )
   }
   return drafts
