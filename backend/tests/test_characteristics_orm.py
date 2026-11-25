@@ -1,18 +1,23 @@
 """Metadata-only ORM checks for the normalized characteristics schema.
 
 These tests inspect `Base.metadata` and the configured mappers directly, so they
-need no database connection and never modify data. The tables declared here are
-not part of the applied PostgreSQL schema yet: the Alembic revision is generated
-and applied by the project owner in a separate, reviewed step.
+need no database connection and never modify data. Tables declared here are not
+part of the applied PostgreSQL schema until the project owner reviews and applies
+the generated Alembic revision; nothing in this module creates or alters tables.
+
+Approved structure: `characteristics` (definitions) -> `characteristic_options`
+(value dictionary) <- `product_characteristics` (associations with quantity).
 """
 
 from __future__ import annotations
+
+import warnings
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
-    ForeignKey,
+    ForeignKeyConstraint,
     Identity,
     Index,
     Integer,
@@ -20,18 +25,19 @@ from sqlalchemy import (
     UniqueConstraint,
     inspect,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.exc import SAWarning
 from sqlalchemy.orm import configure_mappers
 
 from app.db.base import Base
 from app.models import (
     Category,
     Characteristic,
+    CharacteristicOption,
     Product,
     ProductCharacteristic,
 )
 
-NEW_TABLES = ("characteristics", "product_characteristics")
+TABLES = ("characteristics", "characteristic_options", "product_characteristics")
 
 
 def _table(name: str):
@@ -62,6 +68,13 @@ def _check_sql(table, name: str) -> str:
     raise AssertionError(f"CHECK constraint {name!r} is not declared")
 
 
+def _unique(table, name: str) -> UniqueConstraint:
+    for constraint in table.constraints:
+        if isinstance(constraint, UniqueConstraint) and constraint.name == name:
+            return constraint
+    raise AssertionError(f"unique constraint {name!r} is not declared")
+
+
 def _unique_names(table) -> set[str]:
     return {
         constraint.name
@@ -77,29 +90,43 @@ def _index_columns(table, name: str) -> list[str]:
     raise AssertionError(f"index {name!r} is not declared")
 
 
-def _foreign_key(table, column_name: str) -> ForeignKey:
-    for foreign_key in table.foreign_keys:
-        if foreign_key.parent.name == column_name:
-            return foreign_key
-    raise AssertionError(f"foreign key on {column_name!r} is not declared")
+def _single_column_foreign_keys(table) -> dict[str, ForeignKeyConstraint]:
+    """Foreign keys that constrain exactly one local column, keyed by that column."""
+    single: dict[str, ForeignKeyConstraint] = {}
+    for constraint in table.foreign_key_constraints:
+        if len(constraint.columns) == 1:
+            single[next(iter(constraint.columns)).name] = constraint
+    return single
+
+
+def _foreign_key_named(table, name: str) -> ForeignKeyConstraint:
+    for constraint in table.foreign_key_constraints:
+        if constraint.name == name:
+            return constraint
+    raise AssertionError(f"foreign key constraint {name!r} is not declared")
 
 
 # ── Registration ─────────────────────────────────────────────────────────────
 
 
-def test_new_tables_are_registered_on_shared_metadata() -> None:
-    for name in NEW_TABLES:
+def test_three_characteristics_tables_are_registered_on_shared_metadata() -> None:
+    for name in TABLES:
         assert name in Base.metadata.tables, name
     assert _table("characteristics") is Characteristic.__table__
+    assert _table("characteristic_options") is CharacteristicOption.__table__
     assert _table("product_characteristics") is ProductCharacteristic.__table__
 
 
-def test_new_models_are_configured_with_the_existing_base() -> None:
+def test_characteristics_models_use_the_existing_declarative_base() -> None:
     configure_mappers()
-    assert Characteristic.__tablename__ == "characteristics"
-    assert ProductCharacteristic.__tablename__ == "product_characteristics"
-    assert Characteristic.metadata is Base.metadata
-    assert ProductCharacteristic.metadata is Base.metadata
+    for model, table_name in (
+        (Characteristic, "characteristics"),
+        (CharacteristicOption, "characteristic_options"),
+        (ProductCharacteristic, "product_characteristics"),
+    ):
+        assert model.__tablename__ == table_name
+        assert model.metadata is Base.metadata
+        assert issubclass(model, Base)
 
 
 def test_all_related_mappers_configure_with_their_relationships() -> None:
@@ -111,18 +138,37 @@ def test_all_related_mappers_configure_with_their_relationships() -> None:
     assert set(inspect(Characteristic).relationships.keys()) == {
         "category",
         "values",
+        "options",
     }
+    assert set(inspect(CharacteristicOption).relationships.keys()) == {"characteristic"}
     assert set(inspect(ProductCharacteristic).relationships.keys()) == {
         "product",
         "characteristic",
+        "option",
     }
     assert set(inspect(Product).relationships.keys()) >= {"characteristics"}
+
+
+def test_mapper_configuration_emits_no_sqlalchemy_warnings() -> None:
+    # `characteristic_id` belongs to both the definition foreign key and the
+    # composite option foreign key. An unannotated join would make the flush
+    # order non-deterministic and emit an SAWarning about conflicting columns.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        configure_mappers()
+    sqlalchemy_warnings = [
+        str(record.message)
+        for record in caught
+        if issubclass(record.category, SAWarning)
+    ]
+    assert sqlalchemy_warnings == []
 
 
 # ── Columns / types / nullability ────────────────────────────────────────────
 
 
-def test_characteristics_columns() -> None:
+def test_characteristics_definition_columns_are_preserved() -> None:
+    # The approved change must not alter existing characteristic definitions.
     assert set(_table("characteristics").c.keys()) == {
         "id",
         "category_id",
@@ -137,12 +183,24 @@ def test_characteristics_columns() -> None:
     }
 
 
-def test_product_characteristics_columns_have_no_surrogate_id() -> None:
+def test_characteristic_options_columns() -> None:
+    assert set(_table("characteristic_options").c.keys()) == {
+        "id",
+        "characteristic_name_id",
+        "value",
+    }
+
+
+def test_product_characteristics_columns_have_no_value_and_no_surrogate_id() -> None:
     assert set(_table("product_characteristics").c.keys()) == {
         "product_id",
         "characteristic_id",
-        "value",
+        "characteristic_option_id",
+        "quantity",
     }
+    assert "value" not in _table("product_characteristics").c
+    assert not hasattr(ProductCharacteristic, "value")
+    assert "position" not in _table("product_characteristics").c
 
 
 def test_characteristics_types_and_nullability() -> None:
@@ -169,22 +227,30 @@ def test_characteristics_types_and_nullability() -> None:
         assert table.c[boolean_column].nullable is False, boolean_column
 
 
+def test_characteristic_options_types_and_nullability() -> None:
+    table = _table("characteristic_options")
+    assert isinstance(table.c.id.type, BigInteger)
+    assert isinstance(table.c.characteristic_name_id.type, BigInteger)
+    assert table.c.characteristic_name_id.nullable is False
+    assert isinstance(table.c.value.type, String)
+    assert table.c.value.type.length == 500
+    assert table.c.value.nullable is False
+    # Values are plain, display-ready strings: no JSON, numbers or units.
+    assert table.c.value.default is None
+    assert table.c.value.server_default is None
+    assert set(table.c.keys()) == {"id", "characteristic_name_id", "value"}
+
+
 def test_product_characteristics_types_and_nullability() -> None:
     table = _table("product_characteristics")
     assert isinstance(table.c.product_id.type, BigInteger)
     assert table.c.product_id.nullable is False
     assert isinstance(table.c.characteristic_id.type, BigInteger)
     assert table.c.characteristic_id.nullable is False
-    assert table.c.value.nullable is False
-
-
-def test_value_column_is_jsonb_without_default() -> None:
-    # One definition can hold a string, number, boolean, string list or number
-    # list; no type may be forced and no arbitrary default is allowed.
-    value = _table("product_characteristics").c.value
-    assert isinstance(value.type, JSONB)
-    assert value.default is None
-    assert value.server_default is None
+    assert isinstance(table.c.characteristic_option_id.type, BigInteger)
+    assert table.c.characteristic_option_id.nullable is False
+    assert isinstance(table.c.quantity.type, Integer)
+    assert table.c.quantity.nullable is False
 
 
 # ── Server defaults ──────────────────────────────────────────────────────────
@@ -208,6 +274,14 @@ def test_characteristics_server_defaults() -> None:
         assert table.c[column_name].server_default is not None, column_name
 
 
+def test_quantity_defaults_to_one_single_value() -> None:
+    quantity = _table("product_characteristics").c.quantity
+    assert _default_text(quantity) == "1"
+    # PostgreSQL owns the default so repeated values need no Python-side value.
+    assert quantity.default is None
+    assert quantity.server_default is not None
+
+
 # ── Primary keys ─────────────────────────────────────────────────────────────
 
 
@@ -219,16 +293,47 @@ def test_characteristics_identity_primary_key() -> None:
     assert table.c.id.autoincrement in (True, "auto")
 
 
+def test_characteristic_options_identity_primary_key() -> None:
+    table = _table("characteristic_options")
+    assert [column.name for column in table.primary_key.columns] == ["id"]
+    assert isinstance(table.c.id.server_default, Identity)
+    assert table.c.id.autoincrement in (True, "auto")
+
+
 def test_product_characteristics_composite_primary_key() -> None:
     primary_key = list(_table("product_characteristics").primary_key.columns)
     assert [column.name for column in primary_key] == [
         "product_id",
         "characteristic_id",
+        "characteristic_option_id",
     ]
     assert all(column.nullable is False for column in primary_key)
 
 
-# ── Constraints and indexes ──────────────────────────────────────────────────
+# ── Unique constraints ───────────────────────────────────────────────────────
+
+
+def test_option_values_are_unique_within_each_characteristic() -> None:
+    table = _table("characteristic_options")
+    assert _unique_names(table) == {
+        "uq_characteristic_options_name_value",
+        "uq_characteristic_options_name_id",
+    }
+    pairs = _unique(table, "uq_characteristic_options_name_value")
+    assert [column.name for column in pairs.columns] == [
+        "characteristic_name_id",
+        "value",
+    ]
+
+
+def test_option_referenced_key_supports_the_composite_foreign_key() -> None:
+    referenced = _unique(
+        _table("characteristic_options"), "uq_characteristic_options_name_id"
+    )
+    assert [column.name for column in referenced.columns] == [
+        "characteristic_name_id",
+        "id",
+    ]
 
 
 def test_characteristics_unique_and_check_constraints() -> None:
@@ -254,26 +359,45 @@ def test_characteristics_unique_and_check_constraints() -> None:
     )
 
 
+# ── CHECK constraints ────────────────────────────────────────────────────────
+
+
+def test_option_values_reject_empty_and_whitespace_only_strings() -> None:
+    table = _table("characteristic_options")
+    assert _check_names(table) == {"ck_characteristic_options_value_nonempty"}
+    # btrim removes the whitespace a plain length() check would accept.
+    assert _check_sql(table, "ck_characteristic_options_value_nonempty") == (
+        "length(btrim(value)) > 0"
+    )
+
+
+def test_product_characteristics_only_rejects_non_positive_quantity() -> None:
+    table = _table("product_characteristics")
+    # The JSONB null check is gone together with the JSONB column.
+    assert _check_names(table) == {"ck_product_characteristics_quantity_positive"}
+    assert _check_sql(table, "ck_product_characteristics_quantity_positive") == (
+        "quantity > 0"
+    )
+
+
+# ── Indexes ──────────────────────────────────────────────────────────────────
+
+
 def test_characteristics_category_index() -> None:
     assert _index_columns(
         _table("characteristics"), "ix_characteristics_category_id"
     ) == ["category_id"]
 
 
-def test_product_characteristics_json_null_check() -> None:
-    table = _table("product_characteristics")
-    assert _check_names(table) == {"ck_product_characteristics_value_not_null"}
-    assert _check_sql(table, "ck_product_characteristics_value_not_null") == (
-        "value <> 'null'::jsonb"
-    )
-
-
-def test_product_characteristics_characteristic_index() -> None:
+def test_product_characteristics_lookup_indexes_are_not_redundant() -> None:
     table = _table("product_characteristics")
     assert _index_columns(table, "ix_product_characteristics_characteristic_id") == [
         "characteristic_id"
     ]
-    # The composite primary key covers product-oriented access.
+    assert _index_columns(
+        table, "ix_product_characteristics_characteristic_option_id"
+    ) == ["characteristic_option_id"]
+    # The composite primary key already covers product-oriented access.
     product_indexes = [
         index
         for index in table.indexes
@@ -283,15 +407,21 @@ def test_product_characteristics_characteristic_index() -> None:
     assert product_indexes == []
 
 
+def test_characteristic_options_has_no_extra_indexes() -> None:
+    # Both lookup paths are already served by the two unique constraints.
+    table = _table("characteristic_options")
+    assert {index.name for index in table.indexes} == set()
+
+
 # ── Foreign keys ─────────────────────────────────────────────────────────────
 
 
 def test_characteristics_foreign_key_restricts_category_delete() -> None:
     table = _table("characteristics")
     assert len(list(table.foreign_keys)) == 1
-    foreign_key = _foreign_key(table, "category_id")
-    assert foreign_key.column.table.name == "categories"
-    assert foreign_key.column.name == "id"
+    foreign_key = _single_column_foreign_keys(table)["category_id"]
+    assert foreign_key.referred_table.name == "categories"
+    assert foreign_key.elements[0].column.name == "id"
     assert foreign_key.ondelete == "RESTRICT"
 
 
@@ -302,17 +432,54 @@ def test_characteristics_are_category_scoped_not_product_type_scoped() -> None:
     assert targets == {"categories"}
 
 
-def test_product_characteristics_foreign_keys_and_delete_rules() -> None:
-    table = _table("product_characteristics")
-    assert len(list(table.foreign_keys)) == 2
+def test_options_are_definition_scoped_and_product_independent() -> None:
+    table = _table("characteristic_options")
+    assert len(table.foreign_key_constraints) == 1
+    foreign_key = _single_column_foreign_keys(table)["characteristic_name_id"]
+    assert foreign_key.referred_table.name == "characteristics"
+    assert foreign_key.elements[0].column.name == "id"
+    assert foreign_key.ondelete == "RESTRICT"
+    # The value dictionary must not depend on products.
+    assert "product_id" not in table.c
+    assert {fk.column.table.name for fk in table.foreign_keys} == {"characteristics"}
 
-    product_fk = _foreign_key(table, "product_id")
-    assert product_fk.column.table.name == "products"
+
+def test_product_characteristics_single_column_foreign_keys_and_delete_rules() -> None:
+    table = _table("product_characteristics")
+    single = _single_column_foreign_keys(table)
+    assert set(single) == {"product_id", "characteristic_id"}
+
+    product_fk = single["product_id"]
+    assert product_fk.referred_table.name == "products"
     assert product_fk.ondelete == "CASCADE"
 
-    characteristic_fk = _foreign_key(table, "characteristic_id")
-    assert characteristic_fk.column.table.name == "characteristics"
+    characteristic_fk = single["characteristic_id"]
+    assert characteristic_fk.referred_table.name == "characteristics"
     assert characteristic_fk.ondelete == "RESTRICT"
+
+
+def test_composite_foreign_key_prevents_cross_characteristic_options() -> None:
+    table = _table("product_characteristics")
+    constraint = _foreign_key_named(table, "fk_product_characteristics_option")
+    assert [column.name for column in constraint.columns] == [
+        "characteristic_id",
+        "characteristic_option_id",
+    ]
+    assert constraint.referred_table.name == "characteristic_options"
+    assert [element.column.name for element in constraint.elements] == [
+        "characteristic_name_id",
+        "id",
+    ]
+    assert constraint.ondelete == "RESTRICT"
+    # Both referenced columns are covered by one unique constraint, otherwise
+    # PostgreSQL could not enforce the pair and an option of another
+    # characteristic would be linkable.
+    referenced = _unique(
+        _table("characteristic_options"), "uq_characteristic_options_name_id"
+    )
+    assert {column.name for column in referenced.columns} == {
+        element.column.name for element in constraint.elements
+    }
 
 
 # ── Relationships ────────────────────────────────────────────────────────────
@@ -344,6 +511,38 @@ def test_characteristic_values_relationship_is_bidirectional() -> None:
     assert back.back_populates == "values"
 
 
+def test_characteristic_options_relationship_is_bidirectional() -> None:
+    configure_mappers()
+    forward = Characteristic.options.property
+    assert forward.uselist is True
+    assert forward.mapper.class_ is CharacteristicOption
+    assert forward.back_populates == "characteristic"
+
+    back = CharacteristicOption.characteristic.property
+    assert back.uselist is False
+    assert back.mapper.class_ is Characteristic
+    assert back.back_populates == "options"
+
+
+def test_product_characteristics_option_relationship_uses_the_composite_key() -> None:
+    configure_mappers()
+    prop = ProductCharacteristic.option.property
+    assert prop.uselist is False
+    assert prop.mapper.class_ is CharacteristicOption
+    # The join carries the definition column, so the ORM reads through the same
+    # pair the database enforces...
+    pairs = {(local.name, remote.name) for local, remote in prop.local_remote_pairs}
+    assert pairs == {
+        ("characteristic_id", "characteristic_name_id"),
+        ("characteristic_option_id", "id"),
+    }
+    # ...while only the option id is written, so `characteristic` owns
+    # characteristic_id and the flush stays deterministic.
+    assert {(remote.name, local.name) for remote, local in prop.synchronize_pairs} == {
+        ("id", "characteristic_option_id")
+    }
+
+
 def test_product_characteristics_relationship_is_bidirectional() -> None:
     configure_mappers()
     forward = Product.characteristics.property
@@ -363,7 +562,8 @@ def test_product_characteristics_relationship_is_bidirectional() -> None:
 # ── Delete behavior for ON DELETE RESTRICT relationships ─────────────────────
 # Without passive_deletes="all" the ORM would NULL the child foreign key instead
 # of letting PostgreSQL reject the delete. That would break
-# product_characteristics, whose characteristic_id is part of its primary key.
+# product_characteristics, whose characteristic_id / characteristic_option_id
+# are part of its primary key.
 
 
 def test_category_characteristics_delegates_delete_to_database() -> None:
@@ -377,6 +577,14 @@ def test_category_characteristics_delegates_delete_to_database() -> None:
 def test_characteristic_values_delegates_delete_to_database() -> None:
     configure_mappers()
     forward = Characteristic.values.property
+    assert forward.passive_deletes == "all"
+    assert forward.cascade.delete is False
+    assert forward.cascade.delete_orphan is False
+
+
+def test_characteristic_options_delegates_delete_to_database() -> None:
+    configure_mappers()
+    forward = Characteristic.options.property
     assert forward.passive_deletes == "all"
     assert forward.cascade.delete is False
     assert forward.cascade.delete_orphan is False
