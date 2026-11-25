@@ -58,9 +58,17 @@ describe('catalog query parameters', () => {
   })
 })
 
-const characteristic = (code: string, name: string, display: string, value: unknown, dataType = 'string') => ({
-  code, name, data_type: dataType, unit: null, sort_order: 0, is_required: false,
-  show_in_short: true, show_in_details: true, value, display_value: display,
+const characteristic = (
+  code: string,
+  name: string,
+  display: string,
+  value: unknown,
+  dataType = 'string',
+  options: { option_id: number; value: string; quantity: number }[] = [],
+  editor = 'select',
+) => ({
+  code, name, data_type: dataType, editor, unit: null, sort_order: 0, is_required: false,
+  show_in_short: true, show_in_details: true, value, options, display_value: display,
 })
 
 const detailFixture = (overrides: Partial<ProductDetailOut> = {}): ProductDetailOut => ({

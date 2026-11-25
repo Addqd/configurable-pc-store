@@ -17,6 +17,15 @@ import i18n from './index'
  *   of inventing a translation.
  */
 
+/** One selected dictionary option of a stored characteristic. */
+export interface CharacteristicOptionLike {
+  /** Server `option_id` or adapter `optionId`. */
+  optionId?: number | null
+  option_id?: number | null
+  value: string
+  quantity?: number | null
+}
+
 /** A row from either the server contract or the front-end adapter. */
 export interface CharacteristicLike {
   code: string
@@ -24,8 +33,12 @@ export interface CharacteristicLike {
   /** Server `data_type` or adapter `dataType`. */
   dataType?: string | null
   data_type?: string | null
+  /** Server `editor`: select, boolean, multiselect, connector_quantity, dimensions. */
+  editor?: string | null
   unit?: string | null
   value?: unknown
+  /** Explicit dictionary selections with their repeat count. */
+  options?: readonly CharacteristicOptionLike[] | null
   /** Server `display_value` or adapter `displayValue`. */
   displayValue?: string | null
   display_value?: string | null
@@ -258,6 +271,34 @@ const englishByRussianName = new Map<string, string>([
   ...DERIVED_LABELS.map(([ru, en]) => [ru, en] as [string, string]),
 ])
 
+/**
+ * Localized names of the eight configurator slots.
+ *
+ * A build snapshot identifies a component by its slot id (`cpu`, `mobo`, ...), so
+ * the cart, the saved builds and the order history resolve the same labels here
+ * instead of rendering a technical identifier.
+ */
+const BUILD_SLOT_LABELS: Readonly<Record<string, readonly [string, string]>> = {
+  cpu: ['Процессор', 'Processor'],
+  mobo: ['Материнская плата', 'Motherboard'],
+  gpu: ['Видеокарта', 'Graphics card'],
+  ram: ['Оперативная память', 'Memory'],
+  storage: ['Накопитель', 'Storage'],
+  psu: ['Блок питания', 'Power supply'],
+  case: ['Корпус', 'Case'],
+  cooling: ['Охлаждение', 'Cooling'],
+}
+
+/** Localized name of one build slot; an unknown slot keeps its identifier. */
+export function buildSlotLabel(
+  slot: string,
+  language = currentLanguage(),
+): string {
+  const labels = BUILD_SLOT_LABELS[slot.trim().toLowerCase()]
+  if (!labels) return slot
+  return isEnglish(language) ? labels[1] : labels[0]
+}
+
 /** Boolean wording, kept identical to the server's Russian rendering. */
 const BOOLEAN_LABELS = {
   ru: { true: 'Да', false: 'Нет' },
@@ -278,6 +319,73 @@ function dataTypeOf(row: CharacteristicLike): string {
 
 function displayValueOf(row: CharacteristicLike): string {
   return (row.displayValue ?? row.display_value ?? '').trim()
+}
+
+function optionsOf(row: CharacteristicLike): CharacteristicOptionLike[] {
+  const rows = row.options
+  if (!Array.isArray(rows) || rows.length === 0) return []
+  return rows.filter(
+    (option): option is CharacteristicOptionLike =>
+      Boolean(option) && typeof option.value === 'string',
+  )
+}
+
+/**
+ * Whether a rendered text already carries its unit.
+ *
+ * The dictionary values are display-ready (`750 Вт`, `307 × 125 × 46 мм`), so a
+ * unit is never appended twice. Comparison is token-based and a token may end with
+ * the unit because multipliers are written together (`об/мин`, `МБ/с`).
+ */
+export function textContainsUnit(text: string, unit: string | null | undefined): boolean {
+  if (!unit) return true
+  return text.split(/\s+/).some((token) => token === unit || token.endsWith(unit))
+}
+
+/** Appends a unit only to a value that does not already contain it. */
+export function appendUnit(text: string, unit: string | null | undefined): string {
+  if (!text || !unit || textContainsUnit(text, unit)) return text
+  return `${text} ${unit}`
+}
+
+/**
+ * Translations of the unit tokens that appear inside stored dictionary values.
+ *
+ * Keyed by the stored Russian unit; the replacement keeps the number intact, so
+ * `750 Вт` becomes `750 W` and `6 ядер` becomes `6 cores`. Applied only for
+ * English; Russian never rewrites a stored value.
+ */
+const UNIT_TOKEN_RULES: ReadonlyArray<[RegExp, string]> = [
+  [/\b(\d+(?:[.,]\d+)?)\s*ГБ(?![А-Яа-яA-Za-z0-9])/g, '$1 GB'],
+  [/\b(\d+(?:[.,]\d+)?)\s*ТБ(?![А-Яа-яA-Za-z0-9])/g, '$1 TB'],
+  [/\b(\d+(?:[.,]\d+)?)\s*МБ\/с(?![А-Яа-яA-Za-z0-9])/g, '$1 MB/s'],
+  [/\b(\d+(?:[.,]\d+)?)\s*Гбит\/с(?![А-Яа-яA-Za-z0-9])/g, '$1 Gbps'],
+  [/\b(\d+(?:[.,]\d+)?)\s*об\/мин(?![А-Яа-яA-Za-z0-9])/g, '$1 RPM'],
+  [/\b(\d+(?:[.,]\d+)?)\s*МГц(?![А-Яа-яA-Za-z0-9])/g, '$1 MHz'],
+  [/\b(\d+(?:[.,]\d+)?)\s*ГГц(?![А-Яа-яA-Za-z0-9])/g, '$1 GHz'],
+  [/\b(\d+(?:[.,]\d+)?)\s*Гц(?![А-Яа-яA-Za-z0-9])/g, '$1 Hz'],
+  [/\b(\d+(?:[.,]\d+)?)\s*Вт(?![А-Яа-яA-Za-z0-9])/g, '$1 W'],
+  [/\b(\d+)\s*бит(?![А-Яа-яA-Za-z0-9])/g, '$1 bit'],
+  [/\b(\d+)\s*(?:ядер|ядра|ядро)(?![А-Яа-яA-Za-z0-9])/g, '$1 cores'],
+  [/\b(\d+)\s*(?:потоков|потока|поток)(?![А-Яа-яA-Za-z0-9])/g, '$1 threads'],
+  [/\b(\d+(?:[.,]\d+)?)\s*слота?(?![А-Яа-яA-Za-z0-9])/g, '$1 slots'],
+  [/\b(\d+(?:[.,]\d+)?)\s*шт\.(?![А-Яа-яA-Za-z0-9])/g, '$1 pcs'],
+  [/\b(\d+(?:[.,]\d+)?)\s*мм(?![А-Яа-яA-Za-z0-9])/g, '$1 mm'],
+  [/\b(\d+(?:[.,]\d+)?)\s*мс(?![А-Яа-яA-Za-z0-9])/g, '$1 ms'],
+  [/\b(\d+(?:[.,]\d+)?)\s*дюйм(?![А-Яа-яA-Za-z0-9])/g, '$1 in'],
+]
+
+/** Translates the units embedded in a stored dictionary value (English only). */
+export function translateCharacteristicUnits(
+  text: string,
+  language = currentLanguage(),
+): string {
+  if (!isEnglish(language)) return text
+  let out = text
+  for (const [pattern, replacement] of UNIT_TOKEN_RULES) {
+    out = out.replace(pattern, replacement)
+  }
+  return out
 }
 
 /** Deterministic decimal rendering that never switches to exponent notation. */
@@ -329,24 +437,48 @@ export function characteristicLabel(
   return nameByCode.get(row.code)?.en ?? englishByRussianName.get(row.name.trim()) ?? row.name
 }
 
-/** Localized, ready-to-render value of one characteristic. */
+/**
+ * Localized, ready-to-render value of one characteristic.
+ *
+ * Russian keeps the server-rendered string: it is built from the dictionary and
+ * already carries its unit, so it is never rewritten. English is rebuilt from the
+ * explicit `options` (quantities included) and then has its unit tokens
+ * translated; a row without structured options falls back to the server string.
+ */
 export function characteristicValue(
   row: CharacteristicLike,
   language = currentLanguage(),
 ): string {
-  if (!isEnglish(language)) {
-    // Russian keeps the server-rendered string, unit appended once.
-    const display = displayValueOf(row)
-    if (display) return display
-    return formatFromStructuredValue(row, language)
+  const english = isEnglish(language)
+  const display = displayValueOf(row)
+  if (!english && display) return display
+
+  const options = optionsOf(row)
+  if (options.length > 0) {
+    const parts = options.map((option) => {
+      const text = english
+        ? translateCharacteristicCategoricalValue(option.value, language)
+        : option.value
+      const quantity = typeof option.quantity === 'number' ? option.quantity : 1
+      return quantity > 1 ? `${text} × ${quantity}` : text
+    })
+    // Containment is checked against the *stored* unit and the stored value, so
+    // the English translation below cannot introduce a second unit.
+    const joined = appendUnit(
+      parts.filter((part) => part.trim().length > 0).join(', '),
+      row.unit,
+    )
+    return english ? translateCharacteristicUnits(joined, language) : joined
   }
+
   const formatted = formatFromStructuredValue(row, language)
   // An unknown/unhandled shape falls back to the stored rendering rather than
-  // showing an empty cell.
-  return formatted || displayValueOf(row)
+  // showing an empty cell. A stored string the structured value cannot explain is
+  // never rewritten.
+  return formatted || display
 }
 
-/** Formats the native JSON value with a translated unit. */
+/** Formats the native JSON value of a row with no explicit options array. */
 function formatFromStructuredValue(row: CharacteristicLike, language: string): string {
   const raw = row.value
   let text: string
@@ -372,8 +504,7 @@ function formatFromStructuredValue(row: CharacteristicLike, language: string): s
     default:
       text = typeof raw === 'string' ? translateCharacteristicCategoricalValue(raw, language) : ''
   }
-  const unit = translateCharacteristicUnit(row.unit, language)
-  return text && unit ? `${text} ${unit}` : text
+  return translateCharacteristicUnits(appendUnit(text, row.unit), language)
 }
 
 /**

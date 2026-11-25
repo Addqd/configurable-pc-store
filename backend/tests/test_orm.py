@@ -28,6 +28,7 @@ from app.models import (
     CartItem,
     Category,
     Characteristic,
+    CharacteristicOption,
     Favorite,
     Manufacturer,
     Order,
@@ -65,6 +66,7 @@ EXPECTED_MODELS = (
     SiteEvent,
     SaleLineFact,
     Characteristic,
+    CharacteristicOption,
     ProductCharacteristic,
 )
 
@@ -74,7 +76,7 @@ EXPECTED_MODELS = (
 
 def test_all_models_mapped() -> None:
     configure_mappers()
-    assert len(EXPECTED_MODELS) == 19
+    assert len(EXPECTED_MODELS) == 20
     expected_names = {model.__tablename__ for model in EXPECTED_MODELS}
     assert set(Base.metadata.tables) == expected_names
 

@@ -13,7 +13,7 @@ from secrets import token_hex
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, inspect
+from sqlalchemy import create_engine, inspect, select
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import Session
 
@@ -212,9 +212,13 @@ def apply_characteristics(
 
     Missing definitions are created in the product's category with a data type
     inferred from the Python value; an existing definition keeps its declared
-    type. Used by tests that need a technically complete build.
+    type. Every value becomes a row of the `characteristic_options` dictionary of
+    that definition, and repeated list items are folded into one association with
+    a `quantity`, exactly like the production writers do.
     """
-    from app.models import Characteristic, ProductCharacteristic
+    from collections import Counter
+
+    from app.models import Characteristic, CharacteristicOption, ProductCharacteristic
     from app.services import spec_service
 
     category_id = product.product_type.category_id
@@ -226,13 +230,18 @@ def apply_characteristics(
     def _type_of(value: object) -> str:
         if isinstance(value, bool):
             return "boolean"
-        if isinstance(value, (int, float)):
+        if isinstance(value, int | float):
             return "number"
         if isinstance(value, str):
             return "string"
         if isinstance(value, list) and all(isinstance(x, str) for x in value):
             return "string_list"
         return "number_list"
+
+    def _display(value: object) -> str:
+        if isinstance(value, bool):
+            return spec_service.TRUE_LABEL if value else spec_service.FALSE_LABEL
+        return str(value)
 
     for code, value in values.items():
         definition = known.get(code)
@@ -246,15 +255,32 @@ def apply_characteristics(
             )
             db.add(row)
             db.flush()
-            definition = spec_service.CharacteristicDefinition.from_row(row)
-            known[code] = definition
-        db.add(
-            ProductCharacteristic(
-                product_id=product.id,
-                characteristic_id=definition.id,
-                value=value,
+            definition = spec_service.CharacteristicDefinition.from_row(
+                row, product.product_type.category.slug
             )
-        )
+            known[code] = definition
+        items = value if isinstance(value, list) else [value]
+        for text, quantity in Counter(_display(item) for item in items).items():
+            option = db.scalar(
+                select(CharacteristicOption).where(
+                    CharacteristicOption.characteristic_name_id == definition.id,
+                    CharacteristicOption.value == text,
+                )
+            )
+            if option is None:
+                option = CharacteristicOption(
+                    characteristic_name_id=definition.id, value=text
+                )
+                db.add(option)
+                db.flush()
+            db.add(
+                ProductCharacteristic(
+                    product_id=product.id,
+                    characteristic_id=definition.id,
+                    characteristic_option_id=option.id,
+                    quantity=quantity,
+                )
+            )
     db.flush()
 
 

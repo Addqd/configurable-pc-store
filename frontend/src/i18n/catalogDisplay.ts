@@ -2,6 +2,7 @@ import i18n from './index'
 import {
   translateCharacteristicCategoricalValue,
   translateCharacteristicLabel,
+  translateCharacteristicUnits,
 } from './characteristics'
 
 /** Localize existing demo-catalog descriptions at render time only.
@@ -44,14 +45,6 @@ const catalogNames: Record<string, string> = {
   'Нужен список поддерживаемых форм-факторов корпуса': 'Case-supported form factors must be confirmed',
 }
 const replacements: ReadonlyArray<[RegExp, string]> = [
-  [/\b(\d+(?:[.,]\d+)?)\s*ГБ(?![А-Яа-яA-Za-z0-9])/g, '$1 GB'],
-  [/\b(\d+(?:[.,]\d+)?)\s*ТБ(?![А-Яа-яA-Za-z0-9])/g, '$1 TB'],
-  [/\b(\d+(?:[.,]\d+)?)\s*МГц(?![А-Яа-яA-Za-z0-9])/g, '$1 MHz'],
-  [/\b(\d+(?:[.,]\d+)?)\s*ГГц(?![А-Яа-яA-Za-z0-9])/g, '$1 GHz'],
-  [/\b(\d+(?:[.,]\d+)?)\s*Вт(?![А-Яа-яA-Za-z0-9])/g, '$1 W'],
-  [/\b(\d+)\s*бит(?![А-Яа-яA-Za-z0-9])/g, '$1-bit'],
-  [/\b(\d+)\s*(?:ядер|ядра|ядро)(?![А-Яа-яA-Za-z0-9])/g, '$1 cores'],
-  [/\b(\d+)\s*(?:потоков|потока|поток)(?![А-Яа-яA-Za-z0-9])/g, '$1 threads'],
   [/^Игровой ПК/g, 'Gaming PC'],
   [/^Стриминговый ПК/g, 'Streaming PC'],
   [/^Рабочая станция/g, 'Workstation'],
@@ -59,10 +52,11 @@ const replacements: ReadonlyArray<[RegExp, string]> = [
 ]
 export function catalogDisplay(value: string, language = i18n.resolvedLanguage): string {
   if (language !== 'en') return value
-  // Labels and categorical values come from the shared characteristic dictionary,
-  // so the storefront never keeps a second, drifting copy of them.
+  // Labels, categorical values and units come from the shared characteristic
+  // dictionary, so the storefront never keeps a second, drifting copy of them.
   let out = translateCharacteristicLabel(translateCharacteristicCategoricalValue(value), language)
   out = catalogNames[out] ?? out
+  out = translateCharacteristicUnits(out, language)
   for (const [pattern, replacement] of replacements) out = out.replace(pattern, replacement)
   return out
 }

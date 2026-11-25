@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { catalogDisplay } from '../i18n/catalogDisplay'
+import { buildSlotLabel } from '../i18n/characteristics'
 import { localeDate } from '../i18n/format'
 import { useState } from 'react'
 import { Link } from 'react-router'
@@ -24,7 +24,8 @@ function SnapshotImage({ src, alt, className }: { src?: string; alt: string; cla
 }
 
 function PurchasedBuild({ components }: { components: BuildComponent[] }) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const language = i18n.resolvedLanguage ?? 'ru'
   return (
     <div className="mt-2 mb-3 rounded-xl border border-primary/20 bg-surface-2 p-3 sm:p-4">
       <div className="mb-3 text-sm font-bold text-text-primary">{t('orders.build_composition')}</div>
@@ -34,7 +35,7 @@ function PurchasedBuild({ components }: { components: BuildComponent[] }) {
             className="grid grid-cols-[36px_minmax(0,1fr)] sm:grid-cols-[40px_minmax(0,1fr)] items-center gap-3 py-2 border-b border-border last:border-b-0 min-w-0">
             <SnapshotImage src={component.image} alt="" className="w-9 h-9 sm:w-10 sm:h-10 object-contain rounded-md bg-surface" />
             <div className="min-w-0">
-              <p className="text-xs text-text-muted">{catalogDisplay(component.category)}</p>
+              <p className="text-xs text-text-muted">{buildSlotLabel(component.category, language)}</p>
               <p className="text-xs sm:text-sm text-text-primary break-words">{component.name}</p>
               {component.quantity > 1 && <p className="text-xs text-text-muted">{t('orders.quantity', { count: component.quantity })}</p>}
             </div>

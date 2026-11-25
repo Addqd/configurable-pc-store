@@ -1,186 +1,185 @@
 /**
  * Editor drafts for category-scoped product characteristics.
  *
- * The admin form keeps one draft per characteristic `code` so that every data
- * type gets a suitable control: text, numeric, boolean, string list or number
- * list. Drafts are converted to the API payload only at submit time, so list
- * order and duplicates are preserved exactly (no comma splitting anywhere).
+ * Every selectable value comes from the server dictionary
+ * (`characteristic_options`), so a draft stores **option ids** and a repeat count
+ * — never free text. The only exception is the GPU `dimensions_mm` field, which
+ * is edited as three measurements and canonicalised by the backend.
+ *
+ * Drafts are converted to the API payload only at submit time, so the
+ * unchanged / replaced / explicitly-removed distinction stays intact until then.
  */
 
-export type CharacteristicFieldType =
-  | 'string'
-  | 'number'
+export type CharacteristicEditor =
+  | 'select'
   | 'boolean'
-  | 'string_list'
-  | 'number_list'
+  | 'multiselect'
+  | 'connector_quantity'
+  | 'dimensions'
+
+/** One selectable dictionary value offered by the definitions endpoint. */
+export interface CharacteristicOptionLike {
+  option_id: number
+  value: string
+}
 
 /** The subset of the generated definition schema the editor needs. */
 export interface CharacteristicDefinitionLike {
   code: string
   name: string
   data_type: string
+  editor: string
   unit?: string | null
   sort_order: number
   is_required: boolean
   show_in_short: boolean
   show_in_details: boolean
+  options?: readonly CharacteristicOptionLike[]
+  limits?: {
+    max_selections: number
+    max_quantity: number
+    repeatable: boolean
+  } | null
 }
 
+/** Ordered measurements of the dimensions editor. */
+export type DimensionInputs = [string, string, string]
+
 export interface CharacteristicDraft {
-  kind: CharacteristicFieldType
-  /** Text of a `string`/`number` value, or the raw text of one list row. */
-  text: string
-  /**
-   * State of a `boolean` value: `true`, `false`, or `null` for "not set".
-   *
-   * A boolean has three distinct states in the database (absent, true, false),
-   * so an unchecked box must never be read as an explicit `false`.
-   */
-  checked: boolean | null
-  /** Rows of a `string_list` / `number_list` value, in entered order. */
-  items: string[]
+  editor: CharacteristicEditor
+  /** Selected option ids, in selection order (one id for scalar editors). */
+  selected: number[]
+  /** Repeat count per option id; only `connector_quantity` uses values above 1. */
+  quantities: Record<number, number>
+  /** Raw text of the three dimension inputs, in length/width/height order. */
+  dimensions: DimensionInputs
   /**
    * Whether the administrator actually edited this characteristic.
    *
    * The draft alone cannot answer that: a stored value is hydrated into a draft
-   * that looks exactly like a cleared field (an explicitly stored empty list `[]`
-   * hydrates to zero rows, just like a field the administrator emptied). Only an
-   * edit intent recorded here may turn an empty draft into a deletion, so
-   * hydrating, switching category or editing an unrelated field never deletes a
-   * stored value.
+   * that looks exactly like a cleared field. Only an edit intent recorded here may
+   * turn an empty draft into a deletion, so hydrating, switching category or
+   * editing an unrelated field never deletes a stored value.
    */
   edited: boolean
 }
 
-export type DraftIssue = 'required' | 'number' | 'too_long'
+export type DraftIssue = 'required' | 'quantity' | 'dimension'
+
+export type CharacteristicValueDraft =
+  | { code: string; options: { option_id: number; quantity: number }[] }
+  | { code: string; dimensions: number[] }
 
 export type DraftResult =
-  | { ok: true; value: unknown }
+  | { ok: true; value: CharacteristicValueDraft }
   | { ok: false; issue: DraftIssue }
 
-export const MAX_TEXT_LENGTH = 500
-export const MAX_LIST_ROWS = 50
+export const MAX_QUANTITY = 32
+export const DIMENSION_COUNT = 3
+export const MAX_DIMENSION_MM = 1000
+export const DIMENSION_DECIMAL_PLACES = 2
+export const DIMENSION_UNIT = 'мм'
 
-const DATA_TYPES: readonly CharacteristicFieldType[] = [
-  'string',
-  'number',
+/** Accepted editors; anything else falls back to a single dictionary choice. */
+const EDITORS: readonly CharacteristicEditor[] = [
+  'select',
   'boolean',
-  'string_list',
-  'number_list',
+  'multiselect',
+  'connector_quantity',
+  'dimensions',
 ]
 
-export function fieldTypeOf(dataType: string): CharacteristicFieldType {
-  return DATA_TYPES.includes(dataType as CharacteristicFieldType)
-    ? (dataType as CharacteristicFieldType)
-    : 'string'
+export function editorOf(definition: {
+  editor?: string | null
+  data_type: string
+}): CharacteristicEditor {
+  const editor = definition.editor
+  if (editor && EDITORS.includes(editor as CharacteristicEditor)) {
+    return editor as CharacteristicEditor
+  }
+  return definition.data_type === 'boolean' ? 'boolean' : 'select'
 }
 
-export function emptyDraft(dataType: string): CharacteristicDraft {
-  return { kind: fieldTypeOf(dataType), text: '', checked: null, items: [], edited: false }
+/** Whether one option may carry a quantity greater than one. */
+export function isRepeatable(editor: CharacteristicEditor): boolean {
+  return editor === 'connector_quantity'
 }
 
-/**
- * Draft for a stored value coming back from the API.
- *
- * The result is never `edited`: hydrating a value is not an action of the
- * administrator and must not authorize a removal.
- */
-export function draftFromValue(dataType: string, value: unknown): CharacteristicDraft {
-  const kind = fieldTypeOf(dataType)
-  const draft = emptyDraft(kind)
-  if (value === null || value === undefined) return draft
-  if (kind === 'boolean') return { ...draft, checked: value === true ? true : value === false ? false : null }
-  if (kind === 'number') return { ...draft, text: typeof value === 'number' ? String(value) : '' }
-  if (kind === 'string') return { ...draft, text: typeof value === 'string' ? value : '' }
+export function emptyDimensions(): DimensionInputs {
+  return ['', '', '']
+}
+
+export function emptyDraft(definition: {
+  editor?: string | null
+  data_type: string
+}): CharacteristicDraft {
   return {
-    ...draft,
-    items: Array.isArray(value) ? value.map((item) => String(item)) : [],
+    editor: editorOf(definition),
+    selected: [],
+    quantities: {},
+    dimensions: emptyDimensions(),
+    edited: false,
   }
 }
 
 /**
- * Strict numeric parsing that never changes the meaning of the input.
+ * Strict numeric parsing of one dimension measurement.
  *
- * Exactly two decimal separators are accepted — `.` and `,` — and neither may
- * appear twice. Surrounding whitespace is ignored; whitespace *inside* a number,
- * grouping separators (`1 234`, `1,234.5`), exponent notation, `NaN`/`Infinity`
- * and any other notation are rejected instead of being guessed, because removing
- * or reinterpreting a character would silently change the stored value.
+ * A single decimal comma is accepted and normalised to a point, because that is
+ * the locale the editor renders. Everything else — exponent notation, grouping
+ * separators, embedded whitespace, signs, more than two decimals — is rejected
+ * instead of being repaired, so `1 2` never silently becomes `12`.
  */
-export function parseNumberText(text: string): number | null {
+export function parseDimensionText(text: string): number | null {
   const raw = text.trim()
   if (!raw) return null
-  // `-` is allowed; `+`, grouping and exponent notation are not plain decimals.
-  if (!/^-?\d+(?:[.,]\d+)?$/.test(raw)) return null
-  const value = Number(raw.replace(',', '.'))
-  return Number.isFinite(value) ? value : null
+  const normalized = raw.replace(',', '.')
+  if (!/^\d{1,4}(?:\.\d{1,2})?$/.test(normalized)) return null
+  const value = Number(normalized)
+  if (!Number.isFinite(value) || value <= 0 || value > MAX_DIMENSION_MM) return null
+  return value
 }
 
-/** Formats a stored number for the numeric editor without grouping. */
-export function formatNumberDraft(value: unknown): string {
-  return typeof value === 'number' && Number.isFinite(value) ? String(value) : ''
+/** The text an editor shows for one stored measurement. */
+export function formatDimensionText(value: unknown): string {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return ''
+  const rounded = Number(value.toFixed(DIMENSION_DECIMAL_PLACES))
+  return String(rounded)
 }
 
 /**
- * Convert one draft into the JSON value the API expects.
+ * The three input texts of a stored dimensions value.
  *
- * An empty draft is "absent" (`ok: false, issue: 'required'` only when the
- * definition is required) and is omitted from the payload by the caller.
+ * The API returns the ordered triple in `value`; the canonical display string is
+ * only a fallback for a response that carries no structured triple.
  */
-export function draftToValue(
-  definition: CharacteristicDefinitionLike,
-  draft: CharacteristicDraft | undefined,
-): DraftResult | null {
-  const kind = fieldTypeOf(definition.data_type)
-  const current = draft ?? emptyDraft(kind)
-  const blank = (): DraftResult | null =>
-    definition.is_required ? { ok: false, issue: 'required' } : null
-
-  if (kind === 'boolean') {
-    // `null` is "not set": a required boolean needs an explicit true or false.
-    if (current.checked === null || current.checked === undefined) return blank()
-    return { ok: true, value: current.checked }
+export function dimensionInputsFrom(
+  value: unknown,
+  displayValue?: string | null,
+): DimensionInputs {
+  const numbers = Array.isArray(value)
+    ? value.filter((item): item is number => typeof item === 'number')
+    : []
+  if (numbers.length === DIMENSION_COUNT) {
+    return numbers.map(formatDimensionText) as DimensionInputs
   }
-
-  if (kind === 'string') {
-    const text = current.text.trim()
-    if (!text) return blank()
-    if (text.length > MAX_TEXT_LENGTH) return { ok: false, issue: 'too_long' }
-    return { ok: true, value: text }
+  const text = (displayValue ?? '').replace(` ${DIMENSION_UNIT}`, '')
+  const parts = text.split('×').map((part) => part.trim())
+  if (parts.length === DIMENSION_COUNT && parts.every((part) => /^\d+(?:\.\d+)?$/.test(part))) {
+    return parts as DimensionInputs
   }
-
-  if (kind === 'number') {
-    const text = current.text.trim()
-    if (!text) return blank()
-    const value = parseNumberText(text)
-    if (value === null) return { ok: false, issue: 'number' }
-    return { ok: true, value }
-  }
-
-  const rows = current.items.map((row) => row.trim()).filter((row) => row.length > 0)
-  if (rows.length === 0) return blank()
-  if (rows.length > MAX_LIST_ROWS) return { ok: false, issue: 'too_long' }
-  if (kind === 'string_list') {
-    if (rows.some((row) => row.length > MAX_TEXT_LENGTH)) {
-      return { ok: false, issue: 'too_long' }
-    }
-    return { ok: true, value: rows }
-  }
-  const numbers = rows.map(parseNumberText)
-  if (numbers.some((value) => value === null)) return { ok: false, issue: 'number' }
-  return { ok: true, value: numbers as number[] }
+  return emptyDimensions()
 }
 
-export function isDraftEmpty(draft: CharacteristicDraft | undefined): boolean {
-  if (!draft) return true
-  if (draft.kind === 'boolean') return draft.checked === null || draft.checked === undefined
-  if (draft.kind === 'string' || draft.kind === 'number') return !draft.text.trim()
-  return draft.items.every((row) => !row.trim())
+/** One stored dictionary selection of a product characteristic. */
+export interface StoredOption {
+  optionId: number
+  quantity: number
 }
 
 /** A characteristic value exactly as the API currently stores it. */
 export interface StoredCharacteristic {
-  value: unknown
+  options: StoredOption[]
   /** Data type declared by the definition the stored row belongs to. */
   dataType: string
 }
@@ -188,13 +187,92 @@ export interface StoredCharacteristic {
 /** Server-confirmed values keyed by characteristic code. */
 export type StoredCharacteristics = Readonly<Record<string, StoredCharacteristic>>
 
-/** Plain value map of `stored`, as the payload builder expects it. */
-export function storedValueMap(
-  stored: StoredCharacteristics,
-): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(stored).map(([code, entry]) => [code, entry.value]),
-  )
+/**
+ * Draft for a stored value coming back from the API.
+ *
+ * The result is never `edited`: hydrating a value is not an action of the
+ * administrator and must not authorize a removal.
+ */
+export function draftFromStored(
+  definition: { editor?: string | null; data_type: string },
+  stored: StoredCharacteristic | undefined,
+  value?: unknown,
+  displayValue?: string | null,
+): CharacteristicDraft {
+  const editor = editorOf(definition)
+  const draft = emptyDraft(definition)
+  if (editor === 'dimensions') {
+    return { ...draft, dimensions: dimensionInputsFrom(value, displayValue) }
+  }
+  if (!stored) return draft
+  return {
+    ...draft,
+    selected: stored.options.map((option) => option.optionId),
+    quantities: Object.fromEntries(
+      stored.options.map((option) => [option.optionId, option.quantity]),
+    ),
+  }
+}
+
+export function isDraftEmpty(draft: CharacteristicDraft | undefined): boolean {
+  if (!draft) return true
+  if (draft.editor === 'dimensions') {
+    return draft.dimensions.every((text) => !text.trim())
+  }
+  return draft.selected.length === 0
+}
+
+/** Issues that belong to one characteristic rather than to the whole form. */
+export function draftToValue(
+  definition: CharacteristicDefinitionLike,
+  draft: CharacteristicDraft | undefined,
+): DraftResult | null {
+  const editor = editorOf(definition)
+  const current = draft ?? emptyDraft(definition)
+  const blank = (): DraftResult | null =>
+    definition.is_required ? { ok: false, issue: 'required' } : null
+
+  if (editor === 'dimensions') {
+    const texts = current.dimensions
+    if (texts.every((text) => !text.trim())) return blank()
+    const measurements = texts.map(parseDimensionText)
+    if (measurements.some((value) => value === null)) {
+      return { ok: false, issue: 'dimension' }
+    }
+    return {
+      ok: true,
+      value: { code: definition.code, dimensions: measurements as number[] },
+    }
+  }
+
+  // Duplicated ids are collapsed; an id the dictionary no longer offers is kept
+  // so the server can reject it explicitly instead of losing it silently.
+  const selected = [...new Set(current.selected)]
+  if (selected.length === 0) return blank()
+  const maxSelections = definition.limits?.max_selections
+  if (typeof maxSelections === 'number' && selected.length > maxSelections) {
+    return { ok: false, issue: 'quantity' }
+  }
+  const repeatable = isRepeatable(editor)
+  const options = selected.map((optionId) => {
+    const quantity = repeatable ? current.quantities[optionId] ?? 1 : 1
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
+      return null
+    }
+    return { option_id: optionId, quantity }
+  })
+  if (options.some((option) => option === null)) {
+    return { ok: false, issue: 'quantity' }
+  }
+  // An option that is no longer offered is still submitted, so the API returns a
+  // clear error rather than the form quietly dropping a stored selection.
+  return {
+    ok: true,
+    value: {
+      code: definition.code,
+      options: options as { option_id: number; quantity: number }[],
+    },
+  }
 }
 
 /** Codes that a stored product keeps but the target category cannot reuse as-is. */
@@ -206,17 +284,11 @@ export function orphanCodes(
     definitions.map((definition) => [definition.code, definition.data_type]),
   )
   // A code the target category does not define at all, and a code it defines with
-  // another data type (`string_list` in the previous category, `string` in the new
-  // one), are both unusable: neither is dropped nor reinterpreted silently.
+  // another data type, are both unusable: neither is dropped nor reinterpreted
+  // silently.
   return Object.entries(stored)
     .filter(([code, entry]) => types.get(code) !== entry.dataType)
     .map(([code]) => code)
-}
-
-/** One submitted `characteristics` entry. */
-export interface CharacteristicValueDraft {
-  code: string
-  value: unknown
 }
 
 /**
@@ -225,7 +297,7 @@ export interface CharacteristicValueDraft {
  * The states of a characteristic are kept apart:
  *
  * - never provided and never stored → neither submitted nor removed;
- * - a valid value → submitted through `values`;
+ * - a valid selection → submitted through `values`;
  * - an existing value the administrator cleared → `removals`, which the API
  *   deletes explicitly. Omission alone can never delete anything, and hydration
  *   alone never counts as clearing;
@@ -233,63 +305,22 @@ export interface CharacteristicValueDraft {
  *   which blocks submission until the administrator replaces or confirms it.
  */
 export interface CharacteristicPayload {
-  /** Values to create or replace. */
   values: CharacteristicValueDraft[]
-  /** Stored codes the administrator cleared on purpose. */
   removals: string[]
-  /** Per-code issues that are not about a required value. */
   issues: Record<string, DraftIssue>
   /** Display names of required characteristics that carry no value. */
   missing: string[]
-  /**
-   * Transition codes that still need a decision.
-   *
-   * The selected category cannot reuse the stored value and the administrator
-   * neither submitted a valid replacement nor confirmed the removal, so the
-   * transition is unresolved and must block submission.
-   */
+  /** Transition codes that still need a decision. */
   unresolved: string[]
 }
 
-/**
- * Removal decisions the payload builder cannot make on its own.
- */
 export interface CharacteristicPayloadOptions {
-  /**
-   * Stored codes whose removal the administrator confirmed for *this* transition.
-   *
-   * The caller owns the confirmation scope: a code listed here is removed, but
-   * `transitionCodes` still decides whether a blank field may delete anything.
-   */
+  /** Stored codes whose removal the administrator confirmed for this transition. */
   removeCodes?: readonly string[]
-  /**
-   * Stored codes a category transition makes unusable (the selected category
-   * either does not define the code or declares another data type for it).
-   *
-   * Such a code is frozen until the transition is resolved: only a valid
-   * replacement value or a confirmed removal may touch it, because an empty
-   * field says nothing about a value the administrator never saw in this
-   * category.
-   */
+  /** Stored codes a category transition makes unusable. */
   transitionCodes?: readonly string[]
 }
 
-/**
- * Builds the `characteristics` / `remove_characteristics` payload pair.
- *
- * `stored` holds the values currently persisted by the API, keyed by code, and is
- * never the same object as the editable drafts: only a code the server already
- * stores can be "cleared", and clearing it produces an explicit removal instead
- * of a silent omission. A code is never present in both arrays.
- *
- * `removeCodes` carries the removals the administrator confirmed for the current
- * category transition. A confirmed code that the selected category still defines
- * is removed here; a confirmed code outside `definitions` is added below.
- *
- * `transitionCodes` carries the stored codes that need such a confirmation. Their
- * empty draft is *not* a deletion request: it either becomes a confirmed removal
- * or an unresolved transition, never a silent deletion.
- */
 export function buildCharacteristicPayload(
   definitions: readonly CharacteristicDefinitionLike[],
   drafts: Record<string, CharacteristicDraft | undefined>,
@@ -307,8 +338,6 @@ export function buildCharacteristicPayload(
   for (const definition of definitions) {
     const code = definition.code
     const draft = drafts[code]
-    // An absent draft behaves exactly like an empty one (nothing typed yet), so
-    // both are judged by the same rules below.
     const result = draftToValue(definition, draft)
     if (result === null) {
       if (!Object.hasOwn(stored, code)) continue
@@ -321,8 +350,7 @@ export function buildCharacteristicPayload(
         continue
       }
       // Only an edit of the administrator may delete a stored row — including a
-      // value the category still accepts. A hydrated draft the user never touched
-      // (a stored empty list, for example) keeps its stored value.
+      // value the category still accepts.
       if (draft?.edited === true) removals.push(code)
       continue
     }
@@ -331,16 +359,22 @@ export function buildCharacteristicPayload(
       else issues[code] = result.issue
       continue
     }
-    values.push({ code, value: result.value })
+    values.push(result.value)
   }
 
-  // A confirmed code the selected category still defines was decided per definition
-  // above: either it carries a valid replacement, or it is reported as missing /
-  // unresolved. Only codes outside the target definitions are removed here, so a
-  // confirmation can never delete a value the target category requires.
+  // A confirmed code outside the target definitions is removed here, so a
+  // confirmation can never delete a value the target category still renders. But
+  // an unconfirmed code outside them is a transition that still needs a decision:
+  // dropping it silently would lose a stored characteristic.
   const definitionCodes = new Set(definitions.map((definition) => definition.code))
   for (const code of removeCodes) {
     if (!definitionCodes.has(code) && !removals.includes(code)) removals.push(code)
+  }
+  for (const code of transitionCodes) {
+    if (definitionCodes.has(code)) continue
+    if (!Object.hasOwn(stored, code)) continue
+    if (removals.includes(code) || unresolved.includes(code)) continue
+    unresolved.push(code)
   }
   return { values, removals, issues, missing, unresolved }
 }

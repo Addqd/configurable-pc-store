@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type HTMLAttributes } from 'react'
+﻿import { useEffect, useRef, useState, type HTMLAttributes } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { useQueryClient } from '@tanstack/react-query'
@@ -14,7 +14,7 @@ import {
   useUpdateProductApiV1AdminProductsProductIdPatch,
   useUploadImageApiV1AdminProductsProductIdImagesPost,
 } from '../../api/generated/client'
-import type { AdminProductCreate, AdminProductDetailOut, AdminProductUpdate, CharacteristicValueIn } from '../../api/generated/model'
+import type { AdminProductCreate, AdminProductDetailOut, AdminProductUpdate } from '../../api/generated/model'
 import { ApiError } from '../../api/transport'
 import { activeLocale, adminErrorText, formatMoney } from '../../admin/params'
 import { invalidateAfterProductChange } from '../../admin/queryInvalidation'
@@ -32,27 +32,20 @@ import {
   FloatingControl, SelectField, TextField, TextareaField, floatingInputClass,
 } from '../../components/admin/AdminFields'
 import {
-  adminCard, adminControl, adminPrimaryButton, adminSecondaryButton,
+  adminCard, adminPrimaryButton, adminSecondaryButton,
 } from '../../components/admin/adminStyles'
 import {
-  type CharacteristicDefinitionLike,
   type CharacteristicDraft,
   type StoredCharacteristic,
+  MAX_QUANTITY,
   buildCharacteristicPayload,
-  draftFromValue,
+  draftFromStored,
   emptyDraft,
-  fieldTypeOf,
   isDraftEmpty,
-  MAX_LIST_ROWS,
-  MAX_TEXT_LENGTH,
   orphanCodes,
-  storedValueMap,
 } from '../../admin/characteristicDrafts'
-import {
-  characteristicLabel,
-  translateCharacteristicLabel,
-  translateCharacteristicUnit,
-} from '../../i18n/characteristics'
+import { CharacteristicFieldEditor } from '../../components/admin/CharacteristicEditor'
+import { translateCharacteristicLabel } from '../../i18n/characteristics'
 
 const MAX_IMAGES = 10
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024
@@ -172,21 +165,37 @@ function storedCharacteristicsOf(
   return Object.fromEntries(
     (product.characteristics ?? []).map((row) => [
       row.code,
-      { value: row.value, dataType: row.data_type },
+      {
+        options: (row.options ?? []).map((option) => ({
+          optionId: option.option_id,
+          quantity: option.quantity ?? 1,
+        })),
+        dataType: row.data_type,
+      },
     ]),
   )
 }
 
 /** Editable drafts of the values the API currently stores. */
-function draftsFrom(
-  product: AdminProductDetailOut,
-): Record<string, CharacteristicDraft> {
-  return Object.fromEntries(
-    (product.characteristics ?? []).map((row) => [
-      row.code,
-      draftFromValue(row.data_type, row.value),
-    ]),
-  )
+function draftsFrom(product: AdminProductDetailOut): Record<string, CharacteristicDraft> {
+  const drafts: Record<string, CharacteristicDraft> = {}
+  for (const row of product.characteristics ?? []) {
+    drafts[row.code] = draftFromStored(
+      // The detail response declares the editor and the data type of every stored
+      // value, so hydration never depends on the definitions request.
+      { editor: row.editor, data_type: row.data_type },
+      {
+        options: (row.options ?? []).map((option) => ({
+          optionId: option.option_id,
+          quantity: option.quantity ?? 1,
+        })),
+        dataType: row.data_type,
+      },
+      row.value,
+      row.display_value,
+    )
+  }
+  return drafts
 }
 
 /**
@@ -434,7 +443,7 @@ export function AdminProductFormPage() {
     setSaved(false)
   }
 
-  const changeDraft = (code: string, dataType: string, patch: Partial<CharacteristicDraft>) => {
+  const changeDraft = (code: string, definition: { editor?: string | null; data_type: string }, patch: Partial<CharacteristicDraft>) => {
     setForm((current) => ({
       ...current,
       characteristics: {
@@ -443,7 +452,7 @@ export function AdminProductFormPage() {
         // the API (or re-hydrating it after a category change or a save) leaves
         // the draft unedited, so an empty draft only deletes what the
         // administrator actually cleared.
-        [code]: { ...(current.characteristics[code] ?? emptyDraft(dataType)), ...patch, edited: true },
+        [code]: { ...(current.characteristics[code] ?? emptyDraft(definition)), ...patch, edited: true },
       },
     }))
     setCharacteristicErrors((current) => ({ ...current, [code]: '' }))
@@ -786,17 +795,30 @@ export function AdminProductFormPage() {
    */
   const definitionsReady = form.categoryId !== ''
     && definitions.data?.category_id === Number(form.categoryId)
+  /**
+   * Whether the editor moved the product into another category.
+   *
+   * Option identifiers belong to one definition, so after a category change no
+   * stored selection can be reused — not even one whose code the target category
+   * happens to share. Every stored code then needs a replacement or an explicit
+   * removal, which is what the confirmation block below is for.
+   */
+  const categoryChanged = isEdit && detail.data !== undefined
+    && form.categoryId !== String(detail.data.category.id)
   /** Codes the selected category renders a control for. */
   const editableCodes = new Set(fields.map((field) => field.code))
   /**
-   * Server-confirmed codes the selected category cannot reuse as-is: it either
-   * does not define them or declares another data type for the same code. A code
-   * the administrator already typed a replacement into no longer needs a decision,
-   * but only a code the category renders can be typed into at all — a stored value
-   * without a control keeps requiring an explicit confirmation.
+   * Stored codes the selected category cannot reuse as-is. Inside one category
+   * that is a code the category does not define; after a transition it is every
+   * stored code. A code the administrator already provided a replacement for no
+   * longer needs a decision, but only a code the category renders a control for
+   * can be replaced at all — a stored value without a control keeps requiring an
+   * explicit confirmation.
    */
   const blockedCodes = isEdit && definitionsReady
-    ? orphanCodes(storedCharacteristics, fields).filter(
+    ? (categoryChanged
+      ? Object.keys(storedCharacteristics)
+      : orphanCodes(storedCharacteristics, fields)).filter(
       (code) => !editableCodes.has(code) || isDraftEmpty(form.characteristics[code]),
     )
     : []
@@ -823,6 +845,9 @@ export function AdminProductFormPage() {
   // oxlint-disable react/set-state-in-effect
   useEffect(() => {
     if (!isEdit || !definitionFields?.length) return
+    // After a category change the stored option identifiers belong to the previous
+    // definitions and must never be rehydrated into the target controls.
+    if (categoryChanged) return
     setForm((current) => {
       let changed = false
       const characteristics = { ...current.characteristics }
@@ -831,12 +856,12 @@ export function AdminProductFormPage() {
         const stored = storedCharacteristics[field.code]
         if (stored === undefined) continue
         if (stored.dataType !== field.data_type) continue
-        characteristics[field.code] = draftFromValue(field.data_type, stored.value)
+        characteristics[field.code] = draftFromStored(field, stored)
         changed = true
       }
       return changed ? { ...current, characteristics } : current
     })
-  }, [definitionFields, isEdit, storedCharacteristics])
+  }, [categoryChanged, definitionFields, isEdit, storedCharacteristics])
   // oxlint-enable react/set-state-in-effect
 
   /**
@@ -848,7 +873,7 @@ export function AdminProductFormPage() {
   const characteristicDrafts = () => buildCharacteristicPayload(
     fields,
     form.characteristics,
-    storedValueMap(storedCharacteristics),
+    storedCharacteristics,
     {
       removeCodes: confirmOrphanRemoval ? blockedCodes : [],
       // An incompatible stored value needs a decision: the payload builder never
@@ -884,9 +909,9 @@ export function AdminProductFormPage() {
     const draft = characteristicDrafts()
     const draftErrors: Record<string, string> = {}
     for (const [code, issue] of Object.entries(draft.issues)) {
-      draftErrors[code] = issue === 'number'
-        ? t('admin.form.char_number_error')
-        : t('admin.form.char_too_long_error')
+      draftErrors[code] = issue === 'dimension'
+        ? t('admin.form.char_dimension_error')
+        : t('admin.form.char_quantity_error', { max: MAX_QUANTITY })
     }
     setCharacteristicErrors(draftErrors)
     setSpecsError(draft.unresolved.length > 0
@@ -902,6 +927,10 @@ export function AdminProductFormPage() {
       && Object.keys(draftErrors).length === 0
   }
 
+  /** Submitted values; the payload type is inferred from the generated union. */
+  const submittedCharacteristics = (): AdminProductCreate['characteristics'] =>
+    characteristicDrafts().values as unknown as AdminProductCreate['characteristics']
+
   const payload = (amount: number): AdminProductCreate => ({
     name: form.name.trim(),
     product_type_id: Number(form.productTypeId),
@@ -910,7 +939,7 @@ export function AdminProductFormPage() {
     stock_quantity: Number(form.stock),
     description: form.description,
     color: form.color || null,
-    characteristics: characteristicDrafts().values as CharacteristicValueIn[],
+    characteristics: submittedCharacteristics(),
     is_active: form.isActive,
   })
 
@@ -939,7 +968,7 @@ export function AdminProductFormPage() {
         stock_quantity: Number(form.stock),
         description: form.description,
         color: form.color || null,
-        characteristics: draft.values as CharacteristicValueIn[],
+        characteristics: submittedCharacteristics(),
         is_active: form.isActive,
       }
       if (draft.removals.length > 0) data.remove_characteristics = draft.removals
@@ -1389,10 +1418,10 @@ export function AdminProductFormPage() {
                         <CharacteristicFieldEditor
                           key={field.code}
                           field={field}
-                          draft={form.characteristics[field.code] ?? emptyDraft(field.data_type)}
+                          draft={form.characteristics[field.code] ?? emptyDraft(field)}
                           disabled={locked}
                           error={characteristicErrors[field.code]}
-                          onChange={(patch) => changeDraft(field.code, field.data_type, patch)}
+                          onChange={(patch) => changeDraft(field.code, field, patch)}
                         />
                       ))
                     )}
@@ -1443,7 +1472,7 @@ export function AdminProductFormPage() {
               </button>
               {createdProduct && (
                 <p className="mt-2 text-center text-xs text-text-muted">
-                  {formatMoney(createdProduct.price)} · {t('admin.form.created')}
+                  {formatMoney(createdProduct.price)} В· {t('admin.form.created')}
                 </p>
               )}
             </div>
@@ -1468,122 +1497,3 @@ export function AdminProductFormPage() {
   )
 }
 
-/**
- * One dynamically generated characteristic input.
- *
- * The control follows the definition's declared data type: free text, validated
- * numeric, checkbox, editable string list or editable number list. List rows are
- * edited individually so order and duplicates are never lost to comma splitting.
- */
-function CharacteristicFieldEditor({
-  field, draft, disabled, error, onChange,
-}: {
-  field: CharacteristicDefinitionLike
-  draft: CharacteristicDraft
-  disabled: boolean
-  error?: string
-  onChange: (patch: Partial<CharacteristicDraft>) => void
-}) {
-  const { t, i18n } = useTranslation()
-  const controlId = `characteristic-${field.code}`
-  const kind = fieldTypeOf(field.data_type)
-  const language = i18n.resolvedLanguage ?? 'ru'
-  // The stored definition label/unit are Russian; the English editor shows the
-  // same dictionary the storefront uses, keyed by the stable `code`.
-  const name = characteristicLabel(field, language)
-  const unitText = translateCharacteristicUnit(field.unit, language)
-  const unit = unitText ? <span className="ml-1 whitespace-nowrap text-text-muted">{unitText}</span> : null
-  const label = (
-    <label htmlFor={controlId} className="flex min-w-0 items-center text-sm text-text-primary">
-      <span className="truncate">{name}</span>
-      {unit}
-      {field.is_required && <span className="ml-1 text-danger" aria-hidden="true">*</span>}
-    </label>
-  )
-
-  const setRow = (index: number, value: string) => {
-    const items = [...draft.items]
-    items[index] = value
-    onChange({ items })
-  }
-
-  return (
-    <div className="grid items-start gap-3 sm:grid-cols-2">
-      <div className="flex min-h-11 items-center rounded-lg border border-border bg-surface-2 px-3.5 text-sm text-text-primary">
-        {label}
-      </div>
-      <div className="min-w-0">
-        {kind === 'boolean' ? (
-          // Three states, because "never set", "true" and "false" are different
-          // facts: an unchecked box would silently turn "absent" into `false`.
-          <select
-            id={controlId}
-            value={draft.checked === null || draft.checked === undefined ? '' : draft.checked ? 'true' : 'false'}
-            disabled={disabled}
-            aria-invalid={Boolean(error)}
-            onChange={(event) => onChange({
-              checked: event.target.value === '' ? null : event.target.value === 'true',
-            })}
-            className={adminControl}
-          >
-            <option value="">{t('admin.form.char_boolean_unset')}</option>
-            <option value="true">{t('admin.form.char_boolean_true')}</option>
-            <option value="false">{t('admin.form.char_boolean_false')}</option>
-          </select>
-        ) : kind === 'string' || kind === 'number' ? (
-          <input
-            id={controlId}
-            type="text"
-            inputMode={kind === 'number' ? 'decimal' : undefined}
-            aria-label={name}
-            aria-invalid={Boolean(error)}
-            value={draft.text}
-            disabled={disabled}
-            maxLength={kind === 'string' ? MAX_TEXT_LENGTH : undefined}
-            placeholder={kind === 'number' ? t('admin.form.char_number_placeholder') : undefined}
-            onChange={(event) => onChange({ text: event.target.value })}
-            className={adminControl}
-          />
-        ) : (
-          <div className="space-y-2">
-            {draft.items.length === 0 && (
-              <p className="text-xs text-text-muted">{t('admin.form.char_list_empty')}</p>
-            )}
-            {draft.items.map((row, index) => (
-              <div key={index} className="flex items-center gap-2">
-                <input
-                  type="text"
-                  aria-label={`${name} ${index + 1}`}
-                  inputMode={kind === 'number_list' ? 'decimal' : undefined}
-                  value={row}
-                  disabled={disabled}
-                  maxLength={kind === 'string_list' ? MAX_TEXT_LENGTH : undefined}
-                  onChange={(event) => setRow(index, event.target.value)}
-                  className={adminControl}
-                />
-                <button
-                  type="button"
-                  disabled={disabled}
-                  aria-label={t('admin.form.char_list_remove', { index: index + 1 })}
-                  onClick={() => onChange({ items: draft.items.filter((_, position) => position !== index) })}
-                  className="shrink-0 rounded-md border border-border px-2 py-1 text-sm text-text-primary hover:bg-surface-3"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-            <button
-              type="button"
-              disabled={disabled || draft.items.length >= MAX_LIST_ROWS}
-              onClick={() => onChange({ items: [...draft.items, ''] })}
-              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-text-primary hover:bg-surface-3 disabled:opacity-50"
-            >
-              {t('admin.form.char_list_add')}
-            </button>
-          </div>
-        )}
-        {error && <p role="alert" className="mt-1 text-xs text-danger">{error}</p>}
-      </div>
-    </div>
-  )
-}

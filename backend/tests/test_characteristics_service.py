@@ -1,463 +1,600 @@
-"""Unit tests for the normalized characteristic service layer.
+"""Dictionary-backed characteristic service (no database required).
 
-The functions under test are pure: they receive definitions and values and never
-open a database connection, so they run without an isolated PostgreSQL database.
+`spec_service` is the single place that interprets the normalized tables. These
+tests cover the rules it owns without a PostgreSQL server:
+
+- the editor behaviour derived from the category-scoped code;
+- option/quantity validation against one definition's dictionary, so an option of
+  another characteristic or category can never be reused;
+- the resolve merge (unchanged, replaced, explicitly removed, category change);
+- GPU dimensions: exactly three validated measurements, canonical dictionary text
+  and the absence of any repair of malformed input.
+
+The SQL paths themselves are exercised by the database-backed API tests.
 """
 
 from __future__ import annotations
 
-from typing import Any
+from decimal import Decimal
 
 import pytest
 
 from app.services import spec_service
 from app.services.errors import InvalidInputError
-from app.services.spec_service import CharacteristicDefinition
+from app.services.spec_service import (
+    CharacteristicDefinition,
+    CharacteristicSubmission,
+    DictionaryOption,
+    OptionSelection,
+    SelectedOption,
+)
 
 
 def _definition(
     code: str,
-    data_type: str,
+    data_type: str = "string",
     *,
+    category_slug: str = "gpu",
     name: str | None = None,
     unit: str | None = None,
     sort_order: int = 0,
     is_required: bool = False,
+    definition_id: int | None = None,
 ) -> CharacteristicDefinition:
     return CharacteristicDefinition(
-        id=sort_order + 1,
+        id=definition_id if definition_id is not None else sort_order + 1,
         category_id=1,
+        category_slug=category_slug,
         code=code,
         name=name or code,
         data_type=data_type,
         unit=unit,
         sort_order=sort_order,
         is_required=is_required,
-        show_in_short=True,
+        show_in_short=False,
         show_in_details=True,
     )
 
 
-# ── Data types ──────────────────────────────────────────────────────────────
+def _dictionary(
+    definition: CharacteristicDefinition, *values: str
+) -> dict[int, list[DictionaryOption]]:
+    return {
+        definition.id: [
+            DictionaryOption(
+                id=100 + definition.id * 10 + index,
+                characteristic_id=definition.id,
+                value=value,
+            )
+            for index, value in enumerate(values)
+        ]
+    }
+
+
+def _options(definition: CharacteristicDefinition, *values: str) -> list[int]:
+    return [option.id for option in _dictionary(definition, *values)[definition.id]]
+
+
+# ── Editor behaviour ────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize(
-    ("data_type", "raw", "expected"),
+    ("category_slug", "code", "data_type", "editor"),
     [
-        ("string", "  AM5  ", "AM5"),
-        ("number", 8, 8),
-        ("number", 3.4, 3.4),
-        ("number", 0, 0),
-        ("boolean", True, True),
-        ("boolean", False, False),
-        ("string_list", ["pcie-8pin", "pcie-8pin"], ["pcie-8pin", "pcie-8pin"]),
-        ("number_list", [60, 80], [60, 80]),
-        ("string_list", [], []),
-        ("number_list", [], []),
-    ],
-)
-def test_accepted_values_keep_their_native_type(
-    data_type: str, raw: Any, expected: Any
-) -> None:
-    definition = _definition("code", data_type)
-    result = spec_service.normalize_value(definition, raw)
-    assert result == expected
-    assert type(result) is type(expected)
-
-
-@pytest.mark.parametrize(
-    ("data_type", "raw"),
-    [
-        ("string", 8),
-        ("string", ""),
-        ("string", "   "),
-        ("string", True),
-        ("string", ["AM5"]),
-        ("number", "8"),
-        ("number", True),
-        ("number", [8]),
-        ("number", float("nan")),
-        ("number", float("inf")),
-        ("boolean", "true"),
-        ("boolean", 1),
-        ("string_list", "pcie-8pin"),
-        ("string_list", ["ok", ""]),
-        ("string_list", ["ok", 5]),
-        ("number_list", [60, "80"]),
-        ("number_list", [60, True]),
-        ("number_list", [60, float("inf")]),
-    ],
-)
-def test_rejected_values_never_reach_storage(data_type: str, raw: Any) -> None:
-    definition = _definition("code", data_type)
-    with pytest.raises(InvalidInputError):
-        spec_service.normalize_value(definition, raw)
-
-
-def test_json_null_is_rejected_for_every_type() -> None:
-    for data_type in ("string", "number", "boolean", "string_list", "number_list"):
-        with pytest.raises(InvalidInputError):
-            spec_service.normalize_value(_definition("code", data_type), None)
-
-
-def test_oversized_payloads_are_rejected() -> None:
-    long_text = "x" * (spec_service.MAX_STRING_LENGTH + 1)
-    with pytest.raises(InvalidInputError):
-        spec_service.normalize_value(_definition("code", "string"), long_text)
-    too_many = ["x"] * (spec_service.MAX_LIST_LENGTH + 1)
-    with pytest.raises(InvalidInputError):
-        spec_service.normalize_value(_definition("code", "string_list"), too_many)
-
-
-def test_list_order_and_duplicates_are_preserved() -> None:
-    definition = _definition("available_gpu_power_connectors", "string_list")
-    raw = ["pcie-8pin", "pcie-16pin", "pcie-8pin"]
-    assert spec_service.normalize_value(definition, raw) == raw
-
-
-# ── Payload validation and category scoping ────────────────────────────────
-
-
-def _definitions() -> list[CharacteristicDefinition]:
-    return [
-        _definition("socket", "string", name="Сокет", sort_order=0, is_required=True),
-        _definition(
-            "thermal_design_power_w",
-            "number",
-            name="Теплопакет",
-            unit="Вт",
-            sort_order=1,
+        ("gpu", "color", "string", spec_service.EDITOR_SELECT),
+        ("gpu", "length_mm", "number", spec_service.EDITOR_SELECT),
+        ("gpu", "ecc_memory", "boolean", spec_service.EDITOR_BOOLEAN),
+        (
+            "cooling",
+            "supported_sockets",
+            "string_list",
+            spec_service.EDITOR_MULTISELECT,
         ),
-        _definition("has_3d_vcache", "boolean", name="3D V-Cache", sort_order=2),
+        (
+            "mobo",
+            "supported_nvme_lengths_mm",
+            "number_list",
+            spec_service.EDITOR_MULTISELECT,
+        ),
+        (
+            "gpu",
+            "required_power_connectors",
+            "string_list",
+            spec_service.EDITOR_CONNECTORS,
+        ),
+        (
+            "mobo",
+            "required_cpu_power_connectors",
+            "string_list",
+            spec_service.EDITOR_CONNECTORS,
+        ),
+        (
+            "mobo",
+            "required_board_power_connectors",
+            "string_list",
+            spec_service.EDITOR_CONNECTORS,
+        ),
+        (
+            "psu",
+            "available_cpu_power_connectors",
+            "string_list",
+            spec_service.EDITOR_CONNECTORS,
+        ),
+        (
+            "psu",
+            "available_gpu_power_connectors",
+            "string_list",
+            spec_service.EDITOR_CONNECTORS,
+        ),
+        (
+            "psu",
+            "available_board_power_connectors",
+            "string_list",
+            spec_service.EDITOR_CONNECTORS,
+        ),
+        ("gpu", "dimensions_mm", "number_list", spec_service.EDITOR_DIMENSIONS),
+    ],
+)
+def test_editor_behaviour_is_category_scoped(
+    category_slug: str, code: str, data_type: str, editor: str
+) -> None:
+    assert spec_service.editor_for(category_slug, code, data_type) == editor
+
+
+def test_supported_nvme_lengths_are_not_a_dimension_editor() -> None:
+    """Only GPU `dimensions_mm` is the ordered-triple editor."""
+    assert (
+        spec_service.editor_for("mobo", "supported_nvme_lengths_mm", "number_list")
+        == spec_service.EDITOR_MULTISELECT
+    )
+    # The same code in another category is not the GPU dimensions field.
+    assert (
+        spec_service.editor_for("mobo", "dimensions_mm", "number_list")
+        == spec_service.EDITOR_MULTISELECT
+    )
+
+
+def test_only_repeated_connectors_accept_quantities() -> None:
+    assert spec_service.is_repeatable(spec_service.EDITOR_CONNECTORS)
+    for editor in (
+        spec_service.EDITOR_SELECT,
+        spec_service.EDITOR_BOOLEAN,
+        spec_service.EDITOR_MULTISELECT,
+        spec_service.EDITOR_DIMENSIONS,
+    ):
+        assert not spec_service.is_repeatable(editor)
+
+
+# ── Semantic interpretation ─────────────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("750 Вт", Decimal(750)),
+        ("269.1 мм", Decimal("269.1")),
+        ("21.5″", Decimal("21.5")),
+        ("20000 об/мин", Decimal(20000)),
+        ("0.03 мс", Decimal("0.03")),
+        ("5", Decimal(5)),
+        # Not a magnitude: no grouping repair, no prefix search, no sign guessing.
+        ("1 234 ГБ", None),
+        ("CL16", None),
+        ("AM5", None),
+        ("", None),
+        ("-5 Вт", None),
+    ],
+)
+def test_measurement_parsing_never_repairs_text(
+    value: str, expected: Decimal | None
+) -> None:
+    assert spec_service.parse_measurement(value) == expected
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [("Да", True), ("Нет", False), ("  да  ", True), ("—", None), ("", None)],
+)
+def test_boolean_parsing(value: str, expected: bool | None) -> None:
+    assert spec_service.parse_boolean(value) is expected
+
+
+def test_text_normalization_collapses_whitespace_and_case_only() -> None:
+    assert spec_service.normalize_text("  AM5 ") == spec_service.normalize_text("am5")
+    assert spec_service.normalize_text("PCIe  8-pin") == "pcie 8-pin"
+    # Nothing is stripped to force a match: the whole identifier is compared.
+    assert spec_service.normalize_text("PCIe 8-pin") != spec_service.normalize_text(
+        "PCIe 8-pin x2"
+    )
+
+
+# ── Dimensions ──────────────────────────────────────────────────────────────
+
+
+def test_dimensions_canonicalize_without_trailing_zeros() -> None:
+    assert (
+        spec_service.canonical_dimensions(
+            [Decimal(320), Decimal("134.85"), Decimal("61.57")]
+        )
+        == "320 × 134.85 × 61.57 мм"
+    )
+    assert (
+        spec_service.canonical_dimensions(
+            [Decimal(46), Decimal("40.0"), Decimal("234.10")]
+        )
+        == "46 × 40 × 234.1 мм"
+    )
+
+
+@pytest.mark.parametrize(
+    "stored",
+    [
+        "234.1 × 123.5 × 40.2 мм",
+        "269.1 × 131.8 × 40.1 мм",
+        "305 × 138 × 65 мм",
+        "307 × 125 × 46 мм",
+        "320 × 134.85 × 61.57 мм",
+        "342 × 150 × 75 мм",
+        "357.6 × 149.3 × 70.1 мм",
+    ],
+)
+def test_every_stored_gpu_dimension_round_trips(stored: str) -> None:
+    numbers = spec_service.parse_dimensions(stored)
+    assert numbers is not None
+    canonical = spec_service.canonical_dimensions(
+        [Decimal(str(number)) for number in numbers]
+    )
+    assert canonical == stored
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        [307, 125],
+        [307, 125, 46, 12],
+        [307, "125 ", 46],
+        [307, "1e3", 46],
+        [307, "1 234", 46],
+        [307, "125,5", 46],
+        [0, 125, 46],
+        [-1, 125, 46],
+        [1001, 125, 46],
+        [1.234, 125, 46],
+        [True, 125, 46],
+        [float("nan"), 125, 46],
+        [float("inf"), 125, 46],
+        [None, 125, 46],
+    ],
+)
+def test_invalid_dimensions_are_rejected(raw: list) -> None:
+    with pytest.raises(InvalidInputError):
+        spec_service.validate_dimensions(raw)
+
+
+def test_dimensions_accept_two_decimal_places() -> None:
+    assert spec_service.validate_dimensions([1.05, 1000, 0.5]) == (
+        Decimal("1.05"),
+        Decimal(1000),
+        Decimal("0.5"),
+    )
+
+
+# ── Option membership and quantity rules ────────────────────────────────────
+
+
+def _submission(
+    code: str, *option_ids: int, quantity: int = 1
+) -> CharacteristicSubmission:
+    return CharacteristicSubmission(
+        code=code,
+        options=tuple(
+            OptionSelection(option_id=option_id, quantity=quantity)
+            for option_id in option_ids
+        ),
+    )
+
+
+def test_scalar_characteristics_accept_exactly_one_option() -> None:
+    definition = _definition("socket", "string")
+    ids = _options(definition, "AM5", "AM4")
+    values = spec_service.submitted_values(
+        [definition],
+        [_submission("socket", ids[0])],
+        _dictionary(definition, "AM5", "AM4"),
+    )
+    assert values["socket"] == (SelectedOption(ids[0], "AM5", 1),)
+
+    with pytest.raises(InvalidInputError, match="only one option"):
+        spec_service.submitted_values(
+            [definition],
+            [_submission("socket", ids[0], ids[1])],
+            _dictionary(definition, "AM5", "AM4"),
+        )
+
+
+def test_scalar_characteristics_reject_a_quantity() -> None:
+    definition = _definition("socket", "string")
+    ids = _options(definition, "AM5")
+    with pytest.raises(InvalidInputError, match="does not accept a quantity"):
+        spec_service.submitted_values(
+            [definition],
+            [_submission("socket", ids[0], quantity=2)],
+            _dictionary(definition, "AM5"),
+        )
+
+
+def test_boolean_false_is_a_real_selection() -> None:
+    definition = _definition("has_3d_vcache", "boolean", category_slug="cpu")
+    dictionary = _dictionary(definition, "Да", "Нет")
+    false_id = dictionary[definition.id][1].id
+    values = spec_service.submitted_values(
+        [definition], [_submission("has_3d_vcache", false_id)], dictionary
+    )
+    assert spec_service.structured_value(definition, values["has_3d_vcache"]) is False
+    assert not spec_service.is_missing_value(definition, values["has_3d_vcache"])
+
+
+def test_multiselect_rejects_duplicate_options() -> None:
+    definition = _definition(
+        "supported_sockets", "string_list", category_slug="cooling"
+    )
+    ids = _options(definition, "AM5", "AM4")
+    with pytest.raises(InvalidInputError, match="must not be selected twice"):
+        spec_service.submitted_values(
+            [definition],
+            [_submission("supported_sockets", ids[0], ids[0])],
+            _dictionary(definition, "AM5", "AM4"),
+        )
+
+
+def test_connectors_keep_their_quantity() -> None:
+    definition = _definition(
+        "available_gpu_power_connectors", "string_list", category_slug="psu"
+    )
+    dictionary = _dictionary(definition, "PCIe 8-pin", "PCIe 16-pin")
+    eight, sixteen = (option.id for option in dictionary[definition.id])
+    values = spec_service.submitted_values(
+        [definition],
+        [_submission("available_gpu_power_connectors", eight, sixteen, quantity=4)],
+        dictionary,
+    )
+    assert [
+        (option.option_id, option.quantity) for option in values[definition.code]
+    ] == [
+        (eight, 4),
+        (sixteen, 4),
     ]
+    assert (
+        spec_service.structured_value(definition, values[definition.code]).count(
+            "PCIe 8-pin"
+        )
+        == 4
+    )
 
 
-def test_unknown_code_is_rejected() -> None:
+@pytest.mark.parametrize("quantity", [0, -1, 33])
+def test_connector_quantity_must_be_bounded(quantity: int) -> None:
+    definition = _definition(
+        "required_power_connectors", "string_list", category_slug="gpu"
+    )
+    ids = _options(definition, "PCIe 8-pin")
+    with pytest.raises(InvalidInputError):
+        spec_service.submitted_values(
+            [definition],
+            [_submission("required_power_connectors", ids[0], quantity=quantity)],
+            _dictionary(definition, "PCIe 8-pin"),
+        )
+
+
+def test_an_option_of_another_characteristic_is_rejected() -> None:
+    socket = _definition("socket", "string", definition_id=1)
+    chipset = _definition("chipset", "string", category_slug="mobo", definition_id=2)
+    chipset_id = _dictionary(chipset, "AMD B650")[chipset.id][0].id
+    dictionary = {
+        socket.id: [DictionaryOption(10, socket.id, "AM5")],
+        chipset.id: [DictionaryOption(chipset_id, chipset.id, "AMD B650")],
+    }
+    # A valid id of another definition is simply not a member of this dictionary.
+    with pytest.raises(InvalidInputError, match="unknown option id"):
+        spec_service.submitted_values(
+            [socket], [_submission("socket", chipset_id)], dictionary
+        )
+
+
+def test_unknown_option_id_is_rejected() -> None:
+    definition = _definition("socket", "string")
+    with pytest.raises(InvalidInputError, match="unknown option id"):
+        spec_service.submitted_values(
+            [definition],
+            [_submission("socket", 999_999)],
+            _dictionary(definition, "AM5"),
+        )
+
+
+def test_unknown_and_duplicated_codes_are_rejected() -> None:
+    definition = _definition("socket", "string")
+    dictionary = _dictionary(definition, "AM5")
+    ids = _options(definition, "AM5")
     with pytest.raises(InvalidInputError, match="Unknown characteristic code"):
-        spec_service.submitted_values(_definitions(), [("chipset", "B650")])
-
-
-def test_duplicate_code_in_one_payload_is_rejected() -> None:
+        spec_service.submitted_values(
+            [definition], [_submission("nope", ids[0])], dictionary
+        )
     with pytest.raises(InvalidInputError, match="Duplicate characteristic code"):
         spec_service.submitted_values(
-            _definitions(), [("socket", "AM5"), ("socket", "LGA1700")]
+            [definition],
+            [_submission("socket", ids[0]), _submission("socket", ids[0])],
+            dictionary,
         )
 
 
-def test_submitted_values_are_type_checked_against_the_definition() -> None:
-    with pytest.raises(InvalidInputError, match="numeric value"):
+def test_dimensions_submission_resolves_to_the_canonical_dictionary_value() -> None:
+    definition = _definition("dimensions_mm", "number_list", unit="мм")
+    dictionary = _dictionary(definition, "307 × 125 × 46 мм")
+    known_id = dictionary[definition.id][0].id
+    submission = CharacteristicSubmission(
+        code="dimensions_mm",
+        dimensions=(Decimal(307), Decimal(125), Decimal(46)),
+    )
+    values = spec_service.submitted_values([definition], [submission], dictionary)
+    assert values["dimensions_mm"] == (
+        SelectedOption(option_id=known_id, value="307 × 125 × 46 мм", quantity=1),
+    )
+
+
+def test_a_new_dimension_value_is_marked_for_creation() -> None:
+    definition = _definition("dimensions_mm", "number_list", unit="мм")
+    dictionary = _dictionary(definition, "307 × 125 × 46 мм")
+    submission = CharacteristicSubmission(
+        code="dimensions_mm",
+        dimensions=(Decimal(320), Decimal("134.85"), Decimal("61.57")),
+    )
+    values = spec_service.submitted_values([definition], [submission], dictionary)
+    (option,) = values["dimensions_mm"]
+    assert option.option_id == spec_service.UNRESOLVED_OPTION_ID
+    assert option.value == "320 × 134.85 × 61.57 мм"
+
+
+def test_dimensions_do_not_accept_dictionary_picks() -> None:
+    definition = _definition("dimensions_mm", "number_list", unit="мм")
+    dictionary = _dictionary(definition, "307 × 125 × 46 мм")
+    ids = _options(definition, "307 × 125 × 46 мм")
+    with pytest.raises(InvalidInputError, match="three measurements"):
         spec_service.submitted_values(
-            _definitions(), [("thermal_design_power_w", "105")]
+            [definition], [_submission("dimensions_mm", ids[0])], dictionary
         )
 
 
-def test_codes_are_trimmed_before_lookup() -> None:
-    values = spec_service.submitted_values(_definitions(), [("  socket  ", " AM5 ")])
-    assert values == {"socket": "AM5"}
+def test_ordinary_characteristics_do_not_accept_dimensions() -> None:
+    definition = _definition("socket", "string")
+    submission = CharacteristicSubmission(
+        code="socket", dimensions=(Decimal(1), Decimal(2), Decimal(3))
+    )
+    with pytest.raises(InvalidInputError, match="does not accept dimensions"):
+        spec_service.submitted_values(
+            [definition], [submission], _dictionary(definition, "AM5")
+        )
 
 
-def test_removed_codes_must_be_known_and_unique() -> None:
-    assert spec_service.removed_codes(_definitions(), ["has_3d_vcache"]) == {
+# ── Removals and merging ────────────────────────────────────────────────────
+
+
+def test_removed_codes_rejects_unknown_and_duplicate_codes() -> None:
+    definitions = [_definition("has_3d_vcache", "boolean", category_slug="cpu")]
+    assert spec_service.removed_codes(definitions, ["has_3d_vcache"]) == {
         "has_3d_vcache"
     }
     with pytest.raises(InvalidInputError, match="Unknown characteristic code"):
-        spec_service.removed_codes(_definitions(), ["nope"])
+        spec_service.removed_codes(definitions, ["nope"])
     with pytest.raises(InvalidInputError, match="Duplicate characteristic code"):
-        spec_service.removed_codes(_definitions(), ["socket", "socket"])
+        spec_service.removed_codes(definitions, ["has_3d_vcache", "has_3d_vcache"])
 
 
-# ── Merge semantics ────────────────────────────────────────────────────────
-
-
-def test_required_values_are_enforced() -> None:
+def test_required_values_must_be_present() -> None:
+    definitions = [_definition("socket", "string", is_required=True)]
     with pytest.raises(InvalidInputError, match="Missing required characteristics"):
-        spec_service.resolve_values(_definitions(), {}, {})
+        spec_service.resolve_values(definitions, {}, {})
 
 
-def test_incomplete_update_does_not_drop_already_stored_required_values() -> None:
-    existing = {"socket": "AM5"}
-    merged = spec_service.resolve_values(
-        _definitions(), existing, {"thermal_design_power_w": 65}
-    )
-    assert merged == {"socket": "AM5", "thermal_design_power_w": 65}
-
-
-def test_existing_values_are_preserved_unless_replaced_or_removed() -> None:
-    existing = {"socket": "AM5", "has_3d_vcache": True}
-    merged = spec_service.resolve_values(
-        _definitions(), existing, {"thermal_design_power_w": 120}
-    )
+def test_unchanged_values_are_carried_over_inside_the_same_category() -> None:
+    definitions = [_definition("socket", "string"), _definition("chipset", "string")]
+    existing = {"socket": (SelectedOption(1, "AM5", 1),)}
+    submitted = {"chipset": (SelectedOption(2, "AMD B650", 1),)}
+    merged = spec_service.resolve_values(definitions, existing, submitted)
     assert merged == {
-        "socket": "AM5",
-        "has_3d_vcache": True,
-        "thermal_design_power_w": 120,
+        "socket": (SelectedOption(1, "AM5", 1),),
+        "chipset": (SelectedOption(2, "AMD B650", 1),),
     }
 
-    removed = spec_service.resolve_values(
-        _definitions(), existing, {}, ["has_3d_vcache"]
-    )
-    assert "has_3d_vcache" not in removed
-    assert removed["socket"] == "AM5"
 
-
-def test_required_value_cannot_be_removed() -> None:
-    existing = {"socket": "AM5", "thermal_design_power_w": 65}
-    with pytest.raises(InvalidInputError, match="Missing required characteristics"):
-        spec_service.resolve_values(_definitions(), existing, {}, ["socket"])
-
-
-def test_cross_category_values_are_never_dropped_silently() -> None:
-    existing = {"chipset": "AMD B650", "socket": "AM5"}
-    with pytest.raises(InvalidInputError, match="not defined for the target category"):
-        spec_service.resolve_values(_definitions(), existing, {})
-
-
-def test_explicit_removal_allows_a_category_transition() -> None:
-    existing = {"chipset": "AMD B650", "socket": "AM5"}
-    merged = spec_service.resolve_values(_definitions(), existing, {}, ["chipset"])
-    assert merged == {"socket": "AM5"}
-
-
-def test_stored_value_of_the_wrong_type_blocks_the_transition() -> None:
-    definitions = [_definition("cores", "number", name="Ядра")]
-    existing = {"cores": "восемь"}
-    with pytest.raises(InvalidInputError, match="does not match the target category"):
-        spec_service.resolve_values(definitions, existing, {})
-    # …unless it is explicitly removed.
-    assert spec_service.resolve_values(definitions, existing, {}, ["cores"]) == {}
-
-
-def test_false_and_zero_are_real_values_not_absences() -> None:
-    definitions = [
-        _definition("has_integrated_graphics", "boolean", name="Встроенная графика"),
-        _definition("cores", "number", name="Ядра"),
-        _definition("string_list", "string_list", name="Список"),
-    ]
-    merged = spec_service.resolve_values(
-        definitions,
-        {},
-        {"has_integrated_graphics": False, "cores": 0, "string_list": []},
-    )
-    assert merged == {"has_integrated_graphics": False, "cores": 0, "string_list": []}
-
-
-def test_required_validation_can_be_relaxed_for_partial_writes() -> None:
-    merged = spec_service.resolve_values(
-        _definitions(), {}, {"thermal_design_power_w": 65}, require_complete=False
-    )
-    assert merged == {"thermal_design_power_w": 65}
-
-
-# ── Required lists ─────────────────────────────────────────────────────────
-
-
-def _list_definitions() -> list[CharacteristicDefinition]:
-    return [
-        _definition(
-            "required_strings",
-            "string_list",
-            name="Обязательный список",
-            is_required=True,
-        ),
-        _definition(
-            "required_numbers",
-            "number_list",
-            name="Обязательные числа",
-            is_required=True,
-        ),
-        _definition("optional_strings", "string_list", name="Список по желанию"),
-        _definition("optional_numbers", "number_list", name="Числа по желанию"),
-    ]
-
-
-@pytest.mark.parametrize(
-    ("code", "name"),
-    [
-        ("required_strings", "Обязательный список"),
-        ("required_numbers", "Обязательные числа"),
-    ],
-)
-def test_empty_required_list_is_rejected(code: str, name: str) -> None:
-    with pytest.raises(InvalidInputError) as error:
-        spec_service.resolve_values(_list_definitions(), {}, {code: []})
-    assert "Missing required characteristics" in str(error.value)
-    assert name in str(error.value)
-
-
-def test_required_lists_that_are_not_submitted_are_rejected() -> None:
-    values = {
-        "required_strings": ["pcie-8pin"],
-        "required_numbers": [60],
-        "optional_strings": ["pcie-8pin"],
-        "optional_numbers": [80],
+def test_an_explicit_removal_deletes_a_stored_value() -> None:
+    definitions = [_definition("socket", "string"), _definition("chipset", "string")]
+    existing = {
+        "socket": (SelectedOption(1, "AM5", 1),),
+        "chipset": (SelectedOption(2, "AMD B650", 1),),
     }
+    merged = spec_service.resolve_values(definitions, existing, {}, ["chipset"])
+    assert merged == {"socket": (SelectedOption(1, "AM5", 1),)}
+
+
+def test_a_required_value_cannot_be_removed() -> None:
+    definitions = [_definition("socket", "string", is_required=True)]
+    existing = {"socket": (SelectedOption(1, "AM5", 1),)}
     with pytest.raises(InvalidInputError, match="Missing required characteristics"):
-        spec_service.resolve_values(_list_definitions(), {"optional_strings": []}, {})
-    # A complete payload (both required lists filled) is accepted.
-    assert spec_service.resolve_values(_list_definitions(), {}, values) == values
+        spec_service.resolve_values(definitions, existing, {}, ["socket"])
 
 
-def test_empty_optional_lists_stay_valid() -> None:
-    values = {
-        "required_strings": ["pcie-8pin"],
-        "required_numbers": [60],
-        "optional_strings": [],
-        "optional_numbers": [],
-    }
-    assert spec_service.resolve_values(_list_definitions(), {}, values) == values
+def test_a_category_change_never_carries_stored_options_over() -> None:
+    """Option ids belong to one definition, so a transition needs a decision."""
+    target = [_definition("socket", "string")]
+    existing = {"socket": (SelectedOption(1, "AM5", 1),)}
+    with pytest.raises(InvalidInputError, match="replaced or removed explicitly"):
+        spec_service.resolve_values(target, existing, {}, carry_over=False)
 
-
-def test_required_list_cannot_be_emptied_by_an_update() -> None:
-    existing = {"required_strings": ["pcie-8pin"], "required_numbers": [60]}
-    with pytest.raises(InvalidInputError, match="Обязательный список"):
-        spec_service.resolve_values(
-            _list_definitions(), existing, {"required_strings": []}
-        )
-    # Removing a required list is rejected just like emptying it.
-    with pytest.raises(InvalidInputError, match="Missing required characteristics"):
-        spec_service.resolve_values(
-            _list_definitions(), existing, {}, ["required_numbers"]
-        )
-
-
-def test_required_scalars_accept_false_and_zero() -> None:
-    definitions = [
-        _definition("required_flag", "boolean", name="Флаг", is_required=True),
-        _definition("required_number", "number", name="Число", is_required=True),
-    ]
-    assert spec_service.resolve_values(
-        definitions, {}, {"required_flag": False, "required_number": 0}
-    ) == {"required_flag": False, "required_number": 0}
-    # …while a genuinely absent required value is still rejected.
-    with pytest.raises(InvalidInputError, match="Missing required characteristics"):
-        spec_service.resolve_values(definitions, {}, {"required_number": 0})
-
-
-def test_list_values_keep_order_duplicates_and_native_types() -> None:
-    values = {
-        "required_strings": ["pcie-8pin", "pcie-16pin", "pcie-8pin"],
-        "required_numbers": [80, 60, 60],
-    }
-    merged = spec_service.resolve_values(_list_definitions(), {}, values)
-    assert merged["required_strings"] == ["pcie-8pin", "pcie-16pin", "pcie-8pin"]
-    assert merged["required_numbers"] == [80, 60, 60]
-
-
-def test_malformed_list_items_are_rejected() -> None:
-    for raw in (["pcie-8pin", ""], ["pcie-8pin", 5], "pcie-8pin"):
-        with pytest.raises(InvalidInputError):
-            spec_service.submitted_values(
-                _list_definitions(), [("required_strings", raw)]
-            )
-    for raw in ([60, "80"], [60, True], [60, float("inf")]):
-        with pytest.raises(InvalidInputError):
-            spec_service.submitted_values(
-                _list_definitions(), [("required_numbers", raw)]
-            )
-
-
-# ── Category transitions with explicitly replaced values ─────────────────────
-
-
-def _cpu_definitions() -> list[CharacteristicDefinition]:
-    """Source category: `memory_type` is a list, like a CPU's memory type."""
-    return [
-        _definition("socket", "string", name="Сокет", is_required=True),
-        _definition("memory_type", "string_list", name="Тип памяти"),
-    ]
-
-
-def _board_definitions() -> list[CharacteristicDefinition]:
-    """Target category: the same code is a plain string, like a motherboard's."""
-    return [
-        _definition("memory_type", "string", name="Тип памяти"),
-        _definition("form_factor", "string", name="Форм-фактор"),
-    ]
-
-
-def test_a_stored_list_is_replaced_by_a_valid_string() -> None:
+    # An explicit replacement is accepted.
     merged = spec_service.resolve_values(
-        _board_definitions(), {"memory_type": ["ddr5"]}, {"memory_type": "ddr5"}
+        target,
+        existing,
+        {"socket": (SelectedOption(9, "LGA1700", 1),)},
+        carry_over=False,
     )
-    assert merged == {"memory_type": "ddr5"}
+    assert merged == {"socket": (SelectedOption(9, "LGA1700", 1),)}
 
-
-def test_a_stored_string_is_replaced_by_a_valid_list() -> None:
-    merged = spec_service.resolve_values(
-        _cpu_definitions(),
-        {"memory_type": "ddr5", "socket": "AM5"},
-        {"memory_type": ["ddr5"]},
-    )
-    assert merged == {"memory_type": ["ddr5"], "socket": "AM5"}
-
-
-def test_an_incompatible_stored_value_without_a_replacement_is_rejected() -> None:
-    with pytest.raises(InvalidInputError, match="does not match the target category"):
-        spec_service.resolve_values(_board_definitions(), {"memory_type": ["ddr5"]}, {})
-
-
-def test_an_incompatible_stored_value_can_still_be_removed_explicitly() -> None:
+    # An explicit removal is accepted too.
+    optional = [_definition("socket", "string")]
     assert (
         spec_service.resolve_values(
-            _board_definitions(), {"memory_type": ["ddr5"]}, {}, ["memory_type"]
+            optional, existing, {}, ["socket"], carry_over=False
         )
         == {}
     )
 
 
-def test_a_replacement_must_match_the_target_definition() -> None:
-    with pytest.raises(InvalidInputError, match="text value is required"):
-        spec_service.submitted_values(_board_definitions(), [("memory_type", ["ddr5"])])
-    with pytest.raises(InvalidInputError, match="list value is required"):
-        spec_service.submitted_values(_cpu_definitions(), [("memory_type", "ddr5")])
-
-
-def test_a_replacement_leaves_valid_unrelated_values_untouched() -> None:
-    definitions = [
-        *_board_definitions(),
-        _definition("socket", "string", name="Сокет", is_required=True),
-    ]
-    merged = spec_service.resolve_values(
-        definitions,
-        {"memory_type": ["ddr5"], "socket": "AM5"},
-        {"memory_type": "ddr5"},
+def test_a_stored_code_of_the_previous_category_must_be_removed_explicitly() -> None:
+    target = [_definition("chipset", "string", category_slug="mobo")]
+    existing = {"vram_gb": (SelectedOption(1, "12 ГБ", 1),)}
+    with pytest.raises(InvalidInputError, match="replaced or removed explicitly"):
+        spec_service.resolve_values(target, existing, {}, carry_over=False)
+    assert (
+        spec_service.resolve_values(target, existing, {}, ["vram_gb"], carry_over=False)
+        == {}
     )
-    assert merged == {"memory_type": "ddr5", "socket": "AM5"}
 
 
-def test_a_transition_with_a_replacement_still_requires_the_target_values() -> None:
-    definitions = [
-        *_board_definitions(),
-        _definition("socket", "string", name="Сокет", is_required=True),
-    ]
-    with pytest.raises(InvalidInputError, match="Сокет"):
-        spec_service.resolve_values(
-            definitions, {"memory_type": ["ddr5"]}, {"memory_type": "ddr5"}
-        )
-    assert spec_service.resolve_values(
-        definitions,
-        {"memory_type": ["ddr5"]},
-        {"memory_type": "ddr5", "socket": "AM5"},
-    ) == {"memory_type": "ddr5", "socket": "AM5"}
+# ── Serialization of the editor payload ─────────────────────────────────────
 
 
-def test_a_replacement_list_keeps_order_and_duplicates() -> None:
-    merged = spec_service.resolve_values(
-        _cpu_definitions(),
-        {"memory_type": "ddr5", "socket": "AM5"},
-        {"memory_type": ["ddr5", "ddr4", "ddr5"]},
+def test_editor_payload_exposes_ids_editor_limits_and_the_full_dictionary() -> None:
+    scalar = _definition("socket", "string", sort_order=0)
+    connectors = _definition(
+        "required_power_connectors", "string_list", sort_order=1, category_slug="gpu"
     )
-    assert merged["memory_type"] == ["ddr5", "ddr4", "ddr5"]
-
-
-def test_replaced_false_and_zero_are_not_treated_as_absences() -> None:
-    definitions = [
-        _definition("memory_type", "boolean", name="Тип памяти"),
-        _definition("slots", "number", name="Слоты"),
-    ]
-    merged = spec_service.resolve_values(
-        definitions,
-        {"memory_type": ["ddr5"], "slots": "n/a"},
-        {"memory_type": False, "slots": 0},
+    dimensions = _definition(
+        "dimensions_mm", "number_list", unit="мм", sort_order=2, category_slug="gpu"
     )
-    assert merged == {"memory_type": False, "slots": 0}
+    dictionary = {
+        scalar.id: [DictionaryOption(1, scalar.id, "AM5")],
+        connectors.id: [DictionaryOption(2, connectors.id, "PCIe 8-pin")],
+        dimensions.id: [DictionaryOption(3, dimensions.id, "307 × 125 × 46 мм")],
+    }
+    fields = spec_service.serialize_definition_fields(
+        [scalar, connectors, dimensions], dictionary
+    )
+    assert [field["code"] for field in fields] == [
+        "socket",
+        "required_power_connectors",
+        "dimensions_mm",
+    ]
+    assert fields[0]["editor"] == spec_service.EDITOR_SELECT
+    assert fields[0]["limits"]["max_selections"] == 1
+    assert fields[0]["limits"]["repeatable"] is False
+    assert fields[0]["options"] == [{"option_id": 1, "value": "AM5"}]
+    assert fields[1]["editor"] == spec_service.EDITOR_CONNECTORS
+    assert fields[1]["limits"]["repeatable"] is True
+    assert fields[1]["limits"]["max_quantity"] == spec_service.MAX_QUANTITY
+    assert fields[2]["editor"] == spec_service.EDITOR_DIMENSIONS
+    assert fields[2]["limits"]["dimensions"] == {
+        "count": 3,
+        "unit": "мм",
+        "max_value": "1000",
+        "decimal_places": 2,
+    }

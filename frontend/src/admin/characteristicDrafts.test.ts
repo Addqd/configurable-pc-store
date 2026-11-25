@@ -1,405 +1,375 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_QUANTITY,
   buildCharacteristicPayload,
-  draftFromValue,
+  dimensionInputsFrom,
+  draftFromStored,
   draftToValue,
+  editorOf,
   emptyDraft,
-  fieldTypeOf,
   isDraftEmpty,
   orphanCodes,
-  parseNumberText,
-  storedValueMap,
+  parseDimensionText,
   type CharacteristicDefinitionLike,
+  type CharacteristicDraft,
+  type StoredCharacteristic,
 } from './characteristicDrafts'
 
-const definition = (
-  code: string,
-  data_type: string,
-  is_required = false,
-): CharacteristicDefinitionLike => ({
-  code,
-  name: code,
-  data_type,
-  unit: null,
-  sort_order: 0,
-  is_required,
-  show_in_short: false,
-  show_in_details: true,
-})
+const OPTIONS = [
+  { option_id: 11, value: 'AM5' },
+  { option_id: 12, value: 'AM4' },
+]
 
-describe('characteristic editor drafts', () => {
-  it('maps every supported data type to the right control kind', () => {
-    expect(fieldTypeOf('string')).toBe('string')
-    expect(fieldTypeOf('number')).toBe('number')
-    expect(fieldTypeOf('boolean')).toBe('boolean')
-    expect(fieldTypeOf('string_list')).toBe('string_list')
-    expect(fieldTypeOf('number_list')).toBe('number_list')
-    // An unknown declaration never silently becomes a numeric control.
-    expect(fieldTypeOf('mystery')).toBe('string')
+function definition(
+  overrides: Partial<CharacteristicDefinitionLike> & { code: string },
+): CharacteristicDefinitionLike {
+  return {
+    name: overrides.code,
+    data_type: 'string',
+    editor: 'select',
+    unit: null,
+    sort_order: 0,
+    is_required: false,
+    show_in_short: false,
+    show_in_details: true,
+    options: OPTIONS,
+    ...overrides,
+  }
+}
+
+function drafted(patch: Partial<CharacteristicDraft>): CharacteristicDraft {
+  return {
+    editor: 'select',
+    selected: [],
+    quantities: {},
+    dimensions: ['', '', ''],
+    edited: true,
+    ...patch,
+  }
+}
+
+function stored(
+  options: { optionId: number; quantity?: number }[],
+  dataType = 'string',
+): StoredCharacteristic {
+  return {
+    options: options.map((option) => ({
+      optionId: option.optionId,
+      quantity: option.quantity ?? 1,
+    })),
+    dataType,
+  }
+}
+
+describe('editor selection', () => {
+  it('uses the editor declared by the server for every definition', () => {
+    expect(editorOf({ editor: 'select', data_type: 'string' })).toBe('select')
+    expect(editorOf({ editor: 'boolean', data_type: 'boolean' })).toBe('boolean')
+    expect(editorOf({ editor: 'multiselect', data_type: 'string_list' })).toBe('multiselect')
+    expect(editorOf({ editor: 'connector_quantity', data_type: 'string_list' })).toBe(
+      'connector_quantity',
+    )
+    expect(editorOf({ editor: 'dimensions', data_type: 'number_list' })).toBe('dimensions')
   })
 
-  it('round-trips every data type through a draft', () => {
-    expect(draftToValue(definition('a', 'string'), draftFromValue('string', 'AM5')))
-      .toEqual({ ok: true, value: 'AM5' })
-    expect(draftToValue(definition('a', 'number'), draftFromValue('number', 3.4)))
-      .toEqual({ ok: true, value: 3.4 })
-    expect(draftToValue(definition('a', 'boolean'), draftFromValue('boolean', false)))
-      .toEqual({ ok: true, value: false })
-    expect(draftToValue(definition('a', 'string_list'), draftFromValue('string_list', ['8pin', '8pin'])))
-      .toEqual({ ok: true, value: ['8pin', '8pin'] })
-    expect(draftToValue(definition('a', 'number_list'), draftFromValue('number_list', [60, 80])))
-      .toEqual({ ok: true, value: [60, 80] })
+  it('falls back safely when the server adds an editor this build does not know', () => {
+    expect(editorOf({ editor: 'colour-wheel', data_type: 'string' })).toBe('select')
+    expect(editorOf({ editor: undefined, data_type: 'boolean' })).toBe('boolean')
   })
 
-  it('keeps list order and duplicates instead of splitting on commas', () => {
-    const draft = { ...emptyDraft('string_list'), items: ['pcie-8pin', 'pcie-16pin', 'pcie-8pin'] }
-    expect(draftToValue(definition('a', 'string_list'), draft)).toEqual({
-      ok: true,
-      value: ['pcie-8pin', 'pcie-16pin', 'pcie-8pin'],
+  it('starts empty without a selection, quantities or measurements', () => {
+    const draft = emptyDraft({ editor: 'connector_quantity', data_type: 'string_list' })
+    expect(draft).toEqual({
+      editor: 'connector_quantity',
+      selected: [],
+      quantities: {},
+      dimensions: ['', '', ''],
+      edited: false,
     })
-  })
-
-  it('treats false and zero as real values, not as absences', () => {
-    expect(draftToValue(definition('a', 'boolean'), { ...emptyDraft('boolean'), checked: false }))
-      .toEqual({ ok: true, value: false })
-    expect(draftToValue(definition('a', 'number'), { ...emptyDraft('number'), text: '0' }))
-      .toEqual({ ok: true, value: 0 })
-    expect(isDraftEmpty({ ...emptyDraft('number'), text: '0' })).toBe(false)
-  })
-
-  it('keeps an empty optional draft out of the payload', () => {
-    expect(draftToValue(definition('a', 'string'), emptyDraft('string'))).toBeNull()
-    expect(draftToValue(definition('a', 'string_list'), emptyDraft('string_list'))).toBeNull()
-    // …but an empty required draft is reported.
-    expect(draftToValue(definition('a', 'string', true), emptyDraft('string')))
-      .toEqual({ ok: false, issue: 'required' })
-  })
-
-  it('rejects non-numeric text instead of guessing a number', () => {
-    expect(draftToValue(definition('a', 'number'), { ...emptyDraft('number'), text: 'много' }))
-      .toEqual({ ok: false, issue: 'number' })
-    expect(draftToValue(definition('a', 'number'), { ...emptyDraft('number'), text: '1 2' }))
-      .toEqual({ ok: false, issue: 'number' })
-    expect(parseNumberText('1,5')).toBe(1.5)
-    expect(parseNumberText('1.5')).toBe(1.5)
-    expect(parseNumberText('1,234.5')).toBeNull()
-    expect(parseNumberText('')).toBeNull()
-  })
-
-  it('never changes the meaning of a numeric value', () => {
-    const accepted: Array<[string, number]> = [
-      ['12', 12], ['12.5', 12.5], ['12,5', 12.5], ['0', 0], ['-2.5', -2.5],
-      [' 12 ', 12], ['\t12,25\n', 12.25], ['-0.5', -0.5], ['0,0', 0],
-      // A single comma is a decimal separator, never a grouping separator.
-      ['1,234', 1.234],
-    ]
-    for (const [input, expected] of accepted) {
-      expect(parseNumberText(input), input).toBe(expected)
-    }
-
-    const rejected = [
-      '1 2', '1\u00a02', '1\u202f2', '1,234.5', '1.234,5', '1 234',
-      'abc', 'Infinity', '-Infinity', 'NaN', '1e3', '1E3', '0x10', '+5',
-      '12.', ',5', '12,', '12,5,5', '12.5.5', '--5', '', '   ',
-    ]
-    for (const input of rejected) {
-      expect(parseNumberText(input), JSON.stringify(input)).toBeNull()
-    }
-  })
-
-  it('applies the same strict rules to numeric list entries', () => {
-    const zeros = { ...emptyDraft('number_list'), items: ['0', '-2,5'] }
-    expect(draftToValue(definition('a', 'number_list'), zeros)).toEqual({ ok: true, value: [0, -2.5] })
-    const spaced = { ...emptyDraft('number_list'), items: ['1 2'] }
-    expect(draftToValue(definition('a', 'number_list'), spaced)).toEqual({ ok: false, issue: 'number' })
-  })
-
-  it('keeps an unset boolean distinct from an explicit false', () => {
-    expect(emptyDraft('boolean').checked).toBeNull()
-    expect(isDraftEmpty(emptyDraft('boolean'))).toBe(true)
-    // An optional boolean that was never set is absent, not `false`…
-    expect(draftToValue(definition('a', 'boolean'), emptyDraft('boolean'))).toBeNull()
-    // …while an explicit choice round-trips in both directions.
-    expect(draftToValue(definition('a', 'boolean'), draftFromValue('boolean', false)))
-      .toEqual({ ok: true, value: false })
-    expect(draftToValue(definition('a', 'boolean'), draftFromValue('boolean', true)))
-      .toEqual({ ok: true, value: true })
-    // A required boolean rejects the unset state instead of inventing `false`.
-    expect(draftToValue(definition('a', 'boolean', true), emptyDraft('boolean')))
-      .toEqual({ ok: false, issue: 'required' })
-    expect(draftToValue(definition('a', 'boolean', true), { ...emptyDraft('boolean'), checked: false }))
-      .toEqual({ ok: true, value: false })
-    // A stored boolean false is read back as false, not as "absent".
-    expect(isDraftEmpty(draftFromValue('boolean', false))).toBe(false)
-  })
-
-  it('rejects a non-numeric row inside a number list', () => {
-    const draft = { ...emptyDraft('number_list'), items: ['60', 'abc'] }
-    expect(draftToValue(definition('a', 'number_list'), draft)).toEqual({ ok: false, issue: 'number' })
-  })
-
-  it('drops blank list rows without reordering real values', () => {
-    const draft = { ...emptyDraft('string_list'), items: ['8pin', '  ', '16pin'] }
-    expect(draftToValue(definition('a', 'string_list'), draft)).toEqual({
-      ok: true,
-      value: ['8pin', '16pin'],
-    })
-  })
-
-  it('reports stored codes the target category cannot reuse as-is', () => {
-    const definitions = [definition('socket', 'string'), definition('cores', 'number')]
-    const stored = {
-      socket: { value: 'AM5', dataType: 'string' },
-      chipset: { value: 'B650', dataType: 'string' },
-      cores: { value: 8, dataType: 'number' },
-    }
-    // `chipset` is not defined by the target category.
-    expect(orphanCodes(stored, definitions)).toEqual(['chipset'])
-    expect(orphanCodes({}, definitions)).toEqual([])
-  })
-
-  it('reports a stored value whose data type changed in the target category', () => {
-    // `memory_type` is a `string_list` for CPUs and a `string` for motherboards.
-    const boardDefinitions = [definition('memory_type', 'string')]
-    const cpuValue = { memory_type: { value: ['ddr5'], dataType: 'string_list' } }
-    expect(orphanCodes(cpuValue, boardDefinitions)).toEqual(['memory_type'])
-    // The motherboard's own value is reusable, so nothing has to be decided.
-    expect(orphanCodes(
-      { memory_type: { value: 'ddr5', dataType: 'string' } },
-      boardDefinitions,
-    )).toEqual([])
-  })
-
-  it('keeps stored values addressable as the payload builder map', () => {
-    const stored = {
-      memory_type: { value: 'ddr5', dataType: 'string' },
-      cores: { value: 0, dataType: 'number' },
-    }
-    expect(storedValueMap(stored)).toEqual({ memory_type: 'ddr5', cores: 0 })
+    expect(isDraftEmpty(draft)).toBe(true)
   })
 })
 
-describe('characteristic payload with explicit removals', () => {
+describe('hydrating an existing product', () => {
+  it('restores the stored option ids and their quantities', () => {
+    const draft = draftFromStored(
+      { editor: 'connector_quantity', data_type: 'string_list' },
+      stored([
+        { optionId: 21, quantity: 4 },
+        { optionId: 22, quantity: 1 },
+      ]),
+    )
+    expect(draft.selected).toEqual([21, 22])
+    expect(draft.quantities).toEqual({ 21: 4, 22: 1 })
+    // Hydration is never an edit: it must not authorize a removal.
+    expect(draft.edited).toBe(false)
+  })
+
+  it('restores the three dimension inputs from the ordered triple', () => {
+    const draft = draftFromStored(
+      { editor: 'dimensions', data_type: 'number_list' },
+      undefined,
+      [320, 134.85, 61.57],
+      '320 × 134.85 × 61.57 мм',
+    )
+    expect(draft.dimensions).toEqual(['320', '134.85', '61.57'])
+    expect(draft.edited).toBe(false)
+  })
+
+  it('parses the canonical display string when no triple is present', () => {
+    expect(dimensionInputsFrom(null, '307 × 125 × 46 мм')).toEqual(['307', '125', '46'])
+    expect(dimensionInputsFrom([1, 2], 'мусор')).toEqual(['', '', ''])
+  })
+
+  it('hydrates an unset boolean as an empty selection, not as false', () => {
+    const draft = draftFromStored({ editor: 'boolean', data_type: 'boolean' }, undefined)
+    expect(draft.selected).toEqual([])
+    expect(isDraftEmpty(draft)).toBe(true)
+  })
+})
+
+describe('dictionary-backed selections', () => {
+  it('submits option ids, never free-text values', () => {
+    const result = draftToValue(definition({ code: 'socket' }), drafted({ selected: [11] }))
+    expect(result).toEqual({
+      ok: true,
+      value: { code: 'socket', options: [{ option_id: 11, quantity: 1 }] },
+    })
+  })
+
+  it('keeps the repeat count of a connector selection', () => {
+    const result = draftToValue(
+      definition({
+        code: 'required_power_connectors',
+        editor: 'connector_quantity',
+        data_type: 'string_list',
+      }),
+      drafted({ editor: 'connector_quantity', selected: [11], quantities: { 11: 4 } }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: { code: 'required_power_connectors', options: [{ option_id: 11, quantity: 4 }] },
+    })
+  })
+
+  it('rejects a quantity outside the supported range', () => {
+    const field = definition({
+      code: 'required_power_connectors',
+      editor: 'connector_quantity',
+      data_type: 'string_list',
+    })
+    expect(
+      draftToValue(field, drafted({ editor: 'connector_quantity', selected: [11], quantities: { 11: 0 } })),
+    ).toEqual({ ok: false, issue: 'quantity' })
+    expect(
+      draftToValue(
+        field,
+        drafted({
+          editor: 'connector_quantity',
+          selected: [11],
+          quantities: { 11: MAX_QUANTITY + 1 },
+        }),
+      ),
+    ).toEqual({ ok: false, issue: 'quantity' })
+  })
+
+  it('collapses a duplicated option id instead of submitting it twice', () => {
+    const result = draftToValue(
+      definition({ code: 'supported_sockets', editor: 'multiselect', data_type: 'string_list' }),
+      drafted({ editor: 'multiselect', selected: [11, 11, 12] }),
+    )
+    expect(result).toEqual({
+      ok: true,
+      value: {
+        code: 'supported_sockets',
+        options: [
+          { option_id: 11, quantity: 1 },
+          { option_id: 12, quantity: 1 },
+        ],
+      },
+    })
+  })
+
+  it('never invents an option id: only ids from the dictionary are selectable', () => {
+    // The editor renders server options only, so a value that is not in the
+    // dictionary cannot be produced by the control. A stored id the dictionary no
+    // longer offers is still submitted so the API rejects it explicitly.
+    const result = draftToValue(definition({ code: 'socket' }), drafted({ selected: [999] }))
+    expect(result).toEqual({
+      ok: true,
+      value: { code: 'socket', options: [{ option_id: 999, quantity: 1 }] },
+    })
+  })
+
+  it('reports a missing required value and an empty optional one', () => {
+    expect(draftToValue(definition({ code: 'socket', is_required: true }), drafted({}))).toEqual({
+      ok: false,
+      issue: 'required',
+    })
+    expect(draftToValue(definition({ code: 'socket' }), drafted({}))).toBeNull()
+  })
+})
+
+describe('dimensions', () => {
+  const field = definition({
+    code: 'dimensions_mm',
+    editor: 'dimensions',
+    data_type: 'number_list',
+    unit: 'мм',
+  })
+
+  it('accepts exactly three valid measurements', () => {
+    expect(
+      draftToValue(field, drafted({ editor: 'dimensions', dimensions: ['307', '125', '46'] })),
+    ).toEqual({ ok: true, value: { code: 'dimensions_mm', dimensions: [307, 125, 46] } })
+  })
+
+  it('normalizes a decimal comma but keeps the value identical', () => {
+    expect(parseDimensionText('134,85')).toBe(134.85)
+    expect(
+      draftToValue(field, drafted({ editor: 'dimensions', dimensions: ['320', '134,85', '61,57'] })),
+    ).toEqual({
+      ok: true,
+      value: { code: 'dimensions_mm', dimensions: [320, 134.85, 61.57] },
+    })
+  })
+
+  it.each([
+    ['1 2', 'embedded whitespace'],
+    ['1e3', 'exponent notation'],
+    ['1,234', 'grouping separator'],
+    ['1.234', 'three decimals'],
+    ['0', 'zero'],
+    ['-1', 'negative'],
+    ['1001', 'above the maximum'],
+    ['abc', 'text'],
+    ['', 'empty'],
+  ])('rejects %s (%s) instead of repairing it', (text) => {
+    expect(parseDimensionText(text)).toBeNull()
+  })
+
+  it('requires all three inputs', () => {
+    expect(
+      draftToValue(field, drafted({ editor: 'dimensions', dimensions: ['307', '', '46'] })),
+    ).toEqual({ ok: false, issue: 'dimension' })
+  })
+
+  it('keeps an optional dimensions field optional but never half-filled', () => {
+    expect(
+      draftToValue(field, drafted({ editor: 'dimensions', dimensions: ['', '', ''] })),
+    ).toBeNull()
+  })
+})
+
+describe('unchanged, replaced and removed values', () => {
   const definitions = [
-    definition('socket', 'string', true),
-    definition('cores', 'number'),
-    definition('has_igpu', 'boolean'),
-    definition('connectors', 'string_list'),
+    definition({ code: 'socket', is_required: true }),
+    definition({ code: 'chipset' }),
   ]
 
-  const draftsFrom = (stored: Record<string, unknown>) =>
-    Object.fromEntries(
-      definitions
-        .filter((field) => Object.hasOwn(stored, field.code))
-        .map((field) => [field.code, draftFromValue(field.data_type, stored[field.code])]),
+  it('does not remove a value the administrator did not touch', () => {
+    const payload = buildCharacteristicPayload(
+      definitions,
+      { socket: draftFromStored(definitions[0], stored([{ optionId: 11 }])) },
+      { socket: stored([{ optionId: 11 }]), chipset: stored([{ optionId: 12 }]) },
     )
-
-  it('submits every valid value and removes nothing when the product is unchanged', () => {
-    const stored = { socket: 'AM5', cores: 0, has_igpu: false, connectors: ['pcie-8pin'] }
-    const payload = buildCharacteristicPayload(definitions, draftsFrom(stored), stored)
-    expect(payload.removals).toEqual([])
-    expect(payload.missing).toEqual([])
-    expect(payload.issues).toEqual({})
-    expect(payload.values).toEqual([
-      { code: 'socket', value: 'AM5' },
-      { code: 'cores', value: 0 },
-      { code: 'has_igpu', value: false },
-      { code: 'connectors', value: ['pcie-8pin'] },
-    ])
-  })
-
-  it('turns a cleared stored value into an explicit removal', () => {
-    const stored = { socket: 'AM5', cores: 6, has_igpu: true, connectors: ['pcie-8pin'] }
-    const drafts = draftsFrom(stored)
-    // `edited` is what makes an empty draft a deletion: hydration alone never is.
-    drafts.cores = { ...emptyDraft('number'), edited: true }
-    drafts.has_igpu = { ...emptyDraft('boolean'), edited: true }
-    drafts.connectors = { ...emptyDraft('string_list'), items: [], edited: true }
-
-    const payload = buildCharacteristicPayload(definitions, drafts, stored)
-    expect(payload.removals).toEqual(['cores', 'has_igpu', 'connectors'])
-    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
-    // A code can never be both replaced and removed.
-    const submitted = new Set(payload.values.map((entry) => entry.code))
-    expect(payload.removals.filter((code) => submitted.has(code))).toEqual([])
-  })
-
-  it('never deletes a stored value that was only hydrated into a draft', () => {
-    // The API stores an explicitly empty optional list; the hydrated draft has no
-    // rows, exactly like a field the administrator emptied. Only the recorded edit
-    // intent may tell those states apart.
-    const stored = { socket: 'AM5', connectors: [] }
-    const payload = buildCharacteristicPayload(definitions, draftsFrom(stored), stored)
     expect(payload.removals).toEqual([])
     expect(payload.unresolved).toEqual([])
-    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
-    expect(draftFromValue('string_list', []).edited).toBe(false)
-  })
-
-  it('submits entries that replace an empty stored list', () => {
-    const stored = { socket: 'AM5', connectors: [] }
-    const drafts = draftsFrom(stored)
-    drafts.connectors = { ...emptyDraft('string_list'), items: ['pcie-8pin'], edited: true }
-
-    const payload = buildCharacteristicPayload(definitions, drafts, stored)
+    // Re-submitting the same option id is harmless and never a silent change.
     expect(payload.values).toEqual([
-      { code: 'socket', value: 'AM5' },
-      { code: 'connectors', value: ['pcie-8pin'] },
+      { code: 'socket', options: [{ option_id: 11, quantity: 1 }] },
     ])
-    expect(payload.removals).toEqual([])
   })
 
-  it('keeps an empty required list invalid even when it is stored', () => {
-    const required = [definition('connectors', 'string_list', true)]
-    const stored = { connectors: [] }
-    const payload = buildCharacteristicPayload(required, draftsFrom(stored), stored)
-    expect(payload.missing).toEqual(['connectors'])
-    expect(payload.removals).toEqual([])
-  })
-
-  it('never removes a characteristic that the product does not store', () => {
+  it('submits a replacement', () => {
     const payload = buildCharacteristicPayload(
       definitions,
-      { socket: { ...emptyDraft('string'), text: 'AM5' } },
-      {},
+      { chipset: drafted({ selected: [12] }) },
+      { socket: stored([{ optionId: 11 }]), chipset: stored([{ optionId: 11 }]) },
     )
-    expect(payload.removals).toEqual([])
-    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
-  })
-
-  it('keeps unspecified existing values out of both arrays', () => {
-    const stored = { socket: 'AM5', cores: 8 }
-    // `cores` has no draft at all: the administrator did not touch it.
-    const payload = buildCharacteristicPayload(definitions, draftsFrom({ socket: 'AM5' }), stored)
-    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
+    expect(payload.values).toEqual([{ code: 'chipset', options: [{ option_id: 12, quantity: 1 }] }])
     expect(payload.removals).toEqual([])
   })
 
-  it('blocks a required characteristic from being cleared', () => {
-    const stored = { socket: 'AM5' }
+  it('removes a stored value only after an explicit edit', () => {
     const payload = buildCharacteristicPayload(
       definitions,
-      { socket: { ...emptyDraft('string'), text: '  ' } },
-      stored,
-    )
-    expect(payload.missing).toEqual(['socket'])
-    expect(payload.removals).toEqual([])
-    expect(payload.values).toEqual([])
-  })
-
-  it('removes previous-category codes only when they are explicitly confirmed', () => {
-    const stored = { socket: 'AM5', chipset: 'B650' }
-    const payload = buildCharacteristicPayload(
-      definitions,
-      draftsFrom({ socket: 'AM5' }),
-      stored,
-      { removeCodes: ['chipset'] },
+      { chipset: drafted({ selected: [] }) },
+      { socket: stored([{ optionId: 11 }]), chipset: stored([{ optionId: 12 }]) },
     )
     expect(payload.removals).toEqual(['chipset'])
-    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
   })
 
-  it('reports value issues per code without submitting the invalid value', () => {
-    const drafts = {
-      socket: { ...emptyDraft('string'), text: 'AM5' },
-      cores: { ...emptyDraft('number'), text: '1 2' },
-    }
-    const payload = buildCharacteristicPayload(definitions, drafts, {})
-    expect(payload.issues).toEqual({ cores: 'number' })
-    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
+  it('never removes a value that was only hydrated', () => {
+    const payload = buildCharacteristicPayload(
+      definitions,
+      { chipset: { ...draftFromStored(definitions[1], stored([{ optionId: 12 }])), selected: [] } },
+      { socket: stored([{ optionId: 11 }]), chipset: stored([{ optionId: 12 }]) },
+    )
+    expect(payload.removals).toEqual([])
+  })
+
+  it('reports every stored code with a missing required value', () => {
+    const payload = buildCharacteristicPayload(definitions, {}, {})
+    expect(payload.missing).toEqual(['socket'])
+    expect(payload.values).toEqual([])
+  })
+
+  it('never sends a code both as a value and as a removal', () => {
+    const payload = buildCharacteristicPayload(
+      definitions,
+      { chipset: drafted({ selected: [12] }) },
+      { chipset: stored([{ optionId: 11 }]) },
+      { removeCodes: ['chipset'] },
+    )
+    expect(payload.values.map((value) => value.code)).toEqual(['chipset'])
+    expect(payload.removals).not.toContain('chipset')
   })
 })
 
-describe('characteristic payload across a category transition', () => {
-  // `memory_size` is a `string` in the product's category and a `string_list` in
-  // the selected one: the stored value cannot be reused, so it needs a decision.
-  const transitionDefinitions = [
-    definition('socket', 'string', true),
-    definition('memory_size', 'string_list'),
-  ]
-  const stored = { socket: 'AM5', memory_size: '12 ГБ' }
+describe('category transitions', () => {
+  const target = [definition({ code: 'socket', data_type: 'string' })]
 
-  it('never removes a transition code through an empty draft', () => {
-    // Entering a replacement and clearing it leaves the same empty draft a quiet
-    // hydration would create — neither may authorize a deletion on its own.
-    const drafts = {
-      socket: { ...emptyDraft('string'), text: 'AM5' },
-      memory_size: { ...emptyDraft('string_list'), edited: true },
-    }
-    const payload = buildCharacteristicPayload(transitionDefinitions, drafts, stored, {
-      transitionCodes: ['memory_size'],
-    })
-    expect(payload.removals).toEqual([])
-    expect(payload.values).toEqual([{ code: 'socket', value: 'AM5' }])
-    expect(payload.unresolved).toEqual(['memory_size'])
+  it('flags stored codes the target category cannot reuse', () => {
+    expect(
+      orphanCodes(
+        { socket: stored([{ optionId: 11 }], 'string_list'), vram_gb: stored([{ optionId: 1 }], 'number') },
+        target,
+      ),
+    ).toEqual(['socket', 'vram_gb'])
   })
 
-  it('reports a transition code that has no draft at all as unresolved', () => {
-    const payload = buildCharacteristicPayload(transitionDefinitions, {}, stored, {
-      transitionCodes: ['memory_size'],
-    })
+  it('blocks the transition until every stored code is replaced or confirmed', () => {
+    const payload = buildCharacteristicPayload(
+      target,
+      {},
+      { socket: stored([{ optionId: 11 }]), vram_gb: stored([{ optionId: 1 }]) },
+      { transitionCodes: ['socket', 'vram_gb'] },
+    )
+    expect(payload.unresolved).toEqual(['socket', 'vram_gb'])
     expect(payload.removals).toEqual([])
-    expect(payload.unresolved).toEqual(['memory_size'])
   })
 
-  it('removes a transition code only after the confirmation', () => {
-    const payload = buildCharacteristicPayload(transitionDefinitions, {}, stored, {
-      transitionCodes: ['memory_size'],
-      removeCodes: ['memory_size'],
-    })
-    expect(payload.removals).toEqual(['memory_size'])
+  it('accepts a confirmed removal for the current transition only', () => {
+    const payload = buildCharacteristicPayload(
+      target,
+      {},
+      { socket: stored([{ optionId: 11 }]), vram_gb: stored([{ optionId: 1 }]) },
+      { transitionCodes: ['socket', 'vram_gb'], removeCodes: ['vram_gb'] },
+    )
+    // `socket` is still unresolved: a confirmation never covers it implicitly.
+    expect(payload.unresolved).toEqual(['socket'])
+    expect(payload.removals).toEqual(['vram_gb'])
+  })
+
+  it('accepts a valid replacement of a transition code', () => {
+    const payload = buildCharacteristicPayload(
+      target,
+      { socket: drafted({ selected: [12] }) },
+      { socket: stored([{ optionId: 11 }]) },
+      { transitionCodes: ['socket'] },
+    )
     expect(payload.unresolved).toEqual([])
-    const submitted = new Set(payload.values.map((entry) => entry.code))
-    expect(payload.removals.filter((code) => submitted.has(code))).toEqual([])
-  })
-
-  it('replaces a transition code with a valid value without a confirmation', () => {
-    const drafts = {
-      socket: { ...emptyDraft('string'), text: 'AM5' },
-      memory_size: { ...emptyDraft('string_list'), items: ['12 ГБ'], edited: true },
-    }
-    const payload = buildCharacteristicPayload(transitionDefinitions, drafts, stored, {
-      transitionCodes: ['memory_size'],
-    })
-    expect(payload.values).toEqual([
-      { code: 'socket', value: 'AM5' },
-      { code: 'memory_size', value: ['12 ГБ'] },
-    ])
-    expect(payload.removals).toEqual([])
-    expect(payload.unresolved).toEqual([])
-  })
-
-  it('never removes a transition code that also carries a valid value', () => {
-    const drafts = {
-      socket: { ...emptyDraft('string'), text: 'AM5' },
-      memory_size: { ...emptyDraft('string_list'), items: ['12 ГБ'], edited: true },
-    }
-    const payload = buildCharacteristicPayload(transitionDefinitions, drafts, stored, {
-      transitionCodes: ['memory_size'],
-      removeCodes: ['memory_size'],
-    })
-    expect(payload.removals).toEqual([])
-    expect(payload.values).toContainEqual({ code: 'memory_size', value: ['12 ГБ'] })
-  })
-
-  it('keeps a required transition code unsatisfiable instead of removing it', () => {
-    const requiredTransition = [definition('memory_size', 'string_list', true)]
-    const payload = buildCharacteristicPayload(requiredTransition, {}, stored, {
-      transitionCodes: ['memory_size'],
-      removeCodes: ['memory_size'],
-    })
-    expect(payload.missing).toEqual(['memory_size'])
-    expect(payload.removals).toEqual([])
-  })
-
-  it('rejects an invalid replacement instead of falling back to a removal', () => {
-    const numberTransition = [definition('memory_size', 'number_list')]
-    const drafts = { memory_size: { ...emptyDraft('number_list'), items: ['12 ГБ'], edited: true } }
-    const payload = buildCharacteristicPayload(numberTransition, drafts, stored, {
-      transitionCodes: ['memory_size'],
-    })
-    expect(payload.issues).toEqual({ memory_size: 'number' })
-    expect(payload.removals).toEqual([])
-    expect(payload.values).toEqual([])
+    expect(payload.values).toEqual([{ code: 'socket', options: [{ option_id: 12, quantity: 1 }] }])
   })
 })

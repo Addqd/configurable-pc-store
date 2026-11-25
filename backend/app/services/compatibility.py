@@ -32,7 +32,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any, Literal
 
 from sqlalchemy import select
@@ -259,78 +259,89 @@ def _load_products(db: Session, product_ids: list[int]) -> dict[int, Product]:
     return {product.id: product for product in rows}
 
 
-# One product's characteristic values, keyed by characteristic code.
-Values = dict[str, Any]
+# One product's characteristic values: characteristic code -> selected options.
+Values = dict[str, tuple[spec_service.SelectedOption, ...]]
 
 
-def _raw(values: Values, code: str) -> Any:
-    """Read one structured characteristic without inferring anything elsewhere."""
-    return values.get(code)
+def _raw(values: Values, code: str) -> tuple[spec_service.SelectedOption, ...] | None:
+    """Read one stored characteristic without inferring anything elsewhere."""
+    options = values.get(code)
+    return options if options else None
 
 
 def _text(values: Values, code: str) -> str | None:
-    value = _raw(values, code)
-    if isinstance(value, str) and value.strip():
-        return value.strip().casefold()
-    return None
+    """One technical identifier of a characteristic that stores exactly one option."""
+    options = _raw(values, code)
+    if options is None or len(options) != 1:
+        return None
+    value = options[0].value.strip()
+    return spec_service.normalize_text(value) if value else None
 
 
 def _values(values: Values, code: str) -> list[str] | None:
-    """A non-empty list of texts, normalized the same way as `_text`.
+    """Every selected identifier, repeated as many times as its quantity.
 
-    An empty list is *not* a verified "nothing supported": in this catalog it is
-    indistinguishable from "not filled in", so it stays unresolved.
+    Connector requirements are stored once with a `quantity`, so the repeat count
+    is what the coverage check has to see. An empty selection is *not* a verified
+    "nothing required": in this catalog it is indistinguishable from "not filled
+    in", so it stays unresolved.
     """
-    value = _raw(values, code)
-    if not isinstance(value, list) or not value:
+    options = _raw(values, code)
+    if options is None:
         return None
-    if any(not isinstance(x, str) or not x.strip() for x in value):
-        return None
-    return [x.strip().casefold() for x in value]
+    result: list[str] = []
+    for option in options:
+        value = option.value.strip()
+        if not value:
+            return None
+        result.extend([spec_service.normalize_text(value)] * max(1, option.quantity))
+    return result or None
 
 
-def _decimal(value: Any) -> Decimal | None:
-    # Reject booleans and numbers-as-strings; NaN/Infinity are not finite.
-    if isinstance(value, bool) or not isinstance(value, int | float):
+def _measurement(value: object) -> Decimal | None:
+    """Validated numeric magnitude of one display value (never from a boolean)."""
+    if isinstance(value, bool) or not isinstance(value, str):
         return None
-    try:
-        result = Decimal(str(value))
-    except InvalidOperation:
-        return None
-    return result if result.is_finite() else None
+    return spec_service.parse_measurement(value)
 
 
 def _number(values: Values, code: str) -> Decimal | None:
-    result = _decimal(_raw(values, code))
+    """Positive magnitude of a characteristic that stores exactly one option."""
+    options = _raw(values, code)
+    if options is None or len(options) != 1:
+        return None
+    result = _measurement(options[0].value)
     return result if result is not None and result > 0 else None
 
 
 def _size_list(values: Values, code: str) -> list[Decimal] | None:
-    raw = _raw(values, code)
-    if not isinstance(raw, list) or not raw:
+    """Positive magnitudes of a numeric list characteristic."""
+    options = _raw(values, code)
+    if options is None:
         return None
     sizes: list[Decimal] = []
-    for item in raw:
-        size = _decimal(item)
+    for option in options:
+        size = _measurement(option.value)
         if size is None or size <= 0:
             return None
         sizes.append(size)
-    return sizes
+    return sizes or None
 
 
 def _display(
-    definition: spec_service.CharacteristicDefinition | None, value: Any
+    definition: spec_service.CharacteristicDefinition | None,
+    options: tuple[spec_service.SelectedOption, ...] | None,
 ) -> tuple[str, str | None, str | None]:
     """Definition label, unit and server rendering of one characteristic."""
     if definition is None:
         return ("", None, None)
-    if value is None:
+    if not options:
         return (definition.name, definition.unit, None)
-    try:
-        rendered = spec_service.format_value(definition, value)
-    except TypeError, ValueError:  # pragma: no cover - malformed stored value
-        return (definition.name, definition.unit, None)
-    return (definition.name, definition.unit, rendered)
+    return (
+        definition.name,
+        definition.unit,
+        spec_service.display_value(definition, options),
+    )
 
 
 @dataclass
@@ -351,8 +362,8 @@ class _Context:
         product = self.products[reference.slot]
         category_id = product.product_type.category_id
         definition = self.definitions.get((category_id, reference.code))
-        value = _raw(self.values[reference.slot], reference.code)
-        name, unit, rendered = _display(definition, value)
+        options = _raw(self.values[reference.slot], reference.code)
+        name, unit, rendered = _display(definition, options)
         return Evidence(
             slot=reference.slot,
             product_id=product.id,
@@ -361,7 +372,11 @@ class _Context:
             name=name or reference.code,
             data_type=definition.data_type if definition else "string",
             unit=unit,
-            value=value,
+            value=(
+                spec_service.structured_value(definition, options)
+                if definition is not None and options
+                else None
+            ),
             display_value=rendered,
         )
 

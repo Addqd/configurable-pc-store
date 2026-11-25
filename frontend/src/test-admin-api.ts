@@ -52,20 +52,52 @@ export const characteristicDefinitionsFixture = {
   category_name: 'Видеокарты',
   fields: [
     {
-      code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null,
+      id: 101, code: 'memory_size', name: 'Объём памяти', data_type: 'string', editor: 'select', unit: null,
       sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
+      options: [
+        { option_id: 11, value: '8 ГБ' },
+        { option_id: 12, value: '12 ГБ' },
+        { option_id: 13, value: '16 ГБ' },
+      ],
+      limits: { max_selections: 1, max_quantity: 1, repeatable: false, dimensions: null },
     },
     {
-      code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит',
+      id: 102, code: 'memory_bus', name: 'Шина памяти', data_type: 'number', editor: 'select', unit: 'бит',
       sort_order: 1, is_required: true, show_in_short: false, show_in_details: true,
+      options: [
+        { option_id: 21, value: '128 бит' },
+        { option_id: 22, value: '192 бит' },
+        { option_id: 23, value: '256 бит' },
+      ],
+      limits: { max_selections: 1, max_quantity: 1, repeatable: false, dimensions: null },
     },
     {
-      code: 'has_rgb', name: 'Подсветка', data_type: 'boolean', unit: null,
+      id: 103, code: 'has_rgb', name: 'Подсветка', data_type: 'boolean', editor: 'boolean', unit: null,
       sort_order: 2, is_required: false, show_in_short: false, show_in_details: true,
+      options: [
+        { option_id: 31, value: 'Да' },
+        { option_id: 32, value: 'Нет' },
+      ],
+      limits: { max_selections: 1, max_quantity: 1, repeatable: false, dimensions: null },
     },
     {
-      code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list', unit: null,
+      id: 104, code: 'power_connectors', name: 'Разъёмы питания', data_type: 'string_list',
+      editor: 'connector_quantity', unit: null,
       sort_order: 3, is_required: false, show_in_short: false, show_in_details: true,
+      options: [
+        { option_id: 41, value: 'PCIe 8-pin' },
+        { option_id: 42, value: 'PCIe 16-pin' },
+      ],
+      limits: { max_selections: 50, max_quantity: 32, repeatable: true, dimensions: null },
+    },
+    {
+      id: 105, code: 'dimensions_mm', name: 'Габариты', data_type: 'number_list', editor: 'dimensions', unit: 'мм',
+      sort_order: 4, is_required: false, show_in_short: false, show_in_details: true,
+      options: [{ option_id: 51, value: '307 × 125 × 46 мм' }],
+      limits: {
+        max_selections: 3, max_quantity: 1, repeatable: false,
+        dimensions: { count: 3, unit: 'мм', max_value: '1000', decimal_places: 2 },
+      },
     },
   ],
 }
@@ -87,8 +119,18 @@ export const productDetailFixture = {
   description: 'Существующее описание товара', price: '64990.00', stock_quantity: 8,
   color: 'Чёрный', graphics_chip_brand: 'NVIDIA',
   characteristics: [
-    { code: 'memory_size', name: 'Объём памяти', data_type: 'string', unit: null, sort_order: 0, is_required: true, show_in_short: true, show_in_details: true, value: '12 ГБ', display_value: '12 ГБ' },
-    { code: 'memory_bus', name: 'Шина памяти', data_type: 'number', unit: 'бит', sort_order: 1, is_required: true, show_in_short: false, show_in_details: true, value: 192, display_value: '192 бит' },
+    {
+      code: 'memory_size', name: 'Объём памяти', data_type: 'string', editor: 'select', unit: null,
+      sort_order: 0, is_required: true, show_in_short: true, show_in_details: true,
+      value: '12 ГБ', display_value: '12 ГБ',
+      options: [{ option_id: 2, value: '12 ГБ', quantity: 1 }],
+    },
+    {
+      code: 'memory_bus', name: 'Шина памяти', data_type: 'number', editor: 'select', unit: 'бит',
+      sort_order: 1, is_required: true, show_in_short: false, show_in_details: true,
+      value: 192, display_value: '192 бит',
+      options: [{ option_id: 5, value: '192 бит', quantity: 1 }],
+    },
   ],
   on_sale: false, is_active: true, listed_at: '2026-08-27',
   created_at: '2026-08-27T10:00:00Z', updated_at: '2026-11-17T14:30:00Z',

@@ -9,7 +9,7 @@ const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
 
 const product = (id: number, name: string) => ({
-  id, slug: `product-${id}`, name, price: '19990.00', short_characteristics: [{ code: 'gpu_model', name: 'Графический процессор', data_type: 'string', unit: null, sort_order: 0, is_required: false, show_in_short: true, show_in_details: true, value: 'GPU', display_value: 'GPU' }], color: null,
+  id, slug: `product-${id}`, name, price: '19990.00', short_characteristics: [{ code: 'gpu_model', name: 'Графический процессор', data_type: 'string', editor: 'select', unit: null, sort_order: 0, is_required: false, show_in_short: true, show_in_details: true, value: 'GPU', display_value: 'GPU', options: [{ option_id: 501, value: 'GPU', quantity: 1 }] }], color: null,
   graphics_chip_brand: null, on_sale: false, is_active: true, cover_image_url: '/placeholder.png', images: [],
   average_rating: 4.5, review_count: 2,
   category: { id: 1, slug: 'gpu', name: 'Видеокарты', sort_order: 0 },

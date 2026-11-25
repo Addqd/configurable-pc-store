@@ -28,7 +28,25 @@ export const updateProductApiV1AdminProductsProductIdPatchBodyColorOneMax = 80;
 
 export const updateProductApiV1AdminProductsProductIdPatchBodyGraphicsChipBrandOneMax = 40;
 
-export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemCodeMax = 64;
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneCodeMax = 64;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsItemOptionIdExclusiveMin = 0;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsItemQuantityDefault = 1;
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsItemQuantityMax = 32;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsMax = 50;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoCodeMax = 64;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions0ItemOneExclusiveMin = 0;
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions0ItemOneMax = 1000;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions1ItemOneExclusiveMin = 0;
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions1ItemOneMax = 1000;
+
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin = 0;
+export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneMax = 1000;
 
 export const updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax = 200;
 
@@ -46,10 +64,18 @@ export const UpdateProductApiV1AdminProductsProductIdPatchBody = zod.object({
   "slug": zod.union([zod.string().max(updateProductApiV1AdminProductsProductIdPatchBodySlugOneMax),zod.null()]).optional(),
   "color": zod.union([zod.string().max(updateProductApiV1AdminProductsProductIdPatchBodyColorOneMax),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string().max(updateProductApiV1AdminProductsProductIdPatchBodyGraphicsChipBrandOneMax),zod.null()]).optional(),
-  "characteristics": zod.union([zod.array(zod.object({
-  "code": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemCodeMax),
-  "value": zod.unknown()
-}).describe('One submitted value.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse. `null` is never\na legal value: use `remove_characteristics` to delete an existing one.')).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax),zod.null()]).optional(),
+  "characteristics": zod.union([zod.array(zod.union([zod.object({
+  "code": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneCodeMax),
+  "options": zod.array(zod.object({
+  "option_id": zod.int().gt(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsItemOptionIdExclusiveMin),
+  "quantity": zod.int().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsItemQuantityMax).default(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsItemQuantityDefault)
+}).describe('One submitted dictionary pick with its repeat count.')).min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemOneOptionsMax)
+}).describe('An ordinary characteristic write: explicit dictionary selections.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse.'),zod.object({
+  "code": zod.string().min(1).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoCodeMax),
+  "dimensions": zod.tuple([zod.union([zod.number().gt(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions0ItemOneExclusiveMin).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions0ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions1ItemOneExclusiveMin).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions1ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneExclusiveMin).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneItemTwoDimensions2ItemOneMax),zod.string()])])
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(updateProductApiV1AdminProductsProductIdPatchBodyCharacteristicsOneMax),zod.null()]).optional(),
   "remove_characteristics": zod.union([zod.array(zod.string()).max(updateProductApiV1AdminProductsProductIdPatchBodyRemoveCharacteristicsOneMax),zod.null()]).optional(),
   "on_sale": zod.union([zod.boolean(),zod.null()]).optional(),
   "is_active": zod.union([zod.boolean(),zod.null()]).optional(),

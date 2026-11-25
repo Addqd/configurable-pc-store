@@ -29,7 +29,7 @@ const account = {
 }
 
 const product = (id: number, name: string) => ({
-  id, slug: `product-${id}`, name, price: '1000.00', short_characteristics: [{ code: 'gpu_model', name: 'Графический процессор', data_type: 'string', unit: null, sort_order: 0, is_required: false, show_in_short: true, show_in_details: true, value: 'spec', display_value: 'spec' }], color: null,
+  id, slug: `product-${id}`, name, price: '1000.00', short_characteristics: [{ code: 'gpu_model', name: 'Графический процессор', data_type: 'string', editor: 'select', unit: null, sort_order: 0, is_required: false, show_in_short: true, show_in_details: true, value: 'spec', display_value: 'spec', options: [{ option_id: 602, value: 'spec', quantity: 1 }] }], color: null,
   graphics_chip_brand: null, on_sale: false, is_active: true, cover_image_url: '/placeholder.png',
   images: [], average_rating: 4, review_count: 1,
   category: { id: 1, slug: 'gpu', name: 'Видеокарты', sort_order: 0 },

@@ -1,5 +1,5 @@
 import { relativeSavedDate } from '../i18n/format'
-import { catalogDisplay } from '../i18n/catalogDisplay'
+import { buildSlotLabel } from '../i18n/characteristics'
 import { useTranslation } from 'react-i18next'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router'
@@ -28,12 +28,19 @@ function SnapshotImage({ src, alt, className }: { src?: string; alt: string; cla
 }
 
 function SavedComponents({ components }: { components: BuildComponent[] }) {
+  const { i18n } = useTranslation()
+  const language = i18n.resolvedLanguage ?? 'ru'
+  // The snapshot identifies a component by its slot id, so the order and the
+  // labels are resolved from the shared slot dictionary.
   const referenceOrder = [
     'Видеокарта', 'Процессор', 'Материнская плата', 'Оперативная память',
     'Накопитель', 'Блок питания', 'Корпус', 'Охлаждение',
   ]
-  const ordered = [...components].sort((a, b) =>
-    referenceOrder.indexOf(a.category) - referenceOrder.indexOf(b.category))
+  const rank = (category: string) => {
+    const index = referenceOrder.indexOf(buildSlotLabel(category, 'ru'))
+    return index === -1 ? referenceOrder.length : index
+  }
+  const ordered = [...components].sort((a, b) => rank(a.category) - rank(b.category))
   return (
     <div className="grid grid-cols-1 gap-x-6 md:grid-flow-col md:grid-rows-4 md:grid-cols-2">
       {ordered.map((component, index) => (
@@ -41,7 +48,7 @@ function SavedComponents({ components }: { components: BuildComponent[] }) {
           className="grid min-w-0 grid-cols-[36px_minmax(0,1fr)] items-center gap-2 border-b border-border py-1.5 sm:grid-cols-[40px_minmax(0,1fr)]">
           <SnapshotImage src={component.image} alt="" className="h-9 w-9 rounded-md bg-surface object-contain sm:h-10 sm:w-10" />
           <div className="grid min-w-0 gap-0.5 sm:grid-cols-[minmax(100px,0.85fr)_minmax(0,1.7fr)] sm:items-center sm:gap-3">
-            <span className="text-xs text-text-muted">{catalogDisplay(component.category)}</span>
+            <span className="text-xs text-text-muted">{buildSlotLabel(component.category, language)}</span>
             <span className="break-words text-xs font-medium text-text-primary sm:text-sm">{component.name}</span>
           </div>
         </div>

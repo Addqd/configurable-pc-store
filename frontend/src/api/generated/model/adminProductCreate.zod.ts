@@ -30,7 +30,25 @@ export const adminProductCreateColorOneMax = 80;
 
 export const adminProductCreateGraphicsChipBrandOneMax = 40;
 
-export const adminProductCreateCharacteristicsItemCodeMax = 64;
+export const adminProductCreateCharacteristicsItemOneCodeMax = 64;
+
+export const adminProductCreateCharacteristicsItemOneOptionsItemOptionIdExclusiveMin = 0;
+
+export const adminProductCreateCharacteristicsItemOneOptionsItemQuantityDefault = 1;
+export const adminProductCreateCharacteristicsItemOneOptionsItemQuantityMax = 32;
+
+export const adminProductCreateCharacteristicsItemOneOptionsMax = 50;
+
+export const adminProductCreateCharacteristicsItemTwoCodeMax = 64;
+
+export const adminProductCreateCharacteristicsItemTwoDimensions0ItemOneExclusiveMin = 0;
+export const adminProductCreateCharacteristicsItemTwoDimensions0ItemOneMax = 1000;
+
+export const adminProductCreateCharacteristicsItemTwoDimensions1ItemOneExclusiveMin = 0;
+export const adminProductCreateCharacteristicsItemTwoDimensions1ItemOneMax = 1000;
+
+export const adminProductCreateCharacteristicsItemTwoDimensions2ItemOneExclusiveMin = 0;
+export const adminProductCreateCharacteristicsItemTwoDimensions2ItemOneMax = 1000;
 
 export const adminProductCreateCharacteristicsMax = 200;
 
@@ -47,10 +65,18 @@ export const AdminProductCreate = zod.object({
   "slug": zod.union([zod.string().max(adminProductCreateSlugOneMax),zod.null()]).optional(),
   "color": zod.union([zod.string().max(adminProductCreateColorOneMax),zod.null()]).optional(),
   "graphics_chip_brand": zod.union([zod.string().max(adminProductCreateGraphicsChipBrandOneMax),zod.null()]).optional(),
-  "characteristics": zod.array(zod.object({
-  "code": zod.string().min(1).max(adminProductCreateCharacteristicsItemCodeMax),
-  "value": zod.unknown()
-}).describe('One submitted value.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse. `null` is never\na legal value: use `remove_characteristics` to delete an existing one.')).max(adminProductCreateCharacteristicsMax).optional(),
+  "characteristics": zod.array(zod.union([zod.object({
+  "code": zod.string().min(1).max(adminProductCreateCharacteristicsItemOneCodeMax),
+  "options": zod.array(zod.object({
+  "option_id": zod.int().gt(adminProductCreateCharacteristicsItemOneOptionsItemOptionIdExclusiveMin),
+  "quantity": zod.int().min(1).max(adminProductCreateCharacteristicsItemOneOptionsItemQuantityMax).default(adminProductCreateCharacteristicsItemOneOptionsItemQuantityDefault)
+}).describe('One submitted dictionary pick with its repeat count.')).min(1).max(adminProductCreateCharacteristicsItemOneOptionsMax)
+}).describe('An ordinary characteristic write: explicit dictionary selections.\n\nA list of pairs (instead of an object) lets the API reject a duplicated code\nin the same payload, which an object would silently collapse.'),zod.object({
+  "code": zod.string().min(1).max(adminProductCreateCharacteristicsItemTwoCodeMax),
+  "dimensions": zod.tuple([zod.union([zod.number().gt(adminProductCreateCharacteristicsItemTwoDimensions0ItemOneExclusiveMin).max(adminProductCreateCharacteristicsItemTwoDimensions0ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(adminProductCreateCharacteristicsItemTwoDimensions1ItemOneExclusiveMin).max(adminProductCreateCharacteristicsItemTwoDimensions1ItemOneMax),zod.string()]),
+zod.union([zod.number().gt(adminProductCreateCharacteristicsItemTwoDimensions2ItemOneExclusiveMin).max(adminProductCreateCharacteristicsItemTwoDimensions2ItemOneMax),zod.string()])])
+}).describe('A GPU dimensions write: exactly three ordered millimetre measurements.')])).max(adminProductCreateCharacteristicsMax).optional(),
   "on_sale": zod.boolean().default(adminProductCreateOnSaleDefault),
   "is_active": zod.boolean().default(adminProductCreateIsActiveDefault),
   "listed_at": zod.union([zod.iso.date(),zod.null()]).optional()
