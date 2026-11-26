@@ -16,7 +16,7 @@ import { productFromDetail } from '../api/catalogAdapter'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiBox, FiPlus, FiShoppingCart, FiTrash2, FiFolder, FiCheckCircle } from 'react-icons/fi'
 import { SavedBuildsSkeleton, SavedBuildCompatibilitySkeleton } from '../components/skeletons/StoreSkeletons'
@@ -64,6 +64,7 @@ function SavedBuildCard({ build, onOpen, onAddToCart, onDelete }: {
   onDelete: () => void
 }) {
   const { t } = useTranslation()
+  const formatPrice = useFormatPrice()
   const [expanded, setExpanded] = useState(true) // Reference shows the component composition.
   const check = useCheckCompatibilityApiV1BuildsBuildIdCompatibilityGet(build.id, { query: { retry: false } })
   const conflict = check.data?.overall_status === 'incompatible'

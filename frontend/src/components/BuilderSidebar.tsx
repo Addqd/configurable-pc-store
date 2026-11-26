@@ -4,7 +4,7 @@ import {
   useBuilderStore, BUILDER_CATEGORIES, countSelected, calculateBuilderPrice,
   estimateComponentPower,
 } from '../stores/builderStore'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import { FiCheckCircle, FiAlertTriangle, FiShield, FiShoppingCart } from 'react-icons/fi'
 import { BuilderCompatibilitySkeleton } from './skeletons/BuilderSkeletons'
 
@@ -12,6 +12,7 @@ interface BuilderSidebarProps { onAddToCart: () => void; status?: 'compatible' |
 
 export function BuilderSidebar({ onAddToCart, status = 'unknown', checked = false, messages = [], canAdd = true, loading = false, error = false, submitting = false }: BuilderSidebarProps) {
   const { t } = useTranslation()
+  const formatPrice = useFormatPrice()
   const selections = useBuilderStore((state) => state.selections)
   const count = countSelected(selections)
   const total = BUILDER_CATEGORIES.length

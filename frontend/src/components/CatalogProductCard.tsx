@@ -3,7 +3,7 @@ import { catalogDisplay } from '../i18n/catalogDisplay'
 import { characteristicLines } from '../i18n/characteristics'
 import type { Product } from '../data/product'
 import { useServerCart } from '../api/useServerCart'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import { FiShoppingCart } from 'react-icons/fi'
 import { Link } from 'react-router'
 import { Skeleton } from './ui/skeleton'
@@ -11,6 +11,7 @@ import { useImageLoadState } from './ui/useImageLoadState'
 
 export function CatalogProductCard({ product }: { product: Product }) {
   const { t, i18n } = useTranslation()
+  const formatPrice = useFormatPrice()
   const { addProduct, add } = useServerCart()
   const rating = product.rating
   const reviewCount = product.reviewCount

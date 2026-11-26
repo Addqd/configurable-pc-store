@@ -104,5 +104,12 @@
     "session_changed": "Session changed. Please try again.",
     "create_failed": "Could not create an account. Check the browser secure context.",
     "no_session": "No active session"
+  },
+  "currency": {
+    "label": "Currency",
+    "trigger": "Currency: {{code}}",
+    "rate_unavailable": "Exchange rates are unavailable. Prices are shown in rubles.",
+    "rate_status": "CBR rate as of {{date}}",
+    "rate_stale": "CBR rate as of {{date}}. The data may be out of date."
   }
 }

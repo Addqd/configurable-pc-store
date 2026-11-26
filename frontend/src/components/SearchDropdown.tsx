@@ -4,7 +4,7 @@ import { useUIStore } from '../stores/uiStore'
 import { useListProductsApiV1ProductsGet, useSearchSuggestionsApiV1ProductsSearchSuggestionsGet } from '../api/generated/client'
 import { useDebouncedValue } from '../utils/useDebouncedValue'
 import { HiMiniChevronRight } from 'react-icons/hi2'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import { SearchResultsSkeleton } from './skeletons/StoreSkeletons'
 
 /** Typing must not issue a request per keystroke. */
@@ -12,6 +12,7 @@ const SEARCH_DEBOUNCE_MS = 250
 
 export function SearchDropdown() {
   const { t } = useTranslation()
+  const formatPrice = useFormatPrice()
   const { searchQuery, closeSearch } = useUIStore()
   const trimmed = searchQuery.trim()
   const debouncedQuery = useDebouncedValue(trimmed, SEARCH_DEBOUNCE_MS)

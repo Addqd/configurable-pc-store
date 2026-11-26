@@ -3,7 +3,7 @@ import { characteristicLines } from '../i18n/characteristics'
 import { useTranslation } from 'react-i18next'
 import { useEffect, useRef, useState } from 'react'
 import type { EnrichedProduct } from '../data/productDetails'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import { copyToClipboard } from '../utils/copyToClipboard'
 import { StarRating } from './StarRating'
 import { FiCopy, FiShare2, FiHeart } from 'react-icons/fi'
@@ -34,6 +34,7 @@ export function ProductInfo({
   onShare,
 }: ProductInfoProps) {
   const { t, i18n } = useTranslation()
+  const formatPrice = useFormatPrice()
   const [copied, setCopied] = useState(false)
   const copyTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
 

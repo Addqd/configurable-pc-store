@@ -1,5 +1,5 @@
 import { useTranslation } from 'react-i18next'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import { FiArrowRight, FiTruck } from 'react-icons/fi'
 
 interface OrderSummaryProps {
@@ -14,6 +14,7 @@ const FREE_SHIPPING_THRESHOLD = 50000
 
 export function OrderSummary({ onCheckout, showCheckoutButton = true, totalItems, totalPrice, pending }: OrderSummaryProps) {
   const { t } = useTranslation()
+  const formatPrice = useFormatPrice()
   const isFreeShipping = totalPrice >= FREE_SHIPPING_THRESHOLD
 
   return (

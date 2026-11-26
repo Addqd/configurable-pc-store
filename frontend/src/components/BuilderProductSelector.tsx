@@ -5,7 +5,7 @@ import { useBuilderStore, type BuilderCategory } from '../stores/builderStore'
 import { useListProductsApiV1ProductsGet, getProductApiV1ProductsSlugGet } from '../api/generated/client'
 import { productFromSummary, productFromDetail } from '../api/catalogAdapter'
 import type { Product } from '../data/product'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiX, FiSearch, FiCheck } from 'react-icons/fi'
 import { BuilderSelectorSkeleton } from './skeletons/BuilderSkeletons'
@@ -14,6 +14,7 @@ interface BuilderProductSelectorProps { category: BuilderCategory; onClose: () =
 
 export function BuilderProductSelector({ category, onClose }: BuilderProductSelectorProps) {
   const { t } = useTranslation()
+  const formatPrice = useFormatPrice()
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
   const inputRef = useRef<HTMLInputElement>(null)

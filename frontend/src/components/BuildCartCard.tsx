@@ -3,7 +3,7 @@ import { buildSlotLabel } from '../i18n/characteristics'
 import { useTranslation } from 'react-i18next'
 import { useState } from 'react'
 import type { BuildCartItem } from '../stores/cartStore'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiX, FiChevronDown, FiChevronRight, FiCpu } from 'react-icons/fi'
 
@@ -16,6 +16,7 @@ interface BuildCartCardProps {
 
 export function BuildCartCard({ item, onQuantityChange: updateQuantity, onRemove: removeItem, pending }: BuildCartCardProps) {
   const { t, i18n } = useTranslation()
+  const formatPrice = useFormatPrice()
   const language = i18n.resolvedLanguage ?? 'ru'
   const [expanded, setExpanded] = useState(true)
 

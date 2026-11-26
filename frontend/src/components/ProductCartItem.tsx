@@ -2,7 +2,7 @@ import { Fragment } from 'react'
 import { useTranslation } from 'react-i18next'
 import { characteristicLines } from '../i18n/characteristics'
 import type { RegularCartItem } from '../stores/cartStore'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import { FiX } from 'react-icons/fi'
 
 interface ProductCartItemProps {
@@ -14,6 +14,7 @@ interface ProductCartItemProps {
 
 export function ProductCartItem({ item, onQuantityChange: updateQuantity, onRemove: removeItem, pending }: ProductCartItemProps) {
   const { t, i18n } = useTranslation()
+  const formatPrice = useFormatPrice()
   // Structured rows are formatted for the active language; lines persisted before
   // they existed (or demo data) keep their ready-to-render text.
   const specs = characteristicLines(item.characteristics, item.specs, {
