@@ -8,6 +8,10 @@ import * as zod from 'zod';
 
 export const cartAddBuildRequestSavedBuildIdOneExclusiveMin = 0;
 
+export const cartAddBuildRequestExpectedItemsOneItemProductIdExclusiveMin = 0;
+
+export const cartAddBuildRequestExpectedItemsOneMax = 8;
+
 export const cartAddBuildRequestItemsOneItemProductIdExclusiveMin = 0;
 
 export const cartAddBuildRequestItemsOneMax = 8;
@@ -18,12 +22,16 @@ export const cartAddBuildRequestQuantityExclusiveMin = 0;
 
 export const CartAddBuildRequest = zod.object({
   "saved_build_id": zod.union([zod.int().gt(cartAddBuildRequestSavedBuildIdOneExclusiveMin),zod.null()]).optional(),
+  "expected_items": zod.union([zod.array(zod.object({
+  "slot": zod.enum(['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling']),
+  "product_id": zod.int().gt(cartAddBuildRequestExpectedItemsOneItemProductIdExclusiveMin)
+})).max(cartAddBuildRequestExpectedItemsOneMax),zod.null()]).optional(),
   "items": zod.union([zod.array(zod.object({
   "slot": zod.enum(['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling']),
   "product_id": zod.int().gt(cartAddBuildRequestItemsOneItemProductIdExclusiveMin)
 })).max(cartAddBuildRequestItemsOneMax),zod.null()]).optional(),
   "quantity": zod.int().gt(cartAddBuildRequestQuantityExclusiveMin).default(cartAddBuildRequestQuantityDefault)
-}).describe('Add a saved build or a directly configured, never-saved build.\n\nExactly one source is required: `saved_build_id` for an existing private\nsaved build, or `items` for a configuration submitted from the configurator.')
+}).describe('Add a saved build or a directly configured, never-saved build.\n\nExactly one source is required: `saved_build_id` for an existing private\nsaved build, or `items` for a configuration submitted from the configurator.\n\n`expected_items` optionally accompanies `saved_build_id`: it is the exact\nconfiguration the user verified in the configurator. The service compares it\nwith the stored selections and refuses a stale one, so an outdated saved\nbuild is never silently added instead of what the user checked.')
 
 export type CartAddBuildRequest = zod.input<typeof CartAddBuildRequest>;
 export type CartAddBuildRequestOutput = zod.output<typeof CartAddBuildRequest>;

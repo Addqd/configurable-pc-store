@@ -49,9 +49,15 @@ class CartAddBuildRequest(BaseModel):
 
     Exactly one source is required: `saved_build_id` for an existing private
     saved build, or `items` for a configuration submitted from the configurator.
+
+    `expected_items` optionally accompanies `saved_build_id`: it is the exact
+    configuration the user verified in the configurator. The service compares it
+    with the stored selections and refuses a stale one, so an outdated saved
+    build is never silently added instead of what the user checked.
     """
 
     saved_build_id: int | None = Field(default=None, gt=0)
+    expected_items: list[BuildItemCreate] | None = Field(default=None, max_length=8)
     items: list[BuildItemCreate] | None = Field(default=None, max_length=8)
     quantity: int = Field(gt=0, default=1)
 
@@ -61,6 +67,8 @@ class CartAddBuildRequest(BaseModel):
             raise ValueError(
                 "Provide either saved_build_id or the selected component items"
             )
+        if self.expected_items is not None and self.saved_build_id is None:
+            raise ValueError("expected_items requires saved_build_id")
         return self
 
 

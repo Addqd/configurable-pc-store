@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import i18n from '../i18n'
-import { cartItems } from './cartAdapter'
-import type { CartOut } from './generated/model'
+import { cartItems, orderFromServer } from './cartAdapter'
+import type { CartOut, OrderOut } from './generated/model'
 import type { RegularCartItem } from '../stores/cartStore'
 
 const regularItem = (product: Record<string, unknown>) =>
@@ -85,5 +85,67 @@ describe('cart adapter', () => {
     })
     expect(item.characteristics).toBeUndefined()
     expect(item.specs).toEqual(['12 ГБ', 'GDDR6X'])
+  })
+})
+
+const buildItem = (name?: string) => ({
+  id: 51,
+  kind: 'custom_build',
+  product_id: null,
+  saved_build_id: 42,
+  product: null,
+  build_snapshot: {
+    components: [
+      { slot: 'cpu', product_id: 1, product_name: 'AMD Ryzen 5 7600', price: '18990.00' },
+    ],
+    total_price: '18990.00',
+    ...(name === undefined ? {} : { name }),
+  },
+  quantity: 2,
+  unit_price: '18990.00',
+  line_total: '37980.00',
+  created_at: '2026-11-17T14:30:00Z',
+  updated_at: '2026-11-17T14:30:00Z',
+})
+
+const cartWith = (item: Record<string, unknown>) => ({
+  id: 3, items: [item], subtotal: '37980.00', item_count: 2,
+  created_at: '2026-11-17T14:30:00Z', updated_at: '2026-11-17T14:30:00Z',
+}) as CartOut
+
+describe('custom build names', () => {
+  it('shows the captured saved-build name exactly as stored', async () => {
+    const name = 'Игровой ПК «Титан» — 2026 ✦'
+    const [item] = cartItems(cartWith(buildItem(name)))
+    expect(item.name).toBe(name)
+    expect('components' in item ? item.components : []).toHaveLength(1)
+
+    // The same name is rendered unchanged in the English interface.
+    await i18n.changeLanguage('en')
+    expect(cartItems(cartWith(buildItem(name)))[0].name).toBe(name)
+  })
+
+  it('keeps the generic title for a configuration that was never named', () => {
+    expect(cartItems(cartWith(buildItem()))[0].name).toBe('Сборка ПК')
+  })
+
+  it('reads the purchased name from the immutable order snapshot', () => {
+    const name = 'Gaming PC 2026'
+    const order = orderFromServer({
+      id: 9, user_id: 7, status: 'completed_demo', total_amount: '37980.00', item_count: 2,
+      created_at: '2026-11-17T14:30:00Z',
+      items: [
+        {
+          id: 77, kind: 'custom_build', product_id: null, saved_build_id: null,
+          sku_snapshot: null, name_snapshot: name, image_url_snapshot: null,
+          unit_price: '18990.00', quantity: 2, line_total: '37980.00', specs_snapshot: [],
+          components_snapshot: [
+            { slot: 'cpu', product_id: 1, product_name: 'AMD Ryzen 5 7600', price: '18990.00' },
+          ],
+        },
+      ],
+    } as OrderOut)
+    expect(order.items[0].name).toBe(name)
+    expect(order.items[0].components).toHaveLength(1)
   })
 })

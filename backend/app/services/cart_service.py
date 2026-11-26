@@ -122,16 +122,111 @@ def _same_configuration(snapshot: dict | None, selections: dict[str, int]) -> bo
         return False
 
 
+def _captured_name(snapshot: dict | None) -> str | None:
+    """Name captured by the cart line itself, if it has one."""
+    if not isinstance(snapshot, dict):
+        return None
+    name = snapshot.get("name")
+    return name if isinstance(name, str) and name.strip() else None
+
+
+def _same_saved_line(
+    snapshot: dict | None, selections: dict[str, int], name: str
+) -> bool:
+    """Whether a cart line already holds this saved build as it is now.
+
+    A line is the same purchase only when both the components and the captured
+    name match. A line added before the saved build was edited keeps its own
+    snapshot and is not overwritten by a later addition.
+    """
+    if not _same_configuration(snapshot, selections):
+        return False
+    captured = _captured_name(snapshot)
+    # A legacy line without a captured name has nothing to preserve.
+    return captured is None or captured == name
+
+
+def _saved_selections(db: Session, build: SavedBuild) -> dict[str, int]:
+    return {
+        item.slot: item.product_id
+        for item in db.scalars(
+            select(SavedBuildItem).where(SavedBuildItem.build_id == build.id)
+        ).all()
+    }
+
+
+def _merges_with_unnamed_configuration(item: CartItem) -> bool:
+    """Whether an unnamed direct configuration may still absorb this cart line.
+
+    A line that captured a user-defined name is a named purchase of its own, even
+    after its saved build was deleted (``saved_build_id`` becomes NULL). Merging an
+    unnamed configuration into it would erase that name.
+    """
+    return (
+        item.kind == "custom_build"
+        and item.saved_build_id is None
+        and _captured_name(item.build_snapshot) is None
+    )
+
+
 def _unsaved_build_items(db: Session, cart: Cart) -> list[CartItem]:
-    return list(
-        db.scalars(
-            select(CartItem).where(
+    """Own cart lines that a new unnamed configuration may still absorb.
+
+    A detached line (``saved_build_id`` is NULL because its saved build was
+    deleted) whose snapshot captured a user-defined name is a named purchase of
+    its own: merging an unnamed configuration into it would erase that name, so
+    only lines without a valid captured name are candidates.
+    """
+    return [
+        item
+        for item in db.scalars(
+            select(CartItem)
+            .where(
                 CartItem.cart_id == cart.id,
                 CartItem.kind == "custom_build",
                 CartItem.saved_build_id.is_(None),
             )
+            .order_by(CartItem.id)
+        ).all()
+        if _merges_with_unnamed_configuration(item)
+    ]
+
+
+def _saved_build_lines(db: Session, cart: Cart, saved_build_id: int) -> list[CartItem]:
+    """Every cart line of this cart that references the saved build.
+
+    The same saved build can be in the cart as several historical versions, so
+    all of them are read in a deterministic order instead of one arbitrary row.
+    """
+    return list(
+        db.scalars(
+            select(CartItem)
+            .where(
+                CartItem.cart_id == cart.id,
+                CartItem.kind == "custom_build",
+                CartItem.saved_build_id == saved_build_id,
+            )
+            .order_by(CartItem.id)
         ).all()
     )
+
+
+def _matching_saved_line(
+    candidates: list[CartItem], selections: dict[str, int], name: str
+) -> CartItem | None:
+    """The line that already holds this saved build as it is now.
+
+    An exact named match is preferred over a legacy line whose snapshot has no
+    captured name, so a legacy snapshot is only reused when nothing better exists.
+    """
+    matching = [
+        item
+        for item in candidates
+        if _same_saved_line(item.build_snapshot, selections, name)
+    ]
+    named = [item for item in matching if _captured_name(item.build_snapshot) == name]
+    preferred = named or matching
+    return preferred[0] if preferred else None
 
 
 def add_product_to_cart(
@@ -166,8 +261,19 @@ def add_product_to_cart(
 
 
 def add_build_to_cart(
-    db: Session, user: User, saved_build_id: int, quantity: int = 1
+    db: Session,
+    user: User,
+    saved_build_id: int,
+    quantity: int = 1,
+    expected_items: list[dict] | None = None,
 ) -> CartItem:
+    """Add one of the caller's own saved builds, with its own name.
+
+    The name always comes from the stored record of the authenticated user, never
+    from the request. When the configurator sends the configuration it verified,
+    that configuration is compared with the stored selections and a mismatch is
+    rejected before anything in the cart changes.
+    """
     build = db.scalar(
         select(SavedBuild).where(
             SavedBuild.id == saved_build_id, SavedBuild.user_id == user.id
@@ -175,21 +281,24 @@ def add_build_to_cart(
     )
     if build is None:
         raise ValueError("Build not found")
+    # The stored selections are authoritative; a submitted configuration may only
+    # confirm them. Both checks run before the cart is read or written.
+    selections = _saved_selections(db, build)
+    if expected_items is not None:
+        expected = selections_from_items(expected_items)
+        if expected != selections:
+            raise ValueError(
+                "The saved build no longer matches the verified configuration"
+            )
+        # Exactly the selections that were compared are the ones snapshotted.
+        selections = expected
     cart = get_or_create_cart(db, user)
-    existing = db.scalar(
-        select(CartItem).where(
-            CartItem.cart_id == cart.id,
-            CartItem.kind == "custom_build",
-            CartItem.saved_build_id == saved_build_id,
-        )
+    # All historical versions of this build are candidates, not one arbitrary row:
+    # an older line must never hide the line that matches the current build.
+    existing = _matching_saved_line(
+        _saved_build_lines(db, cart, saved_build_id), selections, build.name
     )
     new_qty = quantity + (existing.quantity if existing else 0)
-    selections = {
-        x.slot: x.product_id
-        for x in db.scalars(
-            select(SavedBuildItem).where(SavedBuildItem.build_id == build.id)
-        ).all()
-    }
     snapshot = _build_snapshot(db, selections, new_qty)
     snapshot["name"] = build.name
     if existing:
@@ -219,7 +328,8 @@ def add_configuration_to_cart(
     The build is stored only as a self-contained cart snapshot: no ``SavedBuild``
     row is created, so a direct purchase never consumes the saved-build quota.
     Adding the same configuration twice raises the quantity of one line; a
-    different configuration always becomes its own line.
+    different configuration always becomes its own line. A line that captured a
+    user-defined name stays a separate named purchase and is never merged into.
     """
     selections = selections_from_items(items)
     cart = get_or_create_cart(db, user)
@@ -287,10 +397,10 @@ def update_cart_quantity(
     elif item.kind == "custom_build":
         selections = _selections(item.build_snapshot)
         refreshed = _build_snapshot(db, selections, quantity)
-        if isinstance(item.build_snapshot, dict) and isinstance(
-            item.build_snapshot.get("name"), str
-        ):
-            refreshed["name"] = item.build_snapshot["name"]
+        # The captured name belongs to this line, not to the current saved build.
+        name = _captured_name(item.build_snapshot)
+        if name is not None:
+            refreshed["name"] = name
         item.build_snapshot = refreshed
     else:
         raise ValueError("Invalid cart item")
@@ -453,15 +563,11 @@ def checkout_demo(db: Session, user: User) -> Order:
             )
             if build is not None and build.user_id != user.id:
                 raise ValueError("Build does not belong to this user")
-            captured = (
-                item.build_snapshot.get("name")
-                if isinstance(item.build_snapshot, dict)
-                else None
-            )
-            name = (
-                captured
-                if isinstance(captured, str) and captured.strip()
-                else (build.name if build else None)
+            # The captured name is the user's own name: it is stored verbatim,
+            # never retitled, prefixed or translated. Only a configuration the
+            # user never named falls back to the generic title.
+            name = _captured_name(item.build_snapshot) or (
+                build.name if build else None
             )
             snapshots.append(
                 {
@@ -469,7 +575,7 @@ def checkout_demo(db: Session, user: User) -> Order:
                     "product_id": None,
                     "saved_build_id": build.id if build else None,
                     "sku_snapshot": None,
-                    "name_snapshot": f"Сборка: {name}" if name else "Сборка ПК",
+                    "name_snapshot": name or "Сборка ПК",
                     "image_url_snapshot": None,
                     "unit_price": price,
                     "quantity": item.quantity,

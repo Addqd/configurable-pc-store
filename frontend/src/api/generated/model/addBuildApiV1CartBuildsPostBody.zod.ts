@@ -8,6 +8,10 @@ import * as zod from 'zod';
 
 export const addBuildApiV1CartBuildsPostBodySavedBuildIdOneExclusiveMin = 0;
 
+export const addBuildApiV1CartBuildsPostBodyExpectedItemsOneItemProductIdExclusiveMin = 0;
+
+export const addBuildApiV1CartBuildsPostBodyExpectedItemsOneMax = 8;
+
 export const addBuildApiV1CartBuildsPostBodyItemsOneItemProductIdExclusiveMin = 0;
 
 export const addBuildApiV1CartBuildsPostBodyItemsOneMax = 8;
@@ -18,12 +22,16 @@ export const addBuildApiV1CartBuildsPostBodyQuantityExclusiveMin = 0;
 
 export const AddBuildApiV1CartBuildsPostBody = zod.object({
   "saved_build_id": zod.union([zod.int().gt(addBuildApiV1CartBuildsPostBodySavedBuildIdOneExclusiveMin),zod.null()]).optional(),
+  "expected_items": zod.union([zod.array(zod.object({
+  "slot": zod.enum(['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling']),
+  "product_id": zod.int().gt(addBuildApiV1CartBuildsPostBodyExpectedItemsOneItemProductIdExclusiveMin)
+})).max(addBuildApiV1CartBuildsPostBodyExpectedItemsOneMax),zod.null()]).optional(),
   "items": zod.union([zod.array(zod.object({
   "slot": zod.enum(['cpu', 'mobo', 'gpu', 'ram', 'storage', 'psu', 'case', 'cooling']),
   "product_id": zod.int().gt(addBuildApiV1CartBuildsPostBodyItemsOneItemProductIdExclusiveMin)
 })).max(addBuildApiV1CartBuildsPostBodyItemsOneMax),zod.null()]).optional(),
   "quantity": zod.int().gt(addBuildApiV1CartBuildsPostBodyQuantityExclusiveMin).default(addBuildApiV1CartBuildsPostBodyQuantityDefault)
-}).describe('Add a saved build or a directly configured, never-saved build.\n\nExactly one source is required: `saved_build_id` for an existing private\nsaved build, or `items` for a configuration submitted from the configurator.')
+}).describe('Add a saved build or a directly configured, never-saved build.\n\nExactly one source is required: `saved_build_id` for an existing private\nsaved build, or `items` for a configuration submitted from the configurator.\n\n`expected_items` optionally accompanies `saved_build_id`: it is the exact\nconfiguration the user verified in the configurator. The service compares it\nwith the stored selections and refuses a stale one, so an outdated saved\nbuild is never silently added instead of what the user checked.')
 
 export type AddBuildApiV1CartBuildsPostBody = zod.input<typeof AddBuildApiV1CartBuildsPostBody>;
 export type AddBuildApiV1CartBuildsPostBodyOutput = zod.output<typeof AddBuildApiV1CartBuildsPostBody>;
