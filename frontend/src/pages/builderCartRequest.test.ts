@@ -61,6 +61,36 @@ describe('resolveSavedBuildIdentity', () => {
     expect(resolveSavedBuildIdentity({ editingBuildId: 42, queried: undefined, saved: null, missing: true }))
       .toEqual({ state: 'none' })
   })
+
+  it('lets a confirmed deletion win over data the query still caches', () => {
+    // TanStack Query keeps the previous successful `data` after a failed refetch.
+    expect(resolveSavedBuildIdentity({ editingBuildId: 42, queried: savedBuild(), saved: null, missing: true }))
+      .toEqual({ state: 'none' })
+  })
+
+  it('lets a confirmed deletion win over the last successful save', () => {
+    expect(resolveSavedBuildIdentity({ editingBuildId: 42, queried: undefined, saved: savedBuild(), missing: true }))
+      .toEqual({ state: 'none' })
+  })
+
+  it('lets a confirmed deletion win over both cached sources', () => {
+    const stale = savedBuild({ updated_at: '2026-01-02T00:00:00Z', version: 2 })
+    expect(resolveSavedBuildIdentity({ editingBuildId: 42, queried: savedBuild(), saved: stale, missing: true }))
+      .toEqual({ state: 'none' })
+  })
+
+  it('does not reuse a cached row of another build, even next to a deletion', () => {
+    expect(resolveSavedBuildIdentity({ editingBuildId: 42, queried: savedBuild({ id: 41 }), saved: savedBuild({ id: 43 }), missing: false }))
+      .toEqual({ state: 'unresolved' })
+    expect(resolveSavedBuildIdentity({ editingBuildId: 42, queried: savedBuild({ id: 41 }), saved: null, missing: true }))
+      .toEqual({ state: 'none' })
+  })
+
+  it('keeps a cached row when the request failed for a reason other than deletion', () => {
+    const cached = savedBuild()
+    expect(resolveSavedBuildIdentity({ editingBuildId: 42, queried: cached, saved: null, missing: false }))
+      .toEqual({ state: 'build', build: cached })
+  })
 })
 
 describe('buildCartRequest', () => {
@@ -89,5 +119,21 @@ describe('buildCartRequest', () => {
     partial.items = partial.items?.slice(0, 7)
     expect(buildCartRequest(items(), { state: 'build', build: partial })).toEqual({ items: items(), quantity: 1 })
     expect(savedBuildItems(partial)).toHaveLength(7)
+  })
+
+  it('submits the verified configuration directly after a confirmed deletion', () => {
+    // Both cached sources still identify the build; the server proved it is gone.
+    const deleted = resolveSavedBuildIdentity({
+      editingBuildId: 42,
+      queried: savedBuild(),
+      saved: savedBuild({ updated_at: '2026-01-02T00:00:00Z' }),
+      missing: true,
+    })
+    expect(deleted).toEqual({ state: 'none' })
+    const request = buildCartRequest(items(), deleted)
+    expect(request).toEqual({ items: items(), quantity: 1 })
+    // Neither the deleted id nor an expectation for it may be submitted.
+    expect(request).not.toHaveProperty('saved_build_id')
+    expect(request).not.toHaveProperty('expected_items')
   })
 })

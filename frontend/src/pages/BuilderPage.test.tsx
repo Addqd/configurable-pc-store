@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { render } from '../test-utils'
+import { render, createTestQueryClient } from '../test-utils'
 import { BuilderPage } from './BuilderPage'
 import { useBuilderStore, emptyBuilderSelections, selectionSignature, BUILDER_CATEGORIES, type BuilderSelections } from '../stores/builderStore'
 import { useAccountStore } from '../stores/accountStore'
@@ -698,6 +698,113 @@ describe('saved build identity in the cart request', () => {
     const body = cartPost(fetchMock)
     expect(body.saved_build_id).toBeUndefined()
     expect(body.items).toHaveLength(8)
+  })
+
+  it('ignores cached saved-build data once the server confirms the deletion', async () => {
+    signedIn()
+    const products = complete()
+    useBuilderStore.setState({ selections: products, editingBuildId: 42 })
+    const client = createTestQueryClient()
+    // TanStack Query keeps this successful row even though the next refetch fails.
+    client.setQueryData(['/api/v1/builds/42'], savedBuild(products))
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse({ detail: 'Build not found' }, 404)
+      if (url === '/api/v1/cart/builds' && init.method === 'POST') return jsonResponse(cartBody)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>, { client })
+    await screen.findByText(/Сохранённая сборка не найдена/i)
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    const body = cartPost(fetchMock)
+    // The deleted identity is not submitted and no expectation references it.
+    expect(body.saved_build_id).toBeUndefined()
+    expect(body.expected_items).toBeUndefined()
+    // The verified configuration itself is submitted, unchanged.
+    expect(body.items).toEqual(Object.entries(products).map(([slot, product]) => ({ slot, product_id: product!.id })))
+    expect(useBuilderStore.getState().selections).toEqual(products)
+    // No saved-build write and no cart request at the deleted id.
+    expect(fetchMock.mock.calls.filter(([url, init]) => url === '/api/v1/builds/42' && (init.method ?? 'GET') !== 'GET')).toHaveLength(0)
+    expect(fetchMock.mock.calls.some(([url, init]) => url === '/api/v1/builds' && init.method === 'POST')).toBe(false)
+  })
+
+  it('ignores the last successful save once the server confirms the deletion', async () => {
+    signedIn()
+    const products = complete()
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds' && init.method === 'POST') return jsonResponse(savedBuild(products, { updated_at: '2026-01-02T00:00:00Z' }), 201)
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse({ detail: 'Build not found' }, 404)
+      if (url === '/api/v1/cart/builds' && init.method === 'POST') return jsonResponse(cartBody)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(screen.getByRole('button', { name: /Сохранить сборку/i }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Сохранить сборку' }))
+    await waitFor(() => expect(useBuilderStore.getState().editingBuildId).toBe(42))
+    await screen.findByText(/Сохранённая сборка не найдена/i)
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    const body = cartPost(fetchMock)
+    expect(body.saved_build_id).toBeUndefined()
+    expect(body.expected_items).toBeUndefined()
+    expect(body.items).toHaveLength(8)
+  })
+
+  it('never treats a temporary request failure as a deletion', async () => {
+    signedIn()
+    const products = complete()
+    useBuilderStore.setState({ selections: products, editingBuildId: 42 })
+    const client = createTestQueryClient()
+    client.setQueryData(['/api/v1/builds/42'], savedBuild(products))
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse({ detail: 'boom' }, 500)
+      if (url === '/api/v1/cart/builds' && init.method === 'POST') return jsonResponse(cartBody)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>, { client })
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    // A failed request is not proof of deletion: the known row still identifies the build.
+    expect(screen.queryByText(/Сохранённая сборка не найдена/i)).toBeNull()
+    expect(cartPost(fetchMock).saved_build_id).toBe(42)
+  })
+
+  it('does not reuse cached data that belongs to another build', async () => {
+    signedIn()
+    const products = complete()
+    useBuilderStore.setState({ selections: products, editingBuildId: 42 })
+    const client = createTestQueryClient()
+    // The cached entry under this key holds a different build than the opened one.
+    client.setQueryData(['/api/v1/builds/42'], savedBuild(products, { id: 41 }))
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse({ detail: 'boom' }, 500)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>, { client })
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Не удалось определить сохранённую сборку/i)
+    expect(cartPost(fetchMock)).toBeNull()
   })
 })
 

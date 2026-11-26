@@ -76,10 +76,13 @@ export interface SavedBuildSources {
 /**
  * The saved build the current configuration may belong to.
  *
- * A save answers with the authoritative row while the following refetch can still
- * return the previous version, so the newest known version of this very build is
- * used. A saved build that is known but unreadable is reported as unresolved
- * rather than silently downgraded to an unnamed configuration.
+ * A confirmed 404 is authoritative: the request for this very build and account
+ * proved it is gone, so neither the row the query still caches from an earlier
+ * success nor the row of the last successful save may identify it again.
+ * Otherwise a save answers with the authoritative row while the following refetch
+ * can still return the previous version, so the newest known version of this very
+ * build is used. A saved build that is known but unreadable is reported as
+ * unresolved rather than silently downgraded to an unnamed configuration.
  */
 export function resolveSavedBuildIdentity({
   editingBuildId,
@@ -88,6 +91,8 @@ export function resolveSavedBuildIdentity({
   missing,
 }: SavedBuildSources): SavedBuildIdentity {
   if (editingBuildId === null) return { state: 'none' }
+  // A stale cached row never overrides a confirmed deletion.
+  if (missing) return { state: 'none' }
   const known = [queried, saved].filter(
     (build): build is SavedBuildOut => !!build && build.id === editingBuildId,
   )
@@ -99,7 +104,6 @@ export function resolveSavedBuildIdentity({
       ),
     }
   }
-  if (missing) return { state: 'none' }
   return { state: 'unresolved' }
 }
 
