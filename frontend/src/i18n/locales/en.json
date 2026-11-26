@@ -187,6 +187,7 @@
     "unknown_notice": "Not enough data to verify {{count}} check(s). Compatibility is not confirmed.",
     "check_failed": "The compatibility check failed. Try again with Create build.",
     "cart_error": "Could not add the build to the cart. Check stock and try again.",
+    "saved_build_unavailable": "Could not resolve the saved build: its data is not loaded yet or is unavailable. Reload the page and add it to the cart again.",
     "limit_reached": "The saved build limit (5) is reached. Delete one saved build to save another one.",
     "power": "Power estimation",
     "no_data": "No data",

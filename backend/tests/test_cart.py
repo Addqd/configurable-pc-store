@@ -177,9 +177,10 @@ def test_buy_now_replay_and_key_payload_conflict(
 @pytest.mark.parametrize(
     "scenario,expected",
     [
-        ("renamed", "Сборка: Gaming PC"),
-        ("deleted", "Сборка: Gaming PC"),
-        ("legacy", "Сборка: Workstation"),
+        ("renamed", "Gaming PC"),
+        ("deleted", "Gaming PC"),
+        # A legacy line without a captured name falls back to the saved build name.
+        ("legacy", "Workstation"),
     ],
 )
 def test_build_order_name_uses_cart_snapshot(

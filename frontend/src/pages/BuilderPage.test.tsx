@@ -4,7 +4,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { MemoryRouter } from 'react-router'
 import { render } from '../test-utils'
 import { BuilderPage } from './BuilderPage'
-import { useBuilderStore, emptyBuilderSelections, selectionSignature, type BuilderSelections } from '../stores/builderStore'
+import { useBuilderStore, emptyBuilderSelections, selectionSignature, BUILDER_CATEGORIES, type BuilderSelections } from '../stores/builderStore'
 import { useAccountStore } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
 import { i18n } from '../i18n'
@@ -561,6 +561,143 @@ describe('cart submission guard', () => {
 
     await act(async () => { requests[0].resolve(jsonResponse(cartBody)) })
     expect(screen.queryByText(/Сборка добавлена в корзину/i)).toBeNull()
+  })
+})
+
+describe('saved build identity in the cart request', () => {
+  const savedItems = (selections: BuilderSelections) =>
+    BUILDER_CATEGORIES.flatMap(slot => {
+      const product = selections[slot]
+      return product
+        ? [{ slot, product_id: product.id, product_name: product.name, product_slug: product.slug, price: String(product.price) }]
+        : []
+    })
+  const savedBuild = (selections: BuilderSelections, overrides: { name?: string; updated_at?: string; id?: number } = {}) => ({
+    id: overrides.id ?? 42, user_id: 7, name: overrides.name ?? 'Gaming PC 2026', description: 'My own build',
+    image_url: null, version: 1, created_at: '2026-01-01T00:00:00Z',
+    updated_at: overrides.updated_at ?? '2026-01-01T00:00:00Z', items: savedItems(selections),
+  })
+  const cartPost = (fetchMock: { mock: { calls: [string, RequestInit][] } }) => {
+    const call = fetchMock.mock.calls.find(([url, init]) => url === '/api/v1/cart/builds' && init.method === 'POST')
+    return call ? JSON.parse(String(call[1].body)) : null
+  }
+
+  it('submits the saved build identity for an unchanged saved configuration', async () => {
+    signedIn()
+    const products = complete()
+    useBuilderStore.setState({ selections: products, editingBuildId: 42 })
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse(savedBuild(products))
+      if (url === '/api/v1/cart/builds' && init.method === 'POST') return jsonResponse(cartBody)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    await waitFor(() => expect(screen.queryByTestId('builder-saved-build-skeleton')).toBeNull())
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    const body = cartPost(fetchMock)
+    expect(body.saved_build_id).toBe(42)
+    expect(body.expected_items).toHaveLength(8)
+    expect(body.items).toBeUndefined()
+  })
+
+  it('sends the verified direct configuration when the saved build no longer matches', async () => {
+    signedIn()
+    const products = complete()
+    useBuilderStore.setState({ selections: products, editingBuildId: 42 })
+    const stale = { ...products, cpu: getProductsForCategory('cpu')[1] }
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse(savedBuild(stale))
+      if (url === '/api/v1/cart/builds' && init.method === 'POST') return jsonResponse(cartBody)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    await waitFor(() => expect(screen.queryByTestId('builder-saved-build-skeleton')).toBeNull())
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    const body = cartPost(fetchMock)
+    expect(body.saved_build_id).toBeUndefined()
+    expect(body.items).toEqual(Object.entries(products).map(([slot, product]) => ({ slot, product_id: product!.id })))
+  })
+
+  it('uses the just-saved build identity while the saved-build query is still stale', async () => {
+    signedIn()
+    const products = complete()
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds' && init.method === 'POST') return jsonResponse(savedBuild(products, { updated_at: '2026-01-02T00:00:00Z' }), 201)
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      // The refetch still answers the previous version of the build.
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') {
+        return jsonResponse(savedBuild({ ...products, cpu: getProductsForCategory('cpu')[1] }))
+      }
+      if (url === '/api/v1/cart/builds' && init.method === 'POST') return jsonResponse(cartBody)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    selectAll()
+    fireEvent.click(screen.getByRole('button', { name: /Сохранить сборку/i }))
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Сохранить сборку' }))
+    await waitFor(() => expect(useBuilderStore.getState().editingBuildId).toBe(42))
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    const body = cartPost(fetchMock)
+    expect(body.saved_build_id).toBe(42)
+    expect(body.items).toBeUndefined()
+  })
+
+  it('reports an unresolved saved build identity instead of buying an unnamed configuration', async () => {
+    signedIn()
+    useBuilderStore.setState({ selections: complete(), editingBuildId: 42 })
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse({ detail: 'boom' }, 500)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Не удалось определить сохранённую сборку/i)
+    expect(cartPost(fetchMock)).toBeNull()
+  })
+
+  it('adds the configuration directly when the saved build was deleted', async () => {
+    signedIn()
+    const products = complete()
+    useBuilderStore.setState({ selections: products, editingBuildId: 42 })
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/builds/compatibility') return verdict('compatible')
+      if (url === '/api/v1/builds/42' && (init.method ?? 'GET') === 'GET') return jsonResponse({ detail: 'Build not found' }, 404)
+      if (url === '/api/v1/cart/builds' && init.method === 'POST') return jsonResponse(cartBody)
+      return jsonResponse({ detail: 'unexpected request' }, 500)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><BuilderPage /></MemoryRouter>)
+    await waitFor(() => expect(screen.queryByTestId('builder-saved-build-skeleton')).toBeNull())
+    fireEvent.click(createButton())
+    await waitFor(() => expect(cartButton().disabled).toBe(false))
+    fireEvent.click(cartButton())
+
+    await screen.findByText(/Сборка добавлена в корзину/i)
+    const body = cartPost(fetchMock)
+    expect(body.saved_build_id).toBeUndefined()
+    expect(body.items).toHaveLength(8)
   })
 })
 

@@ -17,13 +17,17 @@ import {
   type BuilderSelections,
 } from '../stores/builderStore'
 import { createBuildApiV1BuildsPost, updateBuildApiV1BuildsBuildIdPut, addBuildApiV1CartBuildsPost, useGetBuildApiV1BuildsBuildIdGet, checkCurrentCompatibilityApiV1BuildsCompatibilityPost } from '../api/generated/client'
+import type { SavedBuildOut } from '../api/generated/model'
+import {
+  buildCartRequest, resolveSavedBuildIdentity, type BuildCartRequest, type BuildSelectionItem,
+} from './builderCartRequest'
 import { FiCheckCircle, FiAlertTriangle } from 'react-icons/fi'
 import { checkTouchesComponent, compatibilityMessage } from '../data/compatibilityMessages'
 import { ApiError } from '../api/transport'
 import { BuilderCompatibilitySkeleton } from '../components/skeletons/BuilderSkeletons'
 
 /** Component items of one configuration, the exact payload the server checks. */
-function selectionItems(selections: BuilderSelections) {
+function selectionItems(selections: BuilderSelections): BuildSelectionItem[] {
   return BUILDER_CATEGORIES.flatMap(slot => selections[slot] ? [{ slot, product_id: selections[slot]!.id }] : [])
 }
 
@@ -43,6 +47,9 @@ export function BuilderPage() {
   const [saveName, setSaveName] = useState(t('builder.save_name_placeholder'))
   const [saveDescription, setSaveDescription] = useState('')
   const [saveError, setSaveError] = useState('')
+  // The row returned by the last successful save. The saved-build query may still
+  // answer the previous version, and the saved identity must not be lost meanwhile.
+  const [savedRow, setSavedRow] = useState<{ accountId: string; build: SavedBuildOut } | null>(null)
   const openAuthModal = useUIStore((state) => state.openAuthModal)
   const activeAccountId = useAccountStore((state) => state.activeAccountId)
   const editingBuildId = useBuilderStore((state) => state.editingBuildId)
@@ -78,11 +85,18 @@ export function BuilderPage() {
   const savedForbidden = saved.isError && (savedStatus === 401 || savedStatus === 403)
   const messages = (incompatible ? conflicts : unresolved).map(item => compatibilityMessage(item, t))
   const canCreate = complete && !checking
+  // Only this account's just-saved row may identify the opened build.
+  const savedIdentity = resolveSavedBuildIdentity({
+    editingBuildId,
+    queried: saved.data,
+    saved: savedRow && savedRow.accountId === activeAccountId ? savedRow.build : null,
+    missing: savedMissing,
+  })
   const missing = BUILDER_CATEGORIES.filter((category) => !selections[category])
   const validationMessage = [
     missing.length > 0 ? t('builder.select_missing', { components: missing.map((category) => t('builder.components.' + category)).join(', ') }) : '',
   ].filter(Boolean).join(' ')
-  const addBuild = useMutation({ mutationFn: (buildItems: typeof items) => addBuildApiV1CartBuildsPost({ items: buildItems, quantity: 1 }), onSuccess: () => client.invalidateQueries() })
+  const addBuild = useMutation({ mutationFn: (body: BuildCartRequest) => addBuildApiV1CartBuildsPost(body), onSuccess: () => client.invalidateQueries() })
   const saveMutation = useMutation({ mutationFn: async ({ name, description }: { name: string; description: string }) => {
     if (editingBuildId === null) return createBuildApiV1BuildsPost({ name, description, items })
     return updateBuildApiV1BuildsBuildIdPut(editingBuildId, { name, description, items })
@@ -99,11 +113,19 @@ export function BuilderPage() {
     const submittedSignature = signature
     const submittedItems = selectionItems(selections)
     const submittedAccountId = activeAccountId
+    // The submission describes the configuration verified above: the opened saved
+    // build only when its own selections are exactly these, otherwise the build is
+    // sent as the direct configuration the user actually verified.
+    const body = buildCartRequest(submittedItems, savedIdentity)
+    if (!body) {
+      setCartError(t('builder.saved_build_unavailable'))
+      return
+    }
     cartSubmissionRef.current = true
     setCartSubmitting(true)
     setCartError('')
     try {
-      await addBuild.mutateAsync(submittedItems)
+      await addBuild.mutateAsync(body)
       if (useAccountStore.getState().activeAccountId === submittedAccountId) setAddedToCartFor(submittedSignature)
     } catch {
       if (useAccountStore.getState().activeAccountId === submittedAccountId) setCartError(t('builder.cart_error'))
@@ -143,7 +165,9 @@ export function BuilderPage() {
       openAuthModal('login')
       return
     }
-    const editing = saved.data
+    // The newest known version of the opened build, so a rename made moments ago
+    // is not replaced by the previous name while the query refetches.
+    const editing = savedIdentity.state === 'build' ? savedIdentity.build : null
     setSaveName(editing?.name ?? t('builder.save_name_placeholder'))
     setSaveDescription(editing?.description ?? '')
     setSaveError('')
@@ -160,6 +184,8 @@ export function BuilderPage() {
       const build = await saveMutation.mutateAsync({ name: saveName.trim(), description: saveDescription.trim() })
       if (useAccountStore.getState().activeAccountId !== activeAccountId) return
       useBuilderStore.setState({ editingBuildId: build.id })
+      // The returned row carries the name and selections this flow must use now.
+      setSavedRow({ accountId: activeAccountId, build })
       setSaveOpen(false)
       setSavedNotice({ signature, message: t('builder.save_success', { name: saveName.trim() }) })
     } catch (error) {

@@ -39,3 +39,47 @@ describe('server cart', () => {
     expect(screen.queryByText(/Спасибо за заказ/i)).toBeNull()
   })
 })
+
+describe('saved build in the cart', () => {
+  const buildLine = (name?: string, quantity = 1) => ({
+    id: 12, kind: 'custom_build', product_id: null, saved_build_id: 42, product: null, quantity,
+    unit_price: '18990.00', line_total: String(18990 * quantity), created_at: date, updated_at: date,
+    build_snapshot: {
+      total_price: '18990.00',
+      ...(name === undefined ? {} : { name }),
+      components: [{ slot: 'cpu', product_id: 4, product_name: 'AMD Ryzen 5 7600', price: '18990.00' }],
+    },
+  })
+  const cart = (line: Record<string, unknown>) => ({
+    id: 1, items: [line], subtotal: String(18990 * Number(line.quantity)),
+    item_count: Number(line.quantity), created_at: date, updated_at: date,
+  })
+
+  it('shows the captured saved-build name and keeps it when the quantity changes', async () => {
+    let quantity = 1
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url === '/api/v1/cart/12' && init.method === 'PATCH') quantity = JSON.parse(String(init.body)).quantity
+      // The server answers with the snapshot it stored, not a rebuilt name.
+      return json(cart(buildLine('Gaming PC 2026', quantity)))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><CartPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Gaming PC 2026')).toBeTruthy()
+    expect(screen.getByText('Пользовательская сборка')).toBeTruthy()
+    expect(screen.getByText('AMD Ryzen 5 7600')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /Увеличить количество.*Gaming PC 2026/i }))
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url, init]) => url === '/api/v1/cart/12' && init.method === 'PATCH')).toBe(true))
+    // The unchanged captured name is still rendered after the reload.
+    expect(await screen.findByText('Gaming PC 2026')).toBeTruthy()
+  })
+
+  it('uses the generic title for a configuration that was never named', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json(cart(buildLine()))))
+    render(<MemoryRouter><CartPage /></MemoryRouter>)
+
+    expect(await screen.findByText('Сборка ПК')).toBeTruthy()
+    expect(screen.queryByText('Gaming PC 2026')).toBeNull()
+  })
+})

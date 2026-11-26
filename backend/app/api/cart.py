@@ -189,7 +189,15 @@ def add_build(
     """
     try:
         if body.saved_build_id is not None:
-            svc.add_build_to_cart(db, current_user, body.saved_build_id, body.quantity)
+            svc.add_build_to_cart(
+                db,
+                current_user,
+                body.saved_build_id,
+                body.quantity,
+                [item.model_dump() for item in body.expected_items]
+                if body.expected_items is not None
+                else None,
+            )
         else:
             svc.add_configuration_to_cart(
                 db,
