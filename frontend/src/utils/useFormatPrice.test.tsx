@@ -18,13 +18,10 @@ const validPayload = {
   source: 'CBR',
 }
 
-const intl = (locale: string, currency: 'USD' | 'EUR', amount: number) =>
-  new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount)
+/** Exact display strings: USD is converted at 90 RUB/USD, EUR at 100 RUB/EUR. */
+const USD_100 = '$100.00'
+const EUR_90 = `90,00\u00a0€`
+const RUB_9000 = `9\u00a0000\u00a0₽`
 
 function stubRates(payload: unknown = validPayload) {
   const mock = vi.fn(
@@ -69,6 +66,7 @@ describe('reactive price formatting', () => {
   it('formats RUB immediately without requesting rates', () => {
     const fetchMock = stubRates()
     render(<PriceProbe amountRub={9000} />)
+    expect(price()).toBe(RUB_9000)
     expect(price()).toBe(formatPrice(9000))
     expect(screen.getByTestId('rate').textContent).toBe('available')
     expect(fetchMock).not.toHaveBeenCalled()
@@ -77,9 +75,9 @@ describe('reactive price formatting', () => {
   it('re-renders with the converted price when the currency changes', async () => {
     stubRates()
     render(<PriceProbe amountRub={9000} />)
-    expect(price()).toBe(formatPrice(9000))
+    expect(price()).toBe(RUB_9000)
     act(() => useCurrencyStore.getState().setCurrency('USD'))
-    await waitFor(() => expect(price()).toBe(intl('ru-RU', 'USD', 100)))
+    await waitFor(() => expect(price()).toBe(USD_100))
     // The authoritative RUB amount is never replaced by the display value.
     expect(screen.getByTestId('amount').textContent).toBe('9000')
   })
@@ -88,23 +86,36 @@ describe('reactive price formatting', () => {
     const fetchMock = stubRates()
     render(<PriceProbe amountRub={9000} />)
     act(() => useCurrencyStore.getState().setCurrency('USD'))
-    await waitFor(() => expect(price()).toBe(intl('ru-RU', 'USD', 100)))
+    await waitFor(() => expect(price()).toBe(USD_100))
     act(() => useCurrencyStore.getState().setCurrency('EUR'))
-    await waitFor(() => expect(price()).toBe(intl('ru-RU', 'EUR', 90)))
+    await waitFor(() => expect(price()).toBe(EUR_90))
     act(() => useCurrencyStore.getState().setCurrency('RUB'))
-    await waitFor(() => expect(price()).toBe(formatPrice(9000)))
+    await waitFor(() => expect(price()).toBe(RUB_9000))
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('follows the interface language', async () => {
+  it('shows the same price in both interface languages', async () => {
     stubRates()
-    render(<PriceProbe amountRub={9000} />)
+    const { rerender } = render(<PriceProbe amountRub={9000} />)
     act(() => useCurrencyStore.getState().setCurrency('USD'))
-    await waitFor(() => expect(price()).toBe(intl('ru-RU', 'USD', 100)))
+    await waitFor(() => expect(price()).toBe(USD_100))
+    const russian = price()
+    const russianRub = formatPrice(9000)
+
     await act(async () => {
       await i18n.changeLanguage('en')
     })
-    await waitFor(() => expect(price()).toBe(intl('en-GB', 'USD', 100)))
+    rerender(<PriceProbe amountRub={9000} />)
+    // Money presentation follows the currency, never the interface language.
+    expect(price()).toBe(russian)
+    expect(price()).toBe(USD_100)
+    expect(russianRub).toBe(RUB_9000)
+    expect(formatPrice(9000)).toBe(russianRub)
+
+    act(() => useCurrencyStore.getState().setCurrency('EUR'))
+    await waitFor(() => expect(price()).toBe(EUR_90))
+    act(() => useCurrencyStore.getState().setCurrency('RUB'))
+    await waitFor(() => expect(price()).toBe(RUB_9000))
   })
 
   it('falls back to RUB prices when the rate is unavailable', async () => {
@@ -121,7 +132,7 @@ describe('reactive price formatting', () => {
     useCurrencyStore.setState({ currency: 'USD' })
     render(<PriceProbe amountRub={9000} />)
     await waitFor(() => expect(screen.getByTestId('rate').textContent).toBe('unavailable'))
-    expect(price()).toBe(formatPrice(9000))
+    expect(price()).toBe(RUB_9000)
     // The preference itself is preserved for an automatic recovery.
     expect(useCurrencyStore.getState().currency).toBe('USD')
   })
@@ -139,13 +150,13 @@ describe('reactive price formatting', () => {
     useCurrencyStore.setState({ currency: 'USD' })
     render(<PriceProbe amountRub={9000} />, { client })
     await waitFor(() => expect(screen.getByTestId('rate').textContent).toBe('unavailable'))
-    expect(price()).toBe(formatPrice(9000))
+    expect(price()).toBe(RUB_9000)
 
     stubRates()
     await act(async () => {
       await client.refetchQueries({ queryKey: CURRENCY_RATES_QUERY_KEY })
     })
-    await waitFor(() => expect(price()).toBe(intl('ru-RU', 'USD', 100)))
+    await waitFor(() => expect(price()).toBe(USD_100))
     expect(screen.getByTestId('rate').textContent).toBe('available')
   })
 
@@ -154,7 +165,7 @@ describe('reactive price formatting', () => {
     useCurrencyStore.setState({ currency: 'USD' })
     render(<PriceProbe amountRub={9000} />)
     await waitFor(() => expect(screen.getByTestId('stale').textContent).toBe('stale'))
-    expect(price()).toBe(intl('ru-RU', 'USD', 100))
+    expect(price()).toBe(USD_100)
   })
 
   it('keeps the last valid snapshot when a refresh returns malformed data', async () => {
@@ -162,14 +173,14 @@ describe('reactive price formatting', () => {
     stubRates()
     useCurrencyStore.setState({ currency: 'USD' })
     render(<PriceProbe amountRub={9000} />, { client })
-    await waitFor(() => expect(price()).toBe(intl('ru-RU', 'USD', 100)))
+    await waitFor(() => expect(price()).toBe(USD_100))
 
     // A malformed refresh must be rejected by the runtime contract.
     stubRates({ ...validPayload, rates: { RUB: '1', USD: '-5', EUR: '100' } })
     await act(async () => {
       await client.refetchQueries({ queryKey: CURRENCY_RATES_QUERY_KEY })
     })
-    expect(price()).toBe(intl('ru-RU', 'USD', 100))
+    expect(price()).toBe(USD_100)
     expect(client.getQueryState(CURRENCY_RATES_QUERY_KEY)?.status).toBe('error')
   })
 
@@ -178,7 +189,7 @@ describe('reactive price formatting', () => {
     useCurrencyStore.setState({ currency: 'USD' })
     render(<PriceProbe amountRub={9000} />)
     await waitFor(() => expect(screen.getByTestId('rate').textContent).toBe('unavailable'))
-    expect(price()).toBe(formatPrice(9000))
+    expect(price()).toBe(RUB_9000)
   })
 
   it('is unaffected by session cleanup: the rate query is public', () => {
@@ -186,7 +197,8 @@ describe('reactive price formatting', () => {
     expect(isPrivateQueryKey(CURRENCY_RATES_QUERY_KEY)).toBe(false)
   })
 
-  it('maps the interface language to the money locale', () => {
+  it('keeps the date locale helper localized by interface language', () => {
+    // Used for the exchange-rate date only; money no longer reads it.
     expect(moneyLocale('en')).toBe('en-GB')
     expect(moneyLocale('en-US')).toBe('en-GB')
     expect(moneyLocale('ru')).toBe('ru-RU')

@@ -1,10 +1,13 @@
 import { useCallback } from 'react'
-import { useTranslation } from 'react-i18next'
 import { useCurrencyRates } from '../api/currencyRates'
 import { useCurrencyStore } from '../stores/currencyStore'
 import { formatMoney, type Currency } from './currency'
 
-/** Interface locale used for money formatting, mirroring `formatPrice`. */
+/**
+ * Interface locale for localized non-monetary output, currently the provider
+ * date of the exchange rate. Money formatting does not use it: a price is
+ * formatted by its currency only.
+ */
 export function moneyLocale(language: string | undefined): string {
   return language?.startsWith('en') ? 'en-GB' : 'ru-RU'
 }
@@ -26,20 +29,18 @@ export interface CurrencyDisplay {
 /**
  * Single reactive entry point for currency-aware price presentation.
  *
- * Subscribes to the selected currency, the active interface language and the
- * shared rate query, so every consumer re-renders when any of them changes.
+ * Subscribes to the selected currency and the shared rate query, so every
+ * consumer re-renders when either changes. The interface language is not part
+ * of this state: the same amount and rate always render the same price.
  * Formatting itself stays in the pure `formatMoney` helper.
  */
 export function useCurrencyDisplay(): CurrencyDisplay {
   const currency = useCurrencyStore((state) => state.currency)
-  const { i18n } = useTranslation()
-  const language = i18n.resolvedLanguage ?? i18n.language
   const rates = useCurrencyRates(currency)
   const rate = currency === 'RUB' ? null : rates.data?.rates[currency] ?? null
   const format = useCallback(
-    (amountRub: number) =>
-      formatMoney(amountRub, { currency, rate, locale: moneyLocale(language) }),
-    [currency, rate, language],
+    (amountRub: number) => formatMoney(amountRub, { currency, rate }),
+    [currency, rate],
   )
   return {
     format,

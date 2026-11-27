@@ -21,8 +21,11 @@ interface CurrencySwitcherProps {
   className?: string
 }
 
-/** Distance between the trigger and the panel, matching the approved reference. */
-const PANEL_GAP = 2
+/**
+ * Distance between the trigger and the panel. Matches the language dropdown,
+ * whose panel is offset by `mt-1` (4px), so both header menus open identically.
+ */
+const PANEL_GAP = 4
 
 interface PanelPosition {
   top: number

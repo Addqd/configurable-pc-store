@@ -103,7 +103,7 @@ export function LanguageSwitcher({ className = '' }: LanguageSwitcherProps) {
           ref={panelRef}
           role="menu"
           aria-label={t('lang_switcher.label')}
-          className="absolute right-0 top-full mt-1 w-32 bg-surface border border-border rounded-lg shadow-[0_8px_30px_var(--color-shadow-md)] py-1 z-[200] overflow-hidden"
+          className="absolute right-0 top-full mt-1 w-24 bg-surface border border-border rounded-lg shadow-[0_8px_30px_var(--color-shadow-md)] py-1 z-[200] overflow-hidden"
         >
           {options.map((opt) => (
             <button

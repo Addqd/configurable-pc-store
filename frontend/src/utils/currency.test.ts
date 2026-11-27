@@ -9,14 +9,6 @@ import {
   parseRate,
 } from './currency'
 
-const intl = (locale: string, currency: 'USD' | 'EUR', amount: number) =>
-  new Intl.NumberFormat(locale, {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount)
-
 describe('supported currencies', () => {
   it('offers exactly RUB, USD and EUR in that order', () => {
     expect([...SUPPORTED_CURRENCIES]).toEqual(['RUB', 'USD', 'EUR'])
@@ -94,48 +86,82 @@ describe('RUB conversion', () => {
 })
 
 describe('formatMoney', () => {
-  it('keeps the canonical RUB formatting when RUB is selected', () => {
-    for (const amount of [0, 159990, 244.86]) {
-      expect(formatMoney(amount, { currency: 'RUB', rate: null, locale: 'ru-RU' })).toBe(
-        formatPrice(amount),
-      )
+  /** The contract requires U+00A0 for grouping and before the currency symbol. */
+  const NBSP = '\u00a0'
+  /** Rate `1` keeps the amount unchanged, so these cases describe formatting only. */
+  const display = (currency: 'USD' | 'EUR', amount: number) =>
+    formatMoney(amount, { currency, rate: '1' })
+
+  it('formats rouble amounts with the fixed RUB presentation', () => {
+    expect(formatMoney(0, { currency: 'RUB', rate: null })).toBe(`0${NBSP}₽`)
+    expect(formatMoney(1, { currency: 'RUB', rate: null })).toBe(`1${NBSP}₽`)
+    expect(formatMoney(1000, { currency: 'RUB', rate: null })).toBe(`1${NBSP}000${NBSP}₽`)
+    expect(formatMoney(1234.56, { currency: 'RUB', rate: null })).toBe(
+      `1${NBSP}235${NBSP}₽`,
+    )
+    expect(formatMoney(1234567.89, { currency: 'RUB', rate: null })).toBe(
+      `1${NBSP}234${NBSP}568${NBSP}₽`,
+    )
+  })
+
+  it('keeps rouble amounts free of decimals and grouping with plain spaces', () => {
+    expect(formatMoney(64990.5, { currency: 'RUB', rate: null })).toBe(
+      `64${NBSP}991${NBSP}₽`,
+    )
+    expect(formatMoney(1000, { currency: 'RUB', rate: null })).not.toContain(' ')
+    expect(formatMoney(1000, { currency: 'RUB', rate: null })).not.toContain('RUB')
+  })
+
+  it('formats USD with a comma separator, a point decimal and the plain dollar sign', () => {
+    expect(display('USD', 0)).toBe('$0.00')
+    expect(display('USD', 1)).toBe('$1.00')
+    expect(display('USD', 1000)).toBe('$1,000.00')
+    expect(display('USD', 1234.56)).toBe('$1,234.56')
+    expect(display('USD', 1234567.89)).toBe('$1,234,567.89')
+  })
+
+  it('never renders USD as US$ or with a code suffix', () => {
+    const formatted = display('USD', 1234.56)
+    expect(formatted).not.toContain('US$')
+    expect(formatted).not.toContain('USD')
+    expect(formatted.startsWith('$')).toBe(true)
+    expect(formatted.endsWith('$')).toBe(false)
+  })
+
+  it('formats EUR with the symbol after the amount and a comma decimal', () => {
+    expect(display('EUR', 0)).toBe(`0,00${NBSP}€`)
+    expect(display('EUR', 1)).toBe(`1,00${NBSP}€`)
+    expect(display('EUR', 1000)).toBe(`1${NBSP}000,00${NBSP}€`)
+    expect(display('EUR', 1234.56)).toBe(`1${NBSP}234,56${NBSP}€`)
+    expect(display('EUR', 1234567.89)).toBe(`1${NBSP}234${NBSP}567,89${NBSP}€`)
+  })
+
+  it('always shows exactly two decimals for foreign currencies', () => {
+    const USD_PATTERN = /^\$\d{1,3}(?:,\d{3})*\.\d{2}$/
+    const EUR_PATTERN = new RegExp(`^\\d{1,3}(?:${NBSP}\\d{3})*,\\d{2}${NBSP}€$`)
+    for (const amount of [0, 1, 1000, 1234567.89]) {
+      expect(display('USD', amount)).toMatch(USD_PATTERN)
+      expect(display('EUR', amount)).toMatch(EUR_PATTERN)
     }
   })
 
-  it('falls back to RUB when no rate is available', () => {
-    expect(formatMoney(9000, { currency: 'USD', rate: null, locale: 'ru-RU' })).toBe(
+  it('rounds the converted amount once at the display boundary', () => {
+    // 1 RUB at 8 RUB/USD is 0.125 USD, rounded half away from zero to 0.13.
+    expect(formatMoney(1, { currency: 'USD', rate: '8' })).toBe('$0.13')
+    // Rouble amounts keep the existing single rounding to whole roubles.
+    expect(formatMoney(0.5, { currency: 'RUB', rate: null })).toBe(`1${NBSP}₽`)
+    expect(formatMoney(0.49, { currency: 'RUB', rate: null })).toBe(`0${NBSP}₽`)
+  })
+
+  it('falls back to the fixed RUB formatting when no rate is available', () => {
+    expect(formatMoney(9000, { currency: 'USD', rate: null })).toBe(formatPrice(9000))
+    expect(formatMoney(9000, { currency: 'USD', rate: 'not-a-rate' })).toBe(
       formatPrice(9000),
     )
-    expect(
-      formatMoney(9000, { currency: 'USD', rate: 'not-a-rate', locale: 'ru-RU' }),
-    ).toBe(formatPrice(9000))
+    expect(formatMoney(9000, { currency: 'EUR', rate: '0' })).toBe(formatPrice(9000))
   })
 
-  it('formats USD and EUR with two decimals in the active locale', () => {
-    expect(formatMoney(9000, { currency: 'USD', rate: '90', locale: 'ru-RU' })).toBe(
-      intl('ru-RU', 'USD', 100),
-    )
-    expect(formatMoney(9000, { currency: 'USD', rate: '90', locale: 'en-GB' })).toBe(
-      intl('en-GB', 'USD', 100),
-    )
-    expect(formatMoney(9000, { currency: 'EUR', rate: '100', locale: 'ru-RU' })).toBe(
-      intl('ru-RU', 'EUR', 90),
-    )
-    expect(formatMoney(9000, { currency: 'EUR', rate: '100', locale: 'en-GB' })).toBe(
-      intl('en-GB', 'EUR', 90),
-    )
-  })
-
-  it('always shows two decimals for foreign currencies', () => {
-    expect(formatMoney(900, { currency: 'USD', rate: '90', locale: 'en-GB' })).toBe(
-      intl('en-GB', 'USD', 10),
-    )
-    expect(formatMoney(900, { currency: 'USD', rate: '90', locale: 'en-GB' })).toContain(
-      '10.00',
-    )
-  })
-
-  it('converts one authoritative total instead of summing rounded parts', () => {
+  it('never re-converts an already converted amount', () => {
     const parts = [3333.33, 3333.33, 3333.34]
     const total = parts.reduce((sum, part) => sum + part, 0)
     const convertedTotal = convertRubToMinorUnits(total, '82.1265')

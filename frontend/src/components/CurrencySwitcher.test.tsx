@@ -132,6 +132,17 @@ describe('CurrencySwitcher', () => {
     expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(3)
   })
 
+  it('opens the panel exactly 4px below the trigger, like the language menu', () => {
+    render(<CurrencySwitcher />)
+    fireEvent.click(trigger())
+    const menu = screen.getByRole('menu')
+    // jsdom reports a zero trigger rect, so the offset is visible as the top value;
+    // the language panel reaches the same 4px through `mt-1`.
+    expect(menu.style.top).toBe('4px')
+    expect(menu.style.position).toBe('fixed')
+    expect(menu.parentElement).toBe(document.body)
+  })
+
   it('exposes the effective rate date when the selected currency has a rate', async () => {
     useCurrencyStore.setState({ currency: 'USD' })
     stubRates()
@@ -208,5 +219,28 @@ describe('CurrencySwitcher', () => {
       '€EUR',
     ])
     expect(screen.getByRole('menu').getAttribute('aria-label')).toBe('Currency')
+  })
+
+  it('localizes the rate date with the interface language, not the currency', async () => {
+    await i18n.changeLanguage('en')
+    useCurrencyStore.setState({ currency: 'USD' })
+    stubRates()
+    render(<CurrencySwitcher />)
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: /Currency/ }).getAttribute('title')).toBe(
+        'CBR rate as of 26 Nov 2026',
+      ),
+    )
+    // The selected currency itself is unaffected by the language.
+    expect(useCurrencyStore.getState().currency).toBe('USD')
+  })
+
+  it('localizes the rate date in Russian under the RU interface', async () => {
+    useCurrencyStore.setState({ currency: 'USD' })
+    stubRates()
+    render(<CurrencySwitcher />)
+    await waitFor(() =>
+      expect(trigger().getAttribute('title')).toContain('26 нояб. 2026'),
+    )
   })
 })

@@ -71,26 +71,47 @@ export function convertRubToMinorUnits(
 }
 
 /**
+ * Fixed monetary presentation per foreign currency.
+ *
+ * A price is formatted by the currency it is displayed in, never by the
+ * interface language: USD always uses `$` with a point decimal separator, EUR
+ * always uses a comma decimal separator with the symbol after the amount.
+ */
+const FOREIGN_MONEY_LOCALES: Record<Exclude<Currency, 'RUB'>, string> = {
+  USD: 'en-US',
+  EUR: 'fr-FR',
+}
+
+/** USD and EUR are always shown with exactly two decimal places. */
+const FOREIGN_FRACTION_DIGITS = 2
+
+/** `fr-FR` groups digits with a narrow no-break space (U+202F); use U+00A0. */
+function normalizeGroupingSpaces(value: string): string {
+  return value.replace(/\u202f/g, '\u00a0')
+}
+
+/**
  * Formats an authoritative RUB amount for display.
  *
- * RUB — and any state where no valid rate is available — keeps the existing
- * storefront formatting, including the ruble symbol.
+ * RUB — and any state where no valid rate is available — keeps the canonical
+ * rouble formatting, including the ruble symbol. Foreign currencies use their
+ * own fixed formatting, independent of the interface language.
  */
 export function formatMoney(
   amountRub: number,
-  options: { currency: Currency; rate: string | null; locale: string },
+  options: { currency: Currency; rate: string | null },
 ): string {
-  const { currency, rate, locale } = options
-  if (currency !== 'RUB' && rate !== null) {
-    const minor = convertRubToMinorUnits(amountRub, rate)
-    if (minor !== null) {
-      return new Intl.NumberFormat(locale, {
-        style: 'currency',
-        currency,
-        minimumFractionDigits: 2,
-        maximumFractionDigits: 2,
-      }).format(minor / 100)
-    }
-  }
-  return formatPrice(amountRub)
+  const { currency, rate } = options
+  if (currency === 'RUB' || rate === null) return formatPrice(amountRub)
+  const minor = convertRubToMinorUnits(amountRub, rate)
+  if (minor === null) return formatPrice(amountRub)
+  return normalizeGroupingSpaces(
+    new Intl.NumberFormat(FOREIGN_MONEY_LOCALES[currency], {
+      style: 'currency',
+      currency,
+      currencyDisplay: 'symbol',
+      minimumFractionDigits: FOREIGN_FRACTION_DIGITS,
+      maximumFractionDigits: FOREIGN_FRACTION_DIGITS,
+    }).format(minor / 100),
+  )
 }
