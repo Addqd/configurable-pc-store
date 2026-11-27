@@ -2,7 +2,7 @@ import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
 import type { Product } from '../data/product'
 import { useServerCart } from '../api/useServerCart'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import { FiShoppingCart } from 'react-icons/fi'
 import { Link } from 'react-router'
 import type { ReactNode } from 'react'
@@ -15,6 +15,7 @@ interface ProductCardProps {
 
 export function ProductCard({ product }: ProductCardProps) {
   const { t } = useTranslation()
+  const formatPrice = useFormatPrice()
   const { addProduct, add } = useServerCart()
   // Home cards should stay compact even though Product Details uses individual specs.
   const specs = product.shortSpecs ?? product.specs

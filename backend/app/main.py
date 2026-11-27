@@ -12,6 +12,7 @@ from app.api.auth import router as auth_router
 from app.api.builds import router as builds_router
 from app.api.cart import router as cart_router
 from app.api.catalog import router as catalog_router
+from app.api.currency import router as currency_router
 from app.api.health import router as health_router
 from app.api.media import router as media_router
 from app.api.social import router as social_router
@@ -23,6 +24,7 @@ app.include_router(health_router)
 app.include_router(assets_router)
 app.include_router(media_router)
 app.include_router(catalog_router)
+app.include_router(currency_router)
 app.include_router(auth_router)
 app.include_router(builds_router)
 app.include_router(cart_router)

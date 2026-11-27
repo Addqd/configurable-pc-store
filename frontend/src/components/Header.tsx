@@ -1,4 +1,5 @@
 import { LanguageSwitcher } from './LanguageSwitcher'
+import { CurrencySwitcher } from './CurrencySwitcher'
 import { useTranslation } from 'react-i18next'
 import { useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useUIStore } from '../stores/uiStore'
@@ -81,7 +82,9 @@ export function Header() {
       ref={headerRef}
       className="fixed top-0 left-0 right-0 z-50 bg-surface border-b border-border shadow-[0_1px_3px_var(--color-shadow)]"
     >
-      <div className="max-w-[1320px] mx-auto px-4 h-16 flex items-center gap-4">
+      {/* Tightened horizontal rhythm keeps the search as wide as possible while
+          the currency selector joins the language selector. */}
+      <div className="max-w-[1320px] mx-auto px-4 h-16 flex items-center gap-3">
         <button
           ref={navButtonRef}
           onClick={toggleNav}
@@ -118,6 +121,7 @@ export function Header() {
           </div>
         </div>
         <LanguageSwitcher />
+        <CurrencySwitcher />
         <Link
           to="/cart"
           className="relative w-10 h-10 flex items-center justify-center rounded-md hover:bg-surface-3 transition-colors text-text-primary"

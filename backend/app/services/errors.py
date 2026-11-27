@@ -31,3 +31,7 @@ class ForbiddenError(ServiceError):
 
 class PayloadTooLargeError(ServiceError):
     status_code = 413
+
+
+class ServiceUnavailableError(ServiceError):
+    status_code = 503

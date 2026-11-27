@@ -3,7 +3,7 @@ import { useTranslation } from 'react-i18next'
 import { catalogDisplay } from '../i18n/catalogDisplay'
 import { characteristicLines } from '../i18n/characteristics'
 import { useBuilderStore, type BuilderCategory } from '../stores/builderStore'
-import { formatPrice } from '../utils/formatPrice'
+import { useFormatPrice } from '../utils/useFormatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiRefreshCw, FiTrash2, FiPlus } from 'react-icons/fi'
 import { BuilderCategoryIcon } from './BuilderCategoryIcon'
@@ -13,6 +13,7 @@ interface BuilderComponentRowProps { category: BuilderCategory; conflicts?: stri
 
 export function BuilderComponentRow({ category, conflicts = [] }: BuilderComponentRowProps) {
   const { t, i18n } = useTranslation()
+  const formatPrice = useFormatPrice()
   const [showSelector, setShowSelector] = useState(false)
   const selections = useBuilderStore((state) => state.selections)
   const product = selections[category]

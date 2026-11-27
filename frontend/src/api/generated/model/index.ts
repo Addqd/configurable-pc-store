@@ -70,6 +70,8 @@ export * from './createBuildApiV1BuildsPostBody.zod';
 export * from './createProductApiV1AdminProductsPostBody.zod';
 export * from './createReviewApiV1AdminProductsProductIdReviewsPostBody.zod';
 export * from './createReviewApiV1ProductsProductIdReviewsPostBody.zod';
+export * from './currencyRates.zod';
+export * from './currencyRatesResponse.zod';
 export * from './databaseHealthResponse.zod';
 export * from './deleteUserApiV1AdminUsersUserIdDeleteBody.zod';
 export * from './favoriteListOut.zod';

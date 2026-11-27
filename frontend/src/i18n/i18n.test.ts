@@ -48,7 +48,10 @@ describe('TASK 008 localization', () => {
     await i18n.changeLanguage('en')
     saveLanguage('en')
     expect(localStorage.getItem('pc-builder-lang')).toBe('en')
-    expect(formatPrice(64990)).toMatch(/64[,\s]990|64.990/)
+    // Rouble presentation is fixed: the interface language no longer changes it.
+    expect(formatPrice(64990)).toBe(`64\u00a0990\u00a0₽`)
+    await i18n.changeLanguage('ru')
+    expect(formatPrice(64990)).toBe(`64\u00a0990\u00a0₽`)
     expect(localeDate(Date.UTC(2026, 10, 5))).toMatch(/05|5/)
     saveLanguage('ru')
   })
