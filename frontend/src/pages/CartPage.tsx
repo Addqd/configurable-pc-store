@@ -7,6 +7,8 @@ import { BuildCartCard } from '../components/BuildCartCard'
 import { OrderSummary } from '../components/OrderSummary'
 import { useServerCart } from '../api/useServerCart'
 import { cartItems, orderFromServer } from '../api/cartAdapter'
+import { primaryQueryErrorStatus } from '../api/errorStatus'
+import { ErrorPage } from '../components/error/ErrorPage'
 import { useUIStore } from '../stores/uiStore'
 import { useAccountStore } from '../stores/accountStore'
 import type { RegularCartItem, BuildCartItem, Order } from '../stores/cartStore'
@@ -32,6 +34,12 @@ function CartContent() {
   const items = cart.data ? cartItems(cart.data) : []
   const [orderMessage, setOrderMessage] = useState<DemoOrderMessage | null>(null)
 
+  // The authenticated cart is the page. A guest keeps the login requirement, a
+  // checkout success and retained cart data keep their own state, and mutation
+  // errors stay local — only a cart request that failed without data replaces it.
+  const errorStatus = accountId && !orderMessage ? primaryQueryErrorStatus(cart) : null
+  if (errorStatus) return <ErrorPage status={errorStatus} />
+
   const regularItems = items.filter((i): i is RegularCartItem => !('components' in i))
   const buildItems = items.filter((i): i is BuildCartItem => 'components' in i)
   const pending = update.isPending || remove.isPending || checkout.isPending || cart.isFetching
@@ -50,7 +58,7 @@ function CartContent() {
         <div className="max-w-[1320px] mx-auto py-8">
           <BackButton className="mb-4" />
           {cart.isError || update.isError || remove.isError || checkout.isError ? <p role="alert" className="text-sm text-red-500">{t('common.load_error')}</p> : null}
-          {!accountId ? <div className="py-16 text-center"><p className="mb-4 text-text-muted">{t('orders.login_desc')}</p><button type="button" onClick={() => openAuth('login')} className="rounded-lg bg-primary px-6 py-2.5 font-medium text-white hover:bg-primary-hover">{t('orders.login_btn')}</button></div> : cart.isLoading ? <CartSkeleton /> : cart.isError ? null : orderMessage ? (
+          {!accountId ? <div className="py-16 text-center"><p className="mb-4 text-text-muted">{t('orders.login_desc')}</p><button type="button" onClick={() => openAuth('login')} className="rounded-lg bg-primary px-6 py-2.5 font-medium text-white hover:bg-primary-hover">{t('orders.login_btn')}</button></div> : cart.isLoading ? <CartSkeleton /> : !cart.data && cart.isError ? null : orderMessage ? (
             <div className="bg-green-50 dark:bg-green-950/20 border border-green-200 dark:border-green-800 rounded-xl p-8 text-center">
               <svg className="w-16 h-16 text-green-500 mx-auto mb-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" strokeLinecap="round" strokeLinejoin="round" />

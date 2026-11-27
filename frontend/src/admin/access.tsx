@@ -12,6 +12,7 @@ import { AdminError } from '../components/admin/AdminFeedback'
 import { AdminPageSkeleton } from '../components/skeletons/AdminSkeletons'
 import { adminCard, adminPrimaryButton, adminSecondaryButton } from '../components/admin/adminStyles'
 import { ErrorPage } from '../components/error/ErrorPage'
+import { errorPageStatus } from '../api/errorStatus'
 
 function AccessPanel({
   icon,
@@ -108,6 +109,11 @@ export function AdminGate() {
     // A transient failure after a successful check must not unmount the admin
     // page: the verified session stays mounted and unsaved forms survive.
     if (!access.data) {
+      // Without verified access data there is no panel to keep. An unavailable
+      // authorization check (429/500/503) is a fullscreen page, never a retry panel
+      // that could look like an authorization result.
+      const pageStatus = errorPageStatus(access.error)
+      if (pageStatus) return <ErrorPage status={pageStatus} />
       return (
         <AdminLayout>
           <section className={`${adminCard} p-6`}>

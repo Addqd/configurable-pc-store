@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen } from '@testing-library/react'
 import App from './App'
 import { queryClient } from './api/queryClient'
 import { setAccessToken } from './api/transport'
@@ -107,6 +107,30 @@ describe('fullscreen error routing', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
   })
 
+  it('closes the authentication modal for good instead of hiding a stale flag', async () => {
+    stubFetch((url) => {
+      if (url.pathname === '/api/v1/products/filters') return json(filters)
+      if (url.pathname === '/api/v1/products') return json(page([]))
+    })
+    window.history.pushState({}, '', '/missing-page')
+    useUIStore.setState({ authModalOpen: true })
+    render(<App />)
+
+    expect(await screen.findByRole('heading', { level: 1 })).toBeTruthy()
+    // The modal was opened before the error, so the UI store must be closed, not
+    // merely hidden: otherwise it would reappear on the next page.
+    expect(useUIStore.getState().authModalOpen).toBe(false)
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    fireEvent.click(screen.getByRole('link', { name: 'На главную' }))
+    expect(await screen.findByTestId('header')).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    // Only an explicit new interaction opens it again.
+    await act(async () => { useUIStore.getState().openAuthModal('login') })
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
   it('still opens the authentication modal on a normal page', async () => {
     stubFetch((url) => {
       if (url.pathname === '/api/v1/products/filters') return json(filters)
@@ -140,8 +164,7 @@ describe('error statuses stay out of unrelated failures', () => {
     expect(sessionCalls(fetchMock)).toBe(0)
   })
 
-  it('keeps the catalogue usable when the currency rates are unavailable', async () => {
-    useCurrencyStore.setState({ currency: 'USD' })
+  it('keeps the catalogue usable when the currency rates are unavailable', async () => {    useCurrencyStore.setState({ currency: 'USD' })
     stubFetch((url) => {
       if (url.pathname === '/api/v1/products/filters') return json(filters)
       if (url.pathname === '/api/v1/products') return json(page([product(1, 'Visible GPU')]))

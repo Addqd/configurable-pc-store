@@ -69,6 +69,52 @@ describe('route error boundary', () => {
     expect(screen.queryByText('500')).toBeNull()
   })
 
+  it('renders the homepage again when Home is selected while already on the failed page', () => {
+    let broken = true
+    function FragileHome() {
+      if (broken) throw new Error('homepage rendering failed')
+      return <p>HOME PAGE</p>
+    }
+
+    render(
+      <MemoryRouter initialEntries={['/']}>
+        <RouteErrorBoundary>
+          <Routes><Route path="/" element={<FragileHome />} /></Routes>
+        </RouteErrorBoundary>
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('500')).toBeTruthy()
+
+    // The visitor is already at `/`: selecting Home is still a new navigation entry,
+    // so the boundary has to try the page again instead of trapping them in the 500.
+    broken = false
+    fireEvent.click(screen.getByRole('link', { name: copy.home }))
+
+    expect(screen.getByText('HOME PAGE')).toBeTruthy()
+    expect(screen.queryByText('500')).toBeNull()
+  })
+
+  it('keeps the fallback on a plain rerender of the same route', () => {
+    function Harness() {
+      const [tick, setTick] = useState(0)
+      return (
+        <div>
+          <button type="button" onClick={() => setTick(tick + 1)}>rerender {tick}</button>
+          <ErrorBoundary resetKey="/boom" fallback={<p>FALLBACK</p>}>
+            <ThrowingPage />
+          </ErrorBoundary>
+        </div>
+      )
+    }
+    render(<Harness />)
+    expect(screen.getByText('FALLBACK')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('button', { name: /rerender/ }))
+
+    // An unrelated state change is not a navigation: the failure must not be retried.
+    expect(screen.getByText('FALLBACK')).toBeTruthy()
+  })
+
   it('resets a shown fallback as soon as its reset key changes', () => {
     function Harness() {
       const [key, setKey] = useState('failed')

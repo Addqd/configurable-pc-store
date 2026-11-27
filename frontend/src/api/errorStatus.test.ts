@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { ApiError } from './transport'
-import { ERROR_PAGE_STATUSES, errorPageStatus, errorStatusKey, isErrorStatus } from './errorStatus'
+import { ERROR_PAGE_STATUSES, errorPageStatus, errorStatusKey, isErrorStatus, primaryQueryErrorStatus } from './errorStatus'
 
 describe('fullscreen error status classification', () => {
   it('accepts exactly the five approved statuses', () => {
@@ -29,5 +29,30 @@ describe('fullscreen error status classification', () => {
   it('centralizes the localized key of every status', () => {
     expect(errorStatusKey(404, 'title')).toBe('error_page.status.404.title')
     expect(errorStatusKey(503, 'description')).toBe('error_page.status.503.description')
+  })
+})
+
+describe('page-critical query classification', () => {
+  it.each(ERROR_PAGE_STATUSES)('classifies a failed request with no data as %i', (status) => {
+    expect(primaryQueryErrorStatus({ isError: true, data: undefined, error: new ApiError(status) })).toBe(status)
+  })
+
+  it('never replaces a page that still has data', () => {
+    // A failed background refetch keeps the last successful data (TanStack Query), and
+    // that data still has to render.
+    expect(primaryQueryErrorStatus({ isError: true, data: [], error: new ApiError(503) })).toBeNull()
+    expect(primaryQueryErrorStatus({ isError: true, data: { items: [] }, error: new ApiError(500) })).toBeNull()
+  })
+
+  it('ignores a request that has not failed', () => {
+    expect(primaryQueryErrorStatus({ isError: false, data: undefined, error: null })).toBeNull()
+    expect(primaryQueryErrorStatus({ isError: false, data: [], error: null })).toBeNull()
+  })
+
+  it('keeps a failure outside the approved list local', () => {
+    expect(primaryQueryErrorStatus({ isError: true, data: undefined, error: new ApiError(401) })).toBeNull()
+    expect(primaryQueryErrorStatus({ isError: true, data: undefined, error: new ApiError(422) })).toBeNull()
+    expect(primaryQueryErrorStatus({ isError: true, data: undefined, error: new ApiError(0) })).toBeNull()
+    expect(primaryQueryErrorStatus({ isError: true, data: undefined, error: new Error('The operation was aborted') })).toBeNull()
   })
 })

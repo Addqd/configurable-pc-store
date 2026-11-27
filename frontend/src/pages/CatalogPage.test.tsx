@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, screen, within, waitFor } from '@testing-library/react'
-import { render } from '../test-utils'
+import { act, cleanup, fireEvent, screen, within, waitFor } from '@testing-library/react'
+import { createTestQueryClient, render } from '../test-utils'
 import { mockCatalogFetch } from '../test-api'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router'
 import { CatalogPage } from './CatalogPage'
@@ -61,12 +61,78 @@ describe('server catalog', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Применить' }))
     await waitFor(() => expect(within(screen.getByTestId('catalog-grid')).getAllByRole('article').every(card => card.textContent?.includes('Процессоры'))).toBe(true))
   })
-  it('shows an error instead of an empty success when the API fails', async () => {
+  it('replaces the whole catalogue with the fullscreen page when the product list fails', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 503 })))
+    const { container } = setup()
+    expect(await screen.findByText('503')).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Приносим извинения')
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Сервис временно недоступен')
+    // Nothing of the catalogue survives the replacement: no grid, no filters, no alert.
+    expect(screen.queryByTestId('catalog-grid')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Фильтры' })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(container.querySelector('.pc-error-page')).not.toBeNull()
+  })
+
+  it.each([403, 404, 429, 500, 503])('renders the fullscreen page for a failed product list with %i', async (status) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status })))
+    setup()
+    expect(await screen.findByText(String(status))).toBeTruthy()
+    expect(screen.queryByTestId('catalog-grid')).toBeNull()
+  })
+
+  it('keeps a status outside the approved list local', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 422 })))
     setup()
     const alerts = await screen.findAllByRole('alert')
     expect(alerts.some(node => node.textContent?.includes('Не удалось загрузить'))).toBe(true)
-    expect(screen.queryByTestId('catalog-grid')).toBeNull()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps a network failure local', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => { throw new TypeError('Failed to fetch') }))
+    setup()
+
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts.length).toBeGreaterThan(0)
+    // A failure without an HTTP status is not one of the five approved statuses.
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('treats a successful empty page as valid data', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (url.pathname === '/api/v1/products/filters') {
+        return new Response(JSON.stringify({ categories: [], types: [], colors: [], manufacturers: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+      }
+      return new Response(JSON.stringify({ items: [], total: 0, page: 1, page_size: 49, total_pages: 1 }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }))
+    setup()
+
+    expect(await screen.findByRole('heading', { name: 'Ничего не найдено' })).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps the products when a background refetch fails', async () => {
+    let failing = false
+    const base = mockCatalogFetch()
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost')
+      if (failing && url.pathname === '/api/v1/products') {
+        return new Response(JSON.stringify({ detail: 'boom' }), { status: 503, headers: { 'Content-Type': 'application/json' } })
+      }
+      return base(input)
+    }))
+    const client = createTestQueryClient()
+    render(<MemoryRouter initialEntries={['/catalog']}><Routes><Route path="/catalog" element={<CatalogPage />} /></Routes></MemoryRouter>, { client })
+    expect(within(await screen.findByTestId('catalog-grid')).getAllByRole('article').length).toBeGreaterThan(0)
+
+    failing = true
+    await act(async () => { await client.invalidateQueries() })
+
+    // The retained page wins over the failed background request.
+    expect(screen.getByTestId('catalog-grid')).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
   })
 })
 
@@ -87,6 +153,8 @@ describe('catalog resilience', () => {
     const grid = await screen.findByTestId('catalog-grid')
     expect(within(grid).getAllByRole('article').length).toBeGreaterThan(0)
     expect((await screen.findByRole('alert')).textContent).toContain('Фильтры недоступны')
+    // A failed filter request never replaces a working catalogue with an error page.
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
 
     // The active category and sorting survive a failed filter request.
     const productCall = failing.mock.calls.map(([url]) => String(url)).find((url) => url.startsWith('/api/v1/products?'))

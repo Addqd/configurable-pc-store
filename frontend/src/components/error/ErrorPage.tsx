@@ -1,7 +1,9 @@
-import { Link, useLocation, useNavigate } from 'react-router'
+import { useEffect } from 'react'
+import { Link } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { errorStatusKey, type ErrorStatus } from '../../api/errorStatus'
 import { useFullscreenErrorRegistration } from './fullscreenErrorContext'
+import { useInternalHistory } from '../../navigation/internalHistory'
 import shatteredPc from '../../assets/status codes/shattered pc.png'
 // Local Fontsource files only: the error page owns its typography and never
 // changes the storefront's font stack.
@@ -21,22 +23,21 @@ interface ErrorPageProps {
  */
 export function ErrorPage({ status }: ErrorPageProps) {
   const { t } = useTranslation()
-  const navigate = useNavigate()
-  const location = useLocation()
   useFullscreenErrorRegistration()
-
-  // React Router gives the first entry of a session the key `default`. There is no
-  // earlier in-app page in that case, and stepping back would leave the application
-  // (or loop), so Back falls back to the storefront. `window.history.length` proves
-  // nothing: it also counts entries this router did not create.
-  const hasInternalHistory = location.key !== 'default'
+  // Back uses the router-level internal-history tracker: only an entry this
+  // application pushed counts as a known previous page, and a page that already
+  // showed a fullscreen error is never re-entered.
+  const { back, reportFailedEntry } = useInternalHistory()
+  useEffect(() => { reportFailedEntry() }, [reportFailedEntry])
 
   return (
     <main className="pc-error-page">
       <div className="pc-error-page__intro">
         <h1 className="pc-error-page__heading">{t('error_page.heading')}</h1>
-        <h2 className="pc-error-page__title">{t(errorStatusKey(status, 'title'))}</h2>
-        <p className="pc-error-page__description">{t(errorStatusKey(status, 'description'))}</p>
+        <div className="pc-error-page__text">
+          <h2 className="pc-error-page__title">{t(errorStatusKey(status, 'title'))}</h2>
+          <p className="pc-error-page__description">{t(errorStatusKey(status, 'description'))}</p>
+        </div>
       </div>
       <div className="pc-error-page__stage">
         <img
@@ -57,7 +58,7 @@ export function ErrorPage({ status }: ErrorPageProps) {
         <button
           type="button"
           className="pc-error-page__button pc-error-page__button--secondary"
-          onClick={() => { if (hasInternalHistory) navigate(-1); else navigate('/') }}
+          onClick={back}
         >
           {t('error_page.back')}
         </button>

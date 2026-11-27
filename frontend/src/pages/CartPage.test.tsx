@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { render } from '../test-utils'
+import { createTestQueryClient, render } from '../test-utils'
 import { useAccountStore } from '../stores/accountStore'
 import { CartPage } from './CartPage'
 
@@ -37,6 +37,87 @@ describe('server cart', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Купить' }))
     expect(await screen.findByRole('alert')).toBeTruthy()
     expect(screen.queryByText(/Спасибо за заказ/i)).toBeNull()
+  })
+})
+
+describe('fullscreen cart errors', () => {
+  const cartPayload = {
+    id: 1, items: [{ id: 8, kind: 'product', product_id: 4, product: { id: 4, name: 'Server item', cover_image_url: '/p.jpg' }, quantity: 1, unit_price: '120.00', line_total: '120.00', created_at: date, updated_at: date }],
+    subtotal: '120.00', item_count: 1, created_at: date, updated_at: date,
+  }
+
+  it.each([403, 404, 429, 500, 503])('replaces the cart with the fullscreen %i page when the cart request has no data', async (status) => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ detail: 'boom' }, status)))
+    render(<MemoryRouter><CartPage /></MemoryRouter>)
+
+    expect(await screen.findByText(String(status))).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Приносим извинения')
+    expect(screen.queryByRole('button', { name: /Купить/ })).toBeNull()
+  })
+
+  it('keeps a status outside the approved list local', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ detail: 'conflict' }, 409)))
+    render(<MemoryRouter><CartPage /></MemoryRouter>)
+
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps the login requirement for a guest and never asks for the cart', () => {
+    useAccountStore.setState({ accounts: {}, activeAccountId: null })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><CartPage /></MemoryRouter>)
+
+    expect(screen.getByRole('button', { name: 'Войти' })).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps retained cart data when a background refresh fails', async () => {
+    let failing = false
+    const fetchMock = vi.fn(async (url: string) => {
+      if (failing && url === '/api/v1/cart') return json({ detail: 'boom' }, 503)
+      if (url === '/api/v1/cart') return json(cartPayload)
+      return json({ detail: 'not found' }, 404)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = createTestQueryClient()
+    render(<MemoryRouter><CartPage /></MemoryRouter>, { client })
+    await screen.findByText('Server item')
+
+    failing = true
+    await act(async () => { await client.invalidateQueries() })
+
+    // The visitor keeps seeing the cart they had instead of an empty error screen.
+    expect(screen.getByText('Server item')).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps a checkout success state and does not repeat the order after a failed refresh', async () => {
+    let checkouts = 0
+    let cartReads = 0
+    const fetchMock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/checkout') && init.method === 'POST') {
+        checkouts += 1
+        return json({ order: { id: 5, user_id: 7, status: 'completed_demo', total_amount: '120.00', item_count: 1, created_at: date, items: [] } })
+      }
+      if (url === '/api/v1/cart') {
+        cartReads += 1
+        // The refresh after the successful checkout is the one that fails.
+        return cartReads > 1 ? json({ detail: 'boom' }, 503) : json(cartPayload)
+      }
+      return json([])
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><CartPage /></MemoryRouter>)
+    await screen.findByText('Server item')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Купить' }))
+
+    expect(await screen.findByRole('heading', { name: 'Спасибо!' })).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+    expect(checkouts).toBe(1)
   })
 })
 

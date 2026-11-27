@@ -12,6 +12,8 @@ import {
 } from '../data/catalogModel'
 import { useGetFilterOptionsApiV1ProductsFiltersGet, useListProductsApiV1ProductsGet } from '../api/generated/client'
 import { catalogParams, productFromSummary, resolveCatalogQuery } from '../api/catalogAdapter'
+import { primaryQueryErrorStatus } from '../api/errorStatus'
+import { ErrorPage } from '../components/error/ErrorPage'
 
 import { CatalogGridSkeleton } from '../components/skeletons/StoreSkeletons'
 
@@ -93,6 +95,12 @@ export function CatalogPage() {
     window.scrollTo({top:0,behavior:'instant'})
   }
   const linkTo=(page:number)=>`?${writeFilters(applied,query,page).toString()}`
+  // The product list is the catalogue itself: a failure that left no data replaces the
+  // page instead of leaving an empty shell. Filter metadata, retained products after a
+  // failed background refetch and a successful empty page all stay as they are. The
+  // check sits after every hook so the hook order never depends on the status.
+  const errorStatus = primaryQueryErrorStatus(products)
+  if (errorStatus) return <ErrorPage status={errorStatus} />
   return <div className="flex min-h-screen flex-col bg-surface-2">
     <Header />
     <main className="w-full flex-1 pt-[64px]">

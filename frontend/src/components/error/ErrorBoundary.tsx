@@ -63,12 +63,17 @@ function PlainServerError() {
  * It lives inside the router, the theme and the i18n provider, so the fallback can
  * render while the failed page cannot. The nested boundary keeps a failure inside
  * the fallback itself from escaping to the document root.
+ *
+ * The reset identity is the navigation entry (`location.key`) together with the URL.
+ * A URL comparison alone would trap a visitor whose homepage failed: selecting Home
+ * while already at `/` is still an intentional navigation to a new entry and must be
+ * able to render the page again, while a plain rerender keeps the failure.
  */
 export function RouteErrorBoundary({ children }: { children: ReactNode }) {
   const location = useLocation()
   return (
     <ErrorBoundary
-      resetKey={`${location.pathname}${location.search}`}
+      resetKey={`${location.key}${location.pathname}${location.search}`}
       fallback={(
         <ErrorBoundary resetKey="last-resort" fallback={<PlainServerError />}>
           <ErrorPage status={500} />

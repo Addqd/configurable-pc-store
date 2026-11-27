@@ -31,3 +31,22 @@ export function errorPageStatus(error: unknown): ErrorStatus | null {
 export function errorStatusKey(status: ErrorStatus, field: 'title' | 'description'): string {
   return `error_page.status.${status}.${field}`
 }
+
+/** The part of a query result the page-critical classification reads. */
+export interface PrimaryQueryResult {
+  isError: boolean
+  data: unknown
+  error: unknown
+}
+
+/**
+ * Status for a query the page cannot work without.
+ *
+ * Only a failure that left no usable data replaces the page: TanStack Query keeps the
+ * last successful data after a failed background refetch, and that data still has to
+ * be rendered. Successful empty data is data as well, never an error.
+ */
+export function primaryQueryErrorStatus(query: PrimaryQueryResult): ErrorStatus | null {
+  if (!query.isError || query.data !== undefined) return null
+  return errorPageStatus(query.error)
+}

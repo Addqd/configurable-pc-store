@@ -6,16 +6,25 @@ import { Link } from 'react-router'
 import { Header } from '../components/Header'
 import { Footer } from '../components/Footer'
 import { BackButton } from '../components/BackButton'
-import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
+import { useAccountStore, selectActiveAccount, type Account } from '../stores/accountStore'
 import type { Order, OrderItem, BuildComponent } from '../stores/cartStore'
 import { useGetOrdersApiV1CartOrdersGet } from '../api/generated/client'
+import type { OrderOut } from '../api/generated/model'
 import { orderFromServer } from '../api/cartAdapter'
+import { primaryQueryErrorStatus } from '../api/errorStatus'
+import { ErrorPage } from '../components/error/ErrorPage'
 import { useUIStore } from '../stores/uiStore'
 import { formatPrice } from '../utils/formatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiChevronDown, FiChevronUp, FiBox, FiCheckCircle, FiShoppingCart } from 'react-icons/fi'
 import { SkeletonText } from '../components/ui/skeleton'
 import { OrdersSkeleton } from '../components/skeletons/StoreSkeletons'
+
+interface OrdersQueryState {
+  data: OrderOut[] | undefined
+  isLoading: boolean
+  isError: boolean
+}
 
 function SnapshotImage({ src, alt, className }: { src?: string; alt: string; className: string }) {
   return <img src={src || placeholder} alt={alt} loading="lazy"
@@ -112,10 +121,8 @@ function OrderCard({ order, isExpanded, onToggle }: { order: Order; isExpanded: 
   )
 }
 
-function OrdersContent() {
+function OrdersContent({ account, orders }: { account: Account | null; orders: OrdersQueryState }) {
   const { t } = useTranslation()
-  const account = useAccountStore(selectActiveAccount)
-  const orders = useGetOrdersApiV1CartOrdersGet({ query: { enabled: !!account, retry: false } })
   const openAuthModal = useUIStore((state) => state.openAuthModal)
   const [expandedId, setExpandedId] = useState<number | null | undefined>(undefined)
 
@@ -147,7 +154,7 @@ function OrdersContent() {
           <h1 className="text-3xl font-bold text-text-primary">{t('orders.title')}</h1>
           <span className="rounded-lg bg-surface-3 px-3 py-1.5 text-sm text-text-muted">{orders.isLoading ? <SkeletonText className="h-[21px] w-24 align-middle" /> : t('orders.total', { count: accountOrders.length })}</span>
         </div>
-        {orders.isLoading ? <OrdersSkeleton /> : orders.isError ? <p role="alert">{t('common.load_error')}</p> : accountOrders.length === 0 ? (
+        {orders.isLoading ? <OrdersSkeleton /> : orders.isError && !orders.data ? <p role="alert">{t('common.load_error')}</p> : accountOrders.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface px-6 py-12 text-center">
             <FiShoppingCart className="w-14 h-14 text-text-muted mx-auto mb-4" />
             <h2 className="text-xl font-bold text-text-primary mb-2">{t('orders.empty_title')}</h2>
@@ -170,5 +177,11 @@ function OrdersContent() {
 }
 
 export function OrdersPage() {
-  return <div className="min-h-screen bg-surface-2"><Header /><OrdersContent /><Footer /></div>
+  const account = useAccountStore(selectActiveAccount)
+  const orders = useGetOrdersApiV1CartOrdersGet({ query: { enabled: !!account, retry: false } })
+  // The orders list is the whole page: without it the fullscreen page replaces the
+  // storefront chrome instead of sitting inside the Header and the Footer.
+  const errorStatus = account ? primaryQueryErrorStatus(orders) : null
+  if (errorStatus) return <ErrorPage status={errorStatus} />
+  return <div className="min-h-screen bg-surface-2"><Header /><OrdersContent account={account} orders={orders} /><Footer /></div>
 }
