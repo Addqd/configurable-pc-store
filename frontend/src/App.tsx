@@ -18,7 +18,6 @@ import { SavesPage } from './pages/SavesPage'
 import { NotFound } from './pages/NotFound'
 import { AuthModal } from './components/AuthModal'
 import { RouteScrollManager } from './navigation/RouteScrollManager'
-import { InternalHistoryProvider } from './navigation/InternalHistoryProvider'
 import { RouteErrorBoundary } from './components/error/ErrorBoundary'
 import { FullscreenErrorContext } from './components/error/fullscreenErrorContext'
 import { AdminGate } from './admin/access'
@@ -102,38 +101,36 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <InternalHistoryProvider errorActive={fullscreenErrors > 0}>
-          <RouteScrollManager />
-          <AppStateEffects />
-          <LangUpdater />
-          <FullscreenErrorContext.Provider value={registerFullscreenError}>
-            {/* The existing pages own their Header. Do not add a second global Header. */}
-            <RouteErrorBoundary>
-              <Routes>
-                <Route path="/" element={<HomePage />} />
-                <Route path="/catalog" element={<CatalogPage />} />
-                <Route path="/builder" element={<BuilderPage />} />
-                <Route path="/cart" element={<CartPage />} />
-                <Route path="/products/:slug" element={<ProductPage />} />
-                <Route path="/account" element={<AccountPage />} />
-                <Route path="/account/orders" element={<OrdersPage />} />
-                <Route path="/builds" element={<SavesPage />} />
-                <Route path="/admin" element={<AdminGate />}>
-                  <Route index element={<Navigate to="/admin/products" replace />} />
-                  <Route path="products" element={<AdminProductsPage />} />
-                  <Route path="products/new" element={<AdminProductFormPage />} />
-                  <Route path="products/:productId/edit" element={<AdminProductFormPage />} />
-                  <Route path="users" element={<AdminUsersPage />} />
-                  <Route path="analytics" element={<AdminAnalyticsPage />} />
-                  <Route path="events" element={<AdminEventsPage />} />
-                </Route>
-                <Route path="*" element={<NotFound />} />
-              </Routes>
-            </RouteErrorBoundary>
-          </FullscreenErrorContext.Provider>
-          <FullscreenErrorModalGuard active={fullscreenErrors > 0} />
-          {fullscreenErrors === 0 && <AuthModalHost />}
-        </InternalHistoryProvider>
+        <RouteScrollManager />
+        <AppStateEffects />
+        <LangUpdater />
+        <FullscreenErrorContext.Provider value={registerFullscreenError}>
+          {/* The existing pages own their Header. Do not add a second global Header. */}
+          <RouteErrorBoundary>
+            <Routes>
+              <Route path="/" element={<HomePage />} />
+              <Route path="/catalog" element={<CatalogPage />} />
+              <Route path="/builder" element={<BuilderPage />} />
+              <Route path="/cart" element={<CartPage />} />
+              <Route path="/products/:slug" element={<ProductPage />} />
+              <Route path="/account" element={<AccountPage />} />
+              <Route path="/account/orders" element={<OrdersPage />} />
+              <Route path="/builds" element={<SavesPage />} />
+              <Route path="/admin" element={<AdminGate />}>
+                <Route index element={<Navigate to="/admin/products" replace />} />
+                <Route path="products" element={<AdminProductsPage />} />
+                <Route path="products/new" element={<AdminProductFormPage />} />
+                <Route path="products/:productId/edit" element={<AdminProductFormPage />} />
+                <Route path="users" element={<AdminUsersPage />} />
+                <Route path="analytics" element={<AdminAnalyticsPage />} />
+                <Route path="events" element={<AdminEventsPage />} />
+              </Route>
+              <Route path="*" element={<NotFound />} />
+            </Routes>
+          </RouteErrorBoundary>
+        </FullscreenErrorContext.Provider>
+        <FullscreenErrorModalGuard active={fullscreenErrors > 0} />
+        {fullscreenErrors === 0 && <AuthModalHost />}
       </BrowserRouter>
     </QueryClientProvider>
   )

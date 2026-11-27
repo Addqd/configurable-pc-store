@@ -1,9 +1,7 @@
-import { useEffect } from 'react'
-import { Link } from 'react-router'
+import { Link, useNavigate } from 'react-router'
 import { useTranslation } from 'react-i18next'
 import { errorStatusKey, type ErrorStatus } from '../../api/errorStatus'
 import { useFullscreenErrorRegistration } from './fullscreenErrorContext'
-import { useInternalHistory } from '../../navigation/internalHistory'
 import shatteredPc from '../../assets/status codes/shattered pc.png'
 // Local Fontsource files only: the error page owns its typography and never
 // changes the storefront's font stack.
@@ -20,20 +18,15 @@ interface ErrorPageProps {
  *
  * It replaces the whole page — no Header, Footer, admin navigation or breadcrumbs —
  * and renders at the URL that failed, so the address bar keeps the original URL.
+ *
+ * "Back" is ordinary browser history, the same way `BackButton` navigates: it may return
+ * to another page of this application, to a previous site, or do nothing when the error
+ * page is the first entry of the session.
  */
 export function ErrorPage({ status }: ErrorPageProps) {
   const { t } = useTranslation()
+  const navigate = useNavigate()
   useFullscreenErrorRegistration()
-  // Back uses the router-level internal-history tracker: only an entry this
-  // application pushed counts as a known previous page, and a page that already
-  // showed a fullscreen error is never re-entered. The marker lives as long as the
-  // entry does: unmounting the page only releases the "this entry is failing" claim,
-  // so leaving an error page does not pretend the entry recovered.
-  const { back, reportFailedEntry, releaseFailedEntry } = useInternalHistory()
-  useEffect(() => {
-    reportFailedEntry()
-    return releaseFailedEntry
-  }, [reportFailedEntry, releaseFailedEntry])
 
   return (
     <main className="pc-error-page">
@@ -63,7 +56,7 @@ export function ErrorPage({ status }: ErrorPageProps) {
         <button
           type="button"
           className="pc-error-page__button pc-error-page__button--secondary"
-          onClick={back}
+          onClick={() => navigate(-1)}
         >
           {t('error_page.back')}
         </button>

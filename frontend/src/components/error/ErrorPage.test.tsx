@@ -1,10 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { cleanup, fireEvent, screen } from '@testing-library/react'
-import { Link, MemoryRouter, Route, Routes, useNavigate } from 'react-router'
+import { Link, MemoryRouter, Route, Routes } from 'react-router'
 import { render } from '../../test-utils'
 import { ErrorPage } from './ErrorPage'
 import { ERROR_PAGE_STATUSES, type ErrorStatus } from '../../api/errorStatus'
-import { InternalHistoryProvider } from '../../navigation/InternalHistoryProvider'
 import { i18n } from '../../i18n'
 
 const copy = {
@@ -39,33 +38,18 @@ function CatalogPage() {
   )
 }
 
-/** A page that replaces itself, the way a redirect on the first entry does. */
-function ReplacingPage() {
-  const navigate = useNavigate()
-  return (
-    <div>
-      <p>FIRST PAGE</p>
-      <button type="button" onClick={() => navigate('/broken', { replace: true })}>заменить вход</button>
-    </div>
-  )
-}
-
 /**
- * The page always renders inside the router-level history tracker, exactly as the
- * application does, so Back is decided from real navigation evidence.
+ * The page renders inside a real router, exactly as the application does, so Back is
+ * ordinary React Router history navigation.
  */
-function renderErrorPage(path = '/broken', status: ErrorStatus = 404, entries?: string[], initialIndex?: number) {
-  const initialEntries = entries ?? [path]
+function renderErrorPage(path = '/broken', status: ErrorStatus = 404) {
   return render(
-    <MemoryRouter initialEntries={initialEntries} initialIndex={initialIndex ?? initialEntries.length - 1}>
-      <InternalHistoryProvider>
-        <Routes>
-          <Route path="/" element={<p>HOME PAGE</p>} />
-          <Route path="/catalog" element={<CatalogPage />} />
-          <Route path="/first" element={<ReplacingPage />} />
-          <Route path="*" element={<ErrorPage status={status} />} />
-        </Routes>
-      </InternalHistoryProvider>
+    <MemoryRouter initialEntries={[path]}>
+      <Routes>
+        <Route path="/" element={<p>HOME PAGE</p>} />
+        <Route path="/catalog" element={<CatalogPage />} />
+        <Route path="*" element={<ErrorPage status={status} />} />
+      </Routes>
     </MemoryRouter>,
   )
 }
@@ -143,9 +127,9 @@ describe('fullscreen error page', () => {
     expect(screen.queryByRole('heading', { level: 1, name: copy.ru.heading })).toBeNull()
   })
 
-  it('returns to the previous internal page with the back button', () => {
-    // The visitor reached the failing page from the catalogue: the tracker saw a PUSH,
-    // so that entry is a proven internal page.
+  it('returns to the preceding page with the back button', () => {
+    // The visitor reached the failing page from the catalogue, so the browser history
+    // has an earlier entry and a plain `navigate(-1)` restores it.
     renderErrorPage('/catalog')
     fireEvent.click(screen.getByRole('link', { name: 'открыть сломанную страницу' }))
     expect(screen.getByText('404')).toBeTruthy()
@@ -155,55 +139,14 @@ describe('fullscreen error page', () => {
     expect(screen.getByText('CATALOG PAGE')).toBeTruthy()
   })
 
-  it('falls back to the homepage when the error page is the first entry of the session', () => {
+  it('keeps the error page when the session has no earlier entry', () => {
+    // Standard browser history: with nothing before it, "Back" does nothing. There is
+    // deliberately no Home fallback here — the approved Home button covers that need.
     renderErrorPage('/broken-only')
     fireEvent.click(screen.getByRole('button', { name: copy.ru.back }))
 
-    // No internal entry was pushed before it, so stepping back could leave the
-    // application or land on an unrelated page of the browser's own history.
-    expect(screen.getByText('HOME PAGE')).toBeTruthy()
-  })
-
-  it('does not treat a replaced first entry as a previous internal page', () => {
-    // A REPLACE creates no earlier entry: the key changes but nothing comes before it.
-    renderErrorPage('/first', 404)
-    fireEvent.click(screen.getByRole('button', { name: 'заменить вход' }))
-    expect(screen.getByText('404')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: copy.ru.back }))
-
-    expect(screen.getByText('HOME PAGE')).toBeTruthy()
-  })
-
-  it('does not step back into a page that already showed a fullscreen error', () => {
-    render(
-      <MemoryRouter initialEntries={['/catalog']}>
-        <InternalHistoryProvider>
-          <div>
-            <Link to="/error-one">к первой ошибке</Link>
-            <Link to="/error-two">ко второй ошибке</Link>
-          </div>
-          <Routes>
-            <Route path="/" element={<p>HOME PAGE</p>} />
-            <Route path="/catalog" element={<p>CATALOG PAGE</p>} />
-            <Route path="/error-one" element={<ErrorPage status={404} />} />
-            <Route path="/error-two" element={<ErrorPage status={503} />} />
-          </Routes>
-        </InternalHistoryProvider>
-      </MemoryRouter>,
-    )
-
-    fireEvent.click(screen.getByRole('link', { name: 'к первой ошибке' }))
-    expect(screen.getByText('404')).toBeTruthy()
-    fireEvent.click(screen.getByRole('link', { name: 'ко второй ошибке' }))
-    expect(screen.getByText('503')).toBeTruthy()
-
-    fireEvent.click(screen.getByRole('button', { name: copy.ru.back }))
-
-    // The previous entry is another failed page, so Back goes to the storefront
-    // instead of bouncing between two error pages.
-    expect(screen.getByText('HOME PAGE')).toBeTruthy()
-    expect(screen.queryByText('404')).toBeNull()
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(copy.ru[404].title)
+    expect(screen.queryByText('HOME PAGE')).toBeNull()
   })
 
   it('renders at the failed URL without redirecting anywhere', () => {
