@@ -6,6 +6,8 @@ import ruAdditions from './locales/ru.additions.json'
 import enAdditions from './locales/en.additions.json'
 import ruAdmin from './locales/ru.admin.json'
 import enAdmin from './locales/en.admin.json'
+import ruErrors from './locales/ru.errors.json'
+import enErrors from './locales/en.errors.json'
 
 const LANG_KEY = 'pc-builder-lang'
 type I18nTree = Record<string, unknown>
@@ -30,8 +32,8 @@ function savedLanguage(): 'ru' | 'en' | undefined {
 i18n.use(initReactI18next).init({
   lng: savedLanguage() ?? 'ru', fallbackLng: 'ru', supportedLngs: ['ru', 'en'],
   resources: {
-    ru: { translation: combine(combine(ru, ruAdditions), ruAdmin) },
-    en: { translation: combine(combine(en, enAdditions), enAdmin) },
+    ru: { translation: combine(combine(combine(ru, ruAdditions), ruAdmin), ruErrors) },
+    en: { translation: combine(combine(combine(en, enAdditions), enAdmin), enErrors) },
   },
   interpolation: { escapeValue: false }, react: { useSuspense: false },
 })

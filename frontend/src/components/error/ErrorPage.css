@@ -1,0 +1,203 @@
+/* ==========================================================================
+   Fullscreen error page (403 / 404 / 429 / 500 / 503)
+   --------------------------------------------------------------------------
+   One composition for five statuses, reproducing the approved reference frame
+   (1671 × 941, 16:9). Every size and offset below is a fraction of that frame,
+   expressed in viewport units, so the composition scales as a whole:
+
+     heading cap band       y  22 →  92      (2.34 % → 9.78 % of the height)
+     status title           y 106 → 136
+     description            y 146 → 171
+     error code             y 200 → 348      (21.25 % → 36.98 %)
+     PC illustration        y 139.6 → 848.6  (the whole transparent PNG box)
+     buttons                y 853 → 915      (90.65 % → 97.24 %)
+
+   The illustration and the code are separate elements in one stacking context:
+   the PNG keeps its own smoke, which rises behind the digits, and the code sits
+   on the layer above it so its fill stays fully readable.
+   ========================================================================== */
+
+.pc-error-page {
+  /* Light theme reference: #F8F7F8 page, #D20202 red, neutral dark text. */
+  --pc-error-red: #d20202;
+  --pc-error-red-hover: #b50101;
+  --pc-error-title: #35353a;
+  --pc-error-description: #5f6064;
+  --pc-error-secondary-bg: transparent;
+  --pc-error-secondary-border: #75777a;
+  --pc-error-secondary-fg: #35353a;
+  --pc-error-secondary-hover-bg: rgba(43, 43, 46, 0.06);
+  --pc-error-focus: #35353a;
+
+  position: relative;
+  /* One controlled stacking context for the illustration, the code and the text. */
+  isolation: isolate;
+  display: block;
+  width: 100%;
+  min-height: 100svh;
+  overflow: hidden;
+  background-color: var(--color-surface-2);
+  padding-top: 0.82vh;
+  color: var(--pc-error-title);
+  font-style: normal;
+  text-align: center;
+}
+
+/* Dark theme reference: solid #08090C page, same grayscale PNG, no blue accent. */
+.dark .pc-error-page {
+  --pc-error-red: #da0101;
+  --pc-error-red-hover: #f00303;
+  --pc-error-title: #f5f6f8;
+  --pc-error-description: #d8d8dc;
+  --pc-error-secondary-bg: var(--color-surface);
+  --pc-error-secondary-border: rgba(255, 255, 255, 0.32);
+  --pc-error-secondary-fg: #f5f6f8;
+  --pc-error-secondary-hover-bg: rgba(255, 255, 255, 0.08);
+  --pc-error-focus: #f5f6f8;
+}
+
+.pc-error-page__intro {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding-inline: 4vw;
+}
+
+.pc-error-page__heading {
+  margin: 0;
+  font-family: 'Tektur Variable', var(--font-sans);
+  font-size: min(10.65vh, 5.99vw);
+  font-weight: 700;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: -0.015em;
+  color: var(--pc-error-red);
+  text-wrap: balance;
+}
+
+.pc-error-page__title {
+  margin: -0.73vh 0 0;
+  font-family: 'Inter Variable', var(--font-sans);
+  font-size: min(3.25vh, 1.835vw);
+  font-weight: 600;
+  font-style: normal;
+  line-height: 1.2;
+  color: var(--pc-error-title);
+  text-wrap: balance;
+}
+
+.pc-error-page__description {
+  margin: 0.3vh 0 0;
+  font-family: 'Inter Variable', var(--font-sans);
+  font-size: min(2.27vh, 1.28vw);
+  font-weight: 400;
+  font-style: normal;
+  line-height: 1.3;
+  color: var(--pc-error-description);
+  text-wrap: pretty;
+}
+
+/* The stage is the whole transparent PNG box, not only the visible case. */
+.pc-error-page__stage {
+  position: absolute;
+  top: 14.84vh;
+  left: 0;
+  right: 0;
+  z-index: 0;
+  display: flex;
+  justify-content: center;
+  height: 75.3vh;
+}
+
+.pc-error-page__art {
+  height: 100%;
+  width: auto;
+  max-width: 96vw;
+  object-fit: contain;
+  /* The reference places the case slightly left of the frame centre. */
+  transform: translateX(-0.67vw);
+  pointer-events: none;
+  user-select: none;
+}
+
+.pc-error-page__code {
+  position: absolute;
+  z-index: 1;
+  top: 2.9vh;
+  left: 50%;
+  transform: translateX(calc(-50% - 0.67vw));
+  font-family: 'Tektur Variable', var(--font-sans);
+  font-size: min(22.55vh, 12.69vw);
+  font-weight: 900;
+  font-style: normal;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--pc-error-red);
+  user-select: none;
+}
+
+.pc-error-page__actions {
+  position: absolute;
+  bottom: 2.66vh;
+  left: 0;
+  right: 0;
+  z-index: 2;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1.2vw;
+  padding-inline: 4vw;
+}
+
+.pc-error-page__button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  height: 6.7vh;
+  padding-inline: 3.9vw;
+  border: 0;
+  border-radius: max(8px, 1.28vh);
+  font-family: 'Inter Variable', var(--font-sans);
+  font-size: min(3.2vh, 1.8vw);
+  font-weight: 600;
+  font-style: normal;
+  line-height: 1;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease;
+}
+
+.pc-error-page__button--primary {
+  background-color: var(--pc-error-red);
+  color: #ffffff;
+}
+
+.pc-error-page__button--primary:hover {
+  background-color: var(--pc-error-red-hover);
+}
+
+.pc-error-page__button--secondary {
+  background-color: var(--pc-error-secondary-bg);
+  border: max(1px, 0.16vh) solid var(--pc-error-secondary-border);
+  color: var(--pc-error-secondary-fg);
+}
+
+.pc-error-page__button--secondary:hover {
+  background-color: var(--pc-error-secondary-hover-bg);
+}
+
+/* A blue storefront ring would add the one accent this page must not have. */
+.pc-error-page :is(a, button):focus-visible {
+  outline: 2px solid var(--pc-error-focus);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pc-error-page__button {
+    transition: none;
+  }
+}

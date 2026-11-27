@@ -77,10 +77,88 @@ describe('server product page', () => {
     expect(label.querySelector('span')?.className).toContain('bg-text-muted')
     expect((screen.getByRole('button', { name: 'Купить сейчас' }) as HTMLButtonElement).disabled).toBe(true)
   })
-  it('shows an error for an unavailable product rather than mock content', async () => {
+  it('replaces the page with the fullscreen 404 when the product does not exist', async () => {
     setup('missing')
-    expect((await screen.findByRole('alert')).textContent).toContain('Не удалось загрузить')
+    // A missing product detail is a page-blocking 404: the page is replaced instead of
+    // showing a message between the Header and the Footer.
+    expect(await screen.findByRole('heading', { level: 1 })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe('Страница не найдена')
+    expect(screen.getByText('Возможно, ссылка устарела или страница была удалена.')).toBeTruthy()
+    expect(screen.getByText('404')).toBeTruthy()
+    expect(screen.queryByRole('alert')).toBeNull()
     expect(screen.queryByText('Server description')).toBeNull()
+  })
+
+  it.each([
+    [403, 'Доступ запрещён'],
+    [429, 'Слишком много запросов'],
+    [500, 'Внутренняя ошибка сервера'],
+    [503, 'Сервис временно недоступен'],
+  ])('replaces a page-blocking %i product response with the fullscreen page', async (status, title) => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'blocked' }), { status, headers: { 'Content-Type': 'application/json' } })))
+    setup()
+
+    expect(await screen.findByRole('heading', { level: 2 })).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 2 }).textContent).toBe(title)
+    expect(screen.getByText(String(status))).toBeTruthy()
+    expect(screen.queryByText('Server description')).toBeNull()
+  })
+
+  it('keeps local error handling for a status that is not a fullscreen page', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ detail: 'unprocessable' }), { status: 422, headers: { 'Content-Type': 'application/json' } })))
+    setup()
+
+    expect((await screen.findByRole('alert')).textContent).toContain('Не удалось загрузить')
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps the loaded page when a background refetch of the product fails', async () => {
+    const catalogFetch = vi.mocked(fetch)
+    const client = createTestQueryClient()
+    let failing = false
+    const mock = vi.fn(async (url: string, init: RequestInit) => {
+      if (failing && /\/products\/cpu-ryzen-5-7600$/.test(String(url))) {
+        return new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      }
+      return catalogFetch(url, init)
+    })
+    vi.stubGlobal('fetch', mock)
+    render(<MemoryRouter initialEntries={['/products/cpu-ryzen-5-7600']}><Routes><Route path="/products/:slug" element={<ProductPage />} /></Routes></MemoryRouter>, { client })
+
+    expect(await screen.findByRole('heading', { name: 'AMD Ryzen 5 7600' })).toBeTruthy()
+    failing = true
+    await act(async () => { await client.refetchQueries({ queryKey: ['/api/v1/products/cpu-ryzen-5-7600'] }) })
+
+    // Retained data still renders the page; a failed refetch must not unmount it.
+    expect(screen.getByRole('heading', { name: 'AMD Ryzen 5 7600' })).toBeTruthy()
+    expect(screen.queryByText('Внутренняя ошибка сервера')).toBeNull()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Купить сейчас' })).toBeTruthy()
+  })
+
+  it('never replays a failed purchase mutation', async () => {
+    useAccountStore.setState({ activeAccountId: '7', accounts: { '7': { account: { id: '7', username: 'test', email: 'test@example.com', displayName: 'Test', avatar: '', createdAt: 0 } } } })
+    const catalogFetch = vi.mocked(fetch)
+    let purchases = 0
+    const mock = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith('/cart/buy-now')) {
+        purchases += 1
+        return new Response(JSON.stringify({ detail: 'boom' }), { status: 500, headers: { 'Content-Type': 'application/json' } })
+      }
+      if (url.endsWith('/reviews/my')) return new Response('null', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      if (url.endsWith('/is_favorited')) return new Response('{"is_favorited":false}', { status: 200, headers: { 'Content-Type': 'application/json' } })
+      return catalogFetch(url, init)
+    })
+    vi.stubGlobal('fetch', mock)
+    setup()
+    const button = await screen.findByRole('button', { name: 'Купить сейчас' })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(purchases).toBe(1))
+    await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
+    expect(purchases).toBe(1)
+    // The page and its data stay in place: a mutation error is not a page failure.
+    expect(screen.getByRole('heading', { name: 'AMD Ryzen 5 7600' })).toBeTruthy()
   })
   it('requests authentication when a guest adds a product', async () => {
     setup()
