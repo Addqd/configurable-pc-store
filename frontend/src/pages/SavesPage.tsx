@@ -16,10 +16,18 @@ import { productFromDetail } from '../api/catalogAdapter'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
 import { useUIStore } from '../stores/uiStore'
+import { primaryQueryErrorStatus } from '../api/errorStatus'
+import { ErrorPage } from '../components/error/ErrorPage'
 import { useFormatPrice } from '../utils/useFormatPrice'
 import placeholder from '../assets/placeholder.jpg'
 import { FiBox, FiPlus, FiShoppingCart, FiTrash2, FiFolder, FiCheckCircle } from 'react-icons/fi'
 import { SavedBuildsSkeleton, SavedBuildCompatibilitySkeleton } from '../components/skeletons/StoreSkeletons'
+
+interface SavedBuildsQueryState {
+  data: SavedBuildOut[] | undefined
+  isLoading: boolean
+  isError: boolean
+}
 
 function SnapshotImage({ src, alt, className }: { src?: string; alt: string; className: string }) {
   return <img src={src || placeholder} alt={alt} loading="lazy"
@@ -118,10 +126,9 @@ function SavedBuildCard({ build, onOpen, onAddToCart, onDelete }: {
   )
 }
 
-function SavesContent() {
+function SavesContent({ savedBuilds }: { savedBuilds: SavedBuildsQueryState }) {
   const { t } = useTranslation()
   const account = useAccountStore(selectActiveAccount)
-  const savedBuilds = useListBuildsApiV1BuildsGet({ query: { enabled: !!account, retry: false } })
   const client = useQueryClient()
   const addBuild = useMutation({ mutationFn: (id: number) => addBuildApiV1CartBuildsPost({ saved_build_id: id, quantity: 1 }), onSuccess: () => client.invalidateQueries() })
   const deleteBuild = useMutation({ mutationFn: (id: number) => deleteBuildApiV1BuildsBuildIdDelete(id), onSuccess: () => client.invalidateQueries() })
@@ -209,7 +216,7 @@ function SavesContent() {
         </div>
         {error && <p role="alert" className="mb-4 text-sm text-red-500">{error}</p>}
         {message && <p role="status" className="mb-4 flex flex-wrap items-center gap-2 text-sm text-emerald-600 dark:text-emerald-400"><FiCheckCircle />{message} <Link to="/cart" className="text-primary hover:underline">{t('saved_builds.open_cart')}</Link></p>}
-        {savedBuilds.isError ? <p role="alert">{t('common.load_error')}</p> : savedBuilds.isLoading ? <SavedBuildsSkeleton /> : builds.length === 0 ? (
+        {savedBuilds.isError && !savedBuilds.data ? <p role="alert">{t('common.load_error')}</p> : savedBuilds.isLoading ? <SavedBuildsSkeleton /> : builds.length === 0 ? (
           <div className="rounded-xl border border-border bg-surface p-12 text-center">
             <FiBox className="mx-auto mb-4 h-14 w-14 text-text-muted" />
             <h2 className="mb-2 text-xl font-bold text-text-primary">{t('saved_builds.empty_title')}</h2>
@@ -257,5 +264,11 @@ function SavesContent() {
 
 export function SavesPage() {
   const accountId = useAccountStore((state) => state.activeAccountId)
-  return <div className="min-h-screen bg-surface-2"><Header /><SavesContent key={accountId ?? 'guest'} /><Footer /></div>
+  const account = useAccountStore(selectActiveAccount)
+  const savedBuilds = useListBuildsApiV1BuildsGet({ query: { enabled: !!account, retry: false } })
+  // The saved-builds list is the whole page, so a failure without data replaces the
+  // outer chrome. Per-build compatibility checks and mutations stay local.
+  const errorStatus = account ? primaryQueryErrorStatus(savedBuilds) : null
+  if (errorStatus) return <ErrorPage status={errorStatus} />
+  return <div className="min-h-screen bg-surface-2"><Header /><SavesContent key={accountId ?? 'guest'} savedBuilds={savedBuilds} /><Footer /></div>
 }

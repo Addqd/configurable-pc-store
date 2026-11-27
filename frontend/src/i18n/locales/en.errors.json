@@ -1,0 +1,29 @@
+{
+  "error_page": {
+    "heading": "We apologize",
+    "home": "Home",
+    "back": "Back",
+    "status": {
+      "403": {
+        "title": "Access denied",
+        "description": "You do not have permission to view this page."
+      },
+      "404": {
+        "title": "Page not found",
+        "description": "The link may be outdated or the page may have been removed."
+      },
+      "429": {
+        "title": "Too many requests",
+        "description": "Please wait and try again later."
+      },
+      "500": {
+        "title": "Internal server error",
+        "description": "Something went wrong. Please try again later."
+      },
+      "503": {
+        "title": "Service temporarily unavailable",
+        "description": "Please try again in a little while."
+      }
+    }
+  }
+}

@@ -88,38 +88,84 @@ describe('admin access gate', () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url) === '/api/v1/admin/users/1')).toBe(true)
   })
 
-  it('renders a forbidden state when the protected endpoint answers 403', async () => {
+  it('replaces the whole admin panel with the fullscreen 403 when the endpoint refuses access', async () => {
     useAccountStore.setState({ accounts: { '1': { account } }, activeAccountId: '1' })
     stubAdminFetch({
       handler: (url) => url.pathname === '/api/v1/admin/users/1'
         ? jsonResponse({ detail: 'Administrator access required' }, 403)
         : undefined,
     })
-    setup()
+    const { container } = render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <Routes><Route path="/admin" element={<AdminGate />}><Route index element={<div>ADMIN CONTENT</div>} /></Route></Routes>
+      </MemoryRouter>,
+    )
     expect(await screen.findByText('Доступ запрещён')).toBeTruthy()
-    expect(screen.getByRole('button', { name: 'Вернуться в магазин' })).toBeTruthy()
+    expect(screen.getByText('У вас нет прав для просмотра этой страницы.')).toBeTruthy()
+    expect(screen.getByRole('link', { name: 'На главную' }).getAttribute('href')).toBe('/')
     expect(screen.queryByText('ADMIN CONTENT')).toBeNull()
+    // No admin navigation, no retry affordance and no storefront chrome on a denial.
+    expect(container.querySelector('nav')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Вернуться в магазин' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Повторить' })).toBeNull()
   })
 
-  it('offers a retry instead of granting access on a server failure', async () => {
+  it.each([429, 500, 503])('shows the fullscreen page instead of a retry panel on an initial %i', async (status) => {
     useAccountStore.setState({ accounts: { '1': { account } }, activeAccountId: '1' })
     stubAdminFetch({
       handler: (url) => url.pathname === '/api/v1/admin/users/1'
-        ? jsonResponse({ detail: 'boom' }, 500)
+        ? jsonResponse({ detail: 'unavailable' }, status)
+        : undefined,
+    })
+    const { container } = render(
+      <MemoryRouter initialEntries={['/admin']}>
+        <Routes><Route path="/admin" element={<AdminGate />}><Route index element={<div>ADMIN CONTENT</div>} /></Route></Routes>
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByText(String(status))).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Приносим извинения')
+    expect(screen.queryByText('ADMIN CONTENT')).toBeNull()
+    // No retry panel, no admin navigation: the page is replaced, not decorated.
+    expect(screen.queryByText('Не удалось проверить права доступа.')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Повторить' })).toBeNull()
+    expect(container.querySelector('nav')).toBeNull()
+  })
+
+  it.each([401, 404])('keeps the existing denial panel for an initial %i', async (status) => {
+    useAccountStore.setState({ accounts: { '1': { account } }, activeAccountId: '1' })
+    stubAdminFetch({
+      handler: (url) => url.pathname === '/api/v1/admin/users/1'
+        ? jsonResponse({ detail: 'denied' }, status)
         : undefined,
     })
     setup()
-    expect(await screen.findByText('Не удалось проверить права доступа.')).toBeTruthy()
-    expect(screen.queryByText('ADMIN CONTENT')).toBeNull()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy())
+
+    expect(await screen.findByText('Доступ запрещён')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Вернуться в магазин' })).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
   })
 
-  it('keeps the mounted admin page and its unsaved edits when a background refetch fails', async () => {
+  it('keeps a status outside the approved list on the existing retry panel', async () => {
+    useAccountStore.setState({ accounts: { '1': { account } }, activeAccountId: '1' })
+    stubAdminFetch({
+      handler: (url) => url.pathname === '/api/v1/admin/users/1'
+        ? jsonResponse({ detail: 'bad gateway' }, 502)
+        : undefined,
+    })
+    setup()
+
+    expect(await screen.findByText('Не удалось проверить права доступа.')).toBeTruthy()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Повторить' })).toBeTruthy())
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it.each([500, 503])('keeps the mounted admin page and its unsaved edits when a background refetch fails with %i', async (status) => {
     useAccountStore.setState({ accounts: { '1': { account } }, activeAccountId: '1' })
     let failing = false
     stubAdminFetch({
       handler: (url) => url.pathname === '/api/v1/admin/users/1'
-        ? (failing ? jsonResponse({ detail: 'boom' }, 500) : jsonResponse(adminPayload))
+        ? (failing ? jsonResponse({ detail: 'boom' }, status) : jsonResponse(adminPayload))
         : undefined,
     })
     const client = setupWithClient()
@@ -136,6 +182,8 @@ describe('admin access gate', () => {
     expect(screen.getByText('ADMIN CONTENT')).toBeTruthy()
     expect((screen.getByLabelText('draft') as HTMLInputElement).value).toBe('несохранённый товар')
     expect(screen.queryByText('Не удалось проверить права доступа.')).toBeNull()
+    // A temporary failure never replaces the already authorized page.
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
   })
 
   it('still denies access when a background refetch reports 403', async () => {

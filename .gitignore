@@ -1,8 +1,6 @@
 
 # Pi agent: local task state and temporary files
-**/.agent/TASK.md
-**/.agent/TASK-*.md
-**/.agent/tmp/
+/.agent/
 
 # Root-level local backup archives
 /backend.rar

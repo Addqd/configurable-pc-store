@@ -20,6 +20,8 @@ import { z } from 'zod'
 import { copyToClipboard } from '../utils/copyToClipboard'
 import { buyNowKey, clearBuyNowKey } from '../api/buyNowKey'
 import { ApiError } from '../api/transport'
+import { errorPageStatus } from '../api/errorStatus'
+import { ErrorPage } from '../components/error/ErrorPage'
 import { ProductPageSkeleton } from '../components/skeletons/StoreSkeletons'
 import {
   useGetProductApiV1ProductsSlugGet, getProductReviewsApiV1ProductsProductIdReviewsGet,
@@ -40,6 +42,11 @@ export function ProductPage() {
   const { t } = useTranslation()
   const product = useGetProductApiV1ProductsSlugGet(slug, { query: { enabled: !!slug, retry: false } })
   if (product.isLoading) return <div className="min-h-screen bg-surface-2"><Header /><ProductPageSkeleton /><Footer /></div>
+  // The product detail is the whole page: without it there is nothing to render, so a
+  // status from the approved list replaces the page instead of sitting between the
+  // Header and the Footer. Retained data (a failing background refetch) keeps the page.
+  const errorStatus = !product.data && product.isError ? errorPageStatus(product.error) : null
+  if (errorStatus) return <ErrorPage status={errorStatus} />
   if (!product.data) return <div className="min-h-screen bg-surface-2"><Header /><main className="pt-24 text-center" role="alert">{product.isError ? t('common.load_error') : t('product.not_found')}</main><Footer /></div>
   return <ProductContent key={slug} product={productFromDetail(product.data)} />
 }

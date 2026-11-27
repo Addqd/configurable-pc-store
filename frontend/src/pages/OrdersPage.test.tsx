@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router'
-import { render } from '../test-utils'
+import { createTestQueryClient, render } from '../test-utils'
 import { useAccountStore } from '../stores/accountStore'
 import { OrdersPage } from './OrdersPage'
 import { i18n } from '../i18n'
 
-vi.mock('../components/Header', () => ({ Header: () => <div /> }))
+vi.mock('../components/Header', () => ({ Header: () => <header data-testid="header" /> }))
+vi.mock('../components/Footer', () => ({ Footer: () => <footer data-testid="footer" /> }))
 
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { 'Content-Type': 'application/json' } })
@@ -74,5 +75,61 @@ describe('purchased build name', () => {
 
     expect(await screen.findByText(name)).toBeTruthy()
     expect(screen.getByText('Custom build')).toBeTruthy()
+  })
+})
+
+describe('orders page-critical errors', () => {
+  it.each([403, 404, 429, 500, 503])('replaces the orders page with the fullscreen %i page', async (status) => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ detail: 'boom' }, status)))
+    render(<MemoryRouter><OrdersPage /></MemoryRouter>)
+
+    expect(await screen.findByText(String(status))).toBeTruthy()
+    expect(screen.getByRole('heading', { level: 1 }).textContent).toBe('Приносим извинения')
+    // The fullscreen page replaces the page chrome instead of living inside it.
+    expect(screen.queryByTestId('header')).toBeNull()
+    expect(screen.queryByTestId('footer')).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Мои заказы' })).toBeNull()
+  })
+
+  it('keeps an empty successful list as a valid state', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json([])))
+    render(<MemoryRouter><OrdersPage /></MemoryRouter>)
+
+    expect(await screen.findByRole('heading', { name: 'Заказов пока нет' })).toBeTruthy()
+    expect(screen.getByTestId('header')).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps the orders when a background refetch fails', async () => {
+    let failing = false
+    vi.stubGlobal('fetch', vi.fn(async () => (failing ? json({ detail: 'boom' }, 503) : json([order('Gaming PC 2026')]))))
+    const client = createTestQueryClient()
+    render(<MemoryRouter><OrdersPage /></MemoryRouter>, { client })
+    await screen.findByText('Gaming PC 2026')
+
+    failing = true
+    await act(async () => { await client.invalidateQueries() })
+
+    expect(screen.getByText('Gaming PC 2026')).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps a status outside the approved list local', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => json({ detail: 'unauthorized' }, 401)))
+    render(<MemoryRouter><OrdersPage /></MemoryRouter>)
+
+    expect(await screen.findByRole('alert')).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+  })
+
+  it('keeps the login requirement for a guest and never asks for the orders', () => {
+    useAccountStore.setState({ accounts: {}, activeAccountId: null })
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<MemoryRouter><OrdersPage /></MemoryRouter>)
+
+    expect(screen.getByRole('button', { name: 'Войти' })).toBeTruthy()
+    expect(screen.queryByText('Приносим извинения')).toBeNull()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

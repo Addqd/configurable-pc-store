@@ -11,6 +11,8 @@ import { AdminLayout } from '../components/admin/AdminLayout'
 import { AdminError } from '../components/admin/AdminFeedback'
 import { AdminPageSkeleton } from '../components/skeletons/AdminSkeletons'
 import { adminCard, adminPrimaryButton, adminSecondaryButton } from '../components/admin/adminStyles'
+import { ErrorPage } from '../components/error/ErrorPage'
+import { errorPageStatus } from '../api/errorStatus'
 
 function AccessPanel({
   icon,
@@ -87,7 +89,10 @@ export function AdminGate() {
 
   if (access.isError) {
     const status = access.error instanceof ApiError ? access.error.status : 0
-    if (status === 401 || status === 403 || status === 404) {
+    // An authenticated visitor the server refuses to treat as an administrator is
+    // denied the whole panel: the page is replaced, not decorated inside AdminLayout.
+    if (status === 403) return <ErrorPage status={403} />
+    if (status === 401 || status === 404) {
       return (
         <AccessPanel
           icon={<FiShieldOff className="h-6 w-6" />}
@@ -104,6 +109,11 @@ export function AdminGate() {
     // A transient failure after a successful check must not unmount the admin
     // page: the verified session stays mounted and unsaved forms survive.
     if (!access.data) {
+      // Without verified access data there is no panel to keep. An unavailable
+      // authorization check (429/500/503) is a fullscreen page, never a retry panel
+      // that could look like an authorization result.
+      const pageStatus = errorPageStatus(access.error)
+      if (pageStatus) return <ErrorPage status={pageStatus} />
       return (
         <AdminLayout>
           <section className={`${adminCard} p-6`}>
