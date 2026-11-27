@@ -111,7 +111,9 @@ export function CatalogPage() {
       </div>
       <div className="mx-auto max-w-[1320px] px-4 pb-6">
         {allOptions.isError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-center gap-3 rounded-lg border border-border bg-surface px-4 py-3 text-sm text-text-muted"><span>{notApplied.length ? t('catalog.filter.partial_error', { filters: notApplied.join(', ') }) : t('catalog.filter.load_error')}</span><button type="button" onClick={() => void allOptions.refetch()} className="rounded-md border border-border bg-surface-3 px-3 py-1 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div>}
-        {products.isError ? <div role="alert" className="py-20 text-center text-text-muted"><p>{t('common.load_error')}</p><button type="button" onClick={() => void products.refetch()} className="mt-3 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div> : products.isLoading ? <CatalogGridSkeleton /> : pageProducts.length ? <>
+        {/* Only a failure without usable data is a local error: a failed background refetch
+            keeps the retained page rendered, exactly like the fullscreen classification above. */}
+        {products.isError && products.data === undefined ? <div role="alert" className="py-20 text-center text-text-muted"><p>{t('common.load_error')}</p><button type="button" onClick={() => void products.refetch()} className="mt-3 rounded-md border border-border bg-surface px-4 py-2 text-sm font-medium text-text-primary hover:border-border-hover">{t('common.retry')}</button></div> : products.isLoading ? <CatalogGridSkeleton /> : pageProducts.length ? <>
           <div className="flex flex-wrap justify-center gap-3" data-testid="catalog-grid">
             {pageProducts.map(p=><div key={p.id} className="min-w-0 w-[calc((100%-0.75rem)/2)] sm:w-[calc((100%-1.5rem)/3)] md:w-[calc((100%-2.25rem)/4)] lg:w-[calc((100%-3rem)/5)] xl:w-[calc((100%-4.5rem)/7)]"><CatalogProductCard product={p}/></div>)}
           </div>

@@ -26,9 +26,14 @@ export function ErrorPage({ status }: ErrorPageProps) {
   useFullscreenErrorRegistration()
   // Back uses the router-level internal-history tracker: only an entry this
   // application pushed counts as a known previous page, and a page that already
-  // showed a fullscreen error is never re-entered.
-  const { back, reportFailedEntry } = useInternalHistory()
-  useEffect(() => { reportFailedEntry() }, [reportFailedEntry])
+  // showed a fullscreen error is never re-entered. The marker lives as long as the
+  // entry does: unmounting the page only releases the "this entry is failing" claim,
+  // so leaving an error page does not pretend the entry recovered.
+  const { back, reportFailedEntry, releaseFailedEntry } = useInternalHistory()
+  useEffect(() => {
+    reportFailedEntry()
+    return releaseFailedEntry
+  }, [reportFailedEntry, releaseFailedEntry])
 
   return (
     <main className="pc-error-page">

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import App from './App'
 import { queryClient } from './api/queryClient'
 import { setAccessToken } from './api/transport'
@@ -127,6 +127,33 @@ describe('fullscreen error routing', () => {
     expect(screen.queryByRole('dialog')).toBeNull()
 
     // Only an explicit new interaction opens it again.
+    await act(async () => { useUIStore.getState().openAuthModal('login') })
+    expect(await screen.findByRole('dialog')).toBeTruthy()
+  })
+
+  it('closes the modal when it is opened programmatically while an error is on screen', async () => {
+    stubFetch((url) => {
+      if (url.pathname === '/api/v1/products/filters') return json(filters)
+      if (url.pathname === '/api/v1/products') return json(page([]))
+    })
+    window.history.pushState({}, '', '/missing-page')
+    render(<App />)
+    expect(await screen.findByText('404')).toBeTruthy()
+    expect(useUIStore.getState().authModalOpen).toBe(false)
+
+    // A delayed or unrelated action opens the modal during the error screen. The guard
+    // watches the flag itself, so this cannot survive as stale state.
+    await act(async () => { useUIStore.getState().openAuthModal('login') })
+    await waitFor(() => expect(useUIStore.getState().authModalOpen).toBe(false))
+    expect(screen.queryByRole('dialog')).toBeNull()
+
+    // Leaving the error page does not reveal a modal that nobody asked for any more.
+    fireEvent.click(screen.getByRole('link', { name: 'На главную' }))
+    expect(await screen.findByTestId('header')).toBeTruthy()
+    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(useUIStore.getState().authModalOpen).toBe(false)
+
+    // A legitimate new authentication interaction still works.
     await act(async () => { useUIStore.getState().openAuthModal('login') })
     expect(await screen.findByRole('dialog')).toBeTruthy()
   })

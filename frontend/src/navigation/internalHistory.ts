@@ -34,8 +34,24 @@ const MAX_ENTRIES = 100
 export class InternalHistoryTracker {
   private entries: InternalEntry[] = []
   private index = -1
-  /** Entries that showed a fullscreen error: Back must not step into them again. */
+  /**
+   * Entries that showed a fullscreen error: Back must not step into them again.
+   *
+   * A marker lives exactly as long as its history entry: `record()` drops the markers of
+   * every entry it discarded (PUSH truncation, REPLACE, the 100-entry cap, an unknown POP
+   * reset), and `reportHealthyEntry()` drops a marker as soon as the same entry renders
+   * normal page content again. Bounded by `MAX_ENTRIES` like the entry list itself.
+   */
   private readonly failed = new Set<string>()
+  /**
+   * The entry whose error page is mounted right now.
+   *
+   * It is written by the error page's own effect, which React runs before the provider's
+   * effects (children before ancestors), so it is already up to date when the tracker
+   * records the new location. That is what stops a freshly mounted error page from
+   * losing its marker to the "this entry looks healthy" check in the same commit.
+   */
+  private claimed: string | null = null
 
   /** Records the current location. Re-recording the same entry is a no-op. */
   record(location: Pick<Location, 'key' | 'pathname' | 'search'>, navigationType: NavigationType): void {
@@ -46,6 +62,7 @@ export class InternalHistoryTracker {
     if (navigationType === 'PUSH') {
       this.entries = [...this.entries.slice(0, this.index + 1), entry].slice(-MAX_ENTRIES)
       this.index = this.entries.length - 1
+      this.forgetDiscardedEntries()
       return
     }
 
@@ -53,25 +70,60 @@ export class InternalHistoryTracker {
       if (this.index < 0) {
         this.entries = [entry]
         this.index = 0
+        this.forgetDiscardedEntries()
         return
       }
       // A replacement stays at the same position: it never becomes a previous page.
       this.entries = this.entries.map((known, position) => (position === this.index ? entry : known))
+      this.forgetDiscardedEntries()
       return
     }
 
     const found = this.entries.findIndex(known => known.key === entry.key)
     if (found === -1) {
+      // Nothing proves where this entry came from, so the previous stack is discarded
+      // together with the failure markers that described it.
       this.entries = [entry]
       this.index = 0
+      this.forgetDiscardedEntries()
       return
     }
     this.index = found
   }
 
-  /** Remembers that this entry renders a fullscreen error page. */
-  markFailed(key: string): void {
+  /** Drops the failure markers of every entry the last `record()` did not keep. */
+  private forgetDiscardedEntries(): void {
+    const kept = new Set(this.entries.map(entry => entry.key))
+    for (const key of this.failed) if (!kept.has(key)) this.failed.delete(key)
+  }
+
+  /** How many entries are currently marked as failed; never more than `MAX_ENTRIES`. */
+  get failedEntryCount(): number {
+    return this.failed.size
+  }
+
+  /** Remembers that this entry renders a fullscreen error page. Idempotent. */
+  markFailedEntry(key: string): void {
     this.failed.add(key)
+    this.claimed = key
+  }
+
+  /**
+   * The error page left this entry. The failure marker stays: navigating away is not a
+   * recovery, only the entry proving that it works again is.
+   */
+  releaseEntry(key: string): void {
+    if (this.claimed === key) this.claimed = null
+  }
+
+  /**
+   * The current entry renders normal page content: a previous failure no longer applies.
+   * A mounted error page always wins, so a new error can never be undone by effect order.
+   * Idempotent.
+   */
+  reportHealthyEntry(key: string): void {
+    if (this.claimed === key) return
+    this.failed.delete(key)
   }
 
   /**
@@ -99,6 +151,8 @@ export interface InternalHistoryControls {
   back: () => void
   /** Marks the entry that is showing a fullscreen error. */
   reportFailedEntry: () => void
+  /** Releases that claim when the error page unmounts; the marker itself stays. */
+  releaseFailedEntry: () => void
 }
 
 /**
@@ -121,8 +175,12 @@ export function useInternalHistory(): InternalHistoryControls {
   }, [tracker, navigate])
 
   const reportFailedEntry = useCallback(() => {
-    tracker?.markFailed(location.key)
+    tracker?.markFailedEntry(location.key)
   }, [tracker, location.key])
 
-  return { back, reportFailedEntry }
+  const releaseFailedEntry = useCallback(() => {
+    tracker?.releaseEntry(location.key)
+  }, [tracker, location.key])
+
+  return { back, reportFailedEntry, releaseFailedEntry }
 }

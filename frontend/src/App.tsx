@@ -75,13 +75,15 @@ function AuthModalHost() {
 
 /**
  * A fullscreen error takes over the screen, so an authentication modal that was
- * already open is closed through the normal UI-store action instead of only being
- * hidden. Otherwise the stale `authModalOpen` flag would bring the modal back after
- * the visitor leaves the error page.
+ * already open — or that is opened programmatically afterwards — is closed through the
+ * normal UI-store action instead of only being hidden. Otherwise the stale
+ * `authModalOpen` flag would bring the modal back after the visitor leaves the error
+ * page. `authModalOpen` is therefore part of the effect's dependencies.
  */
 function FullscreenErrorModalGuard({ active }: { active: boolean }) {
+  const isOpen = useUIStore((s) => s.authModalOpen)
   const closeAuthModal = useUIStore((s) => s.closeAuthModal)
-  useEffect(() => { if (active) closeAuthModal() }, [active, closeAuthModal])
+  useEffect(() => { if (active && isOpen) closeAuthModal() }, [active, isOpen, closeAuthModal])
   return null
 }
 
@@ -100,7 +102,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
-        <InternalHistoryProvider>
+        <InternalHistoryProvider errorActive={fullscreenErrors > 0}>
           <RouteScrollManager />
           <AppStateEffects />
           <LangUpdater />
