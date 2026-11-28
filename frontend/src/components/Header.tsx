@@ -3,12 +3,14 @@ import { CurrencySwitcher } from './CurrencySwitcher'
 import { useTranslation } from 'react-i18next'
 import { useRef, useEffect, useCallback, type KeyboardEvent } from 'react'
 import { useUIStore } from '../stores/uiStore'
+import { useThemeStore } from '../stores/themeStore'
 import { useServerCart } from '../api/useServerCart'
 import { useGetUserApiV1AdminUsersUserIdGet } from '../api/generated/client'
 import { useAccountStore, selectActiveAccount } from '../stores/accountStore'
 import { FiMenu, FiSearch, FiShoppingCart, FiChevronDown, FiX } from 'react-icons/fi'
 import { Link, useNavigate } from 'react-router'
-import logo from '../assets/home/logo-pc-builder.png'
+import lightLogo from '../assets/logo/pc builder logo.png'
+import darkLogo from '../assets/logo/pc builder logo dark.png'
 import placeholder from '../assets/placeholder.jpg'
 import { NavigationMenu } from './NavigationMenu'
 import { SearchDropdown } from './SearchDropdown'
@@ -18,6 +20,7 @@ import { HeaderPopup } from './HeaderPopup'
 /** Each page already renders its Header; authentication is shared through stores. */
 export function Header() {
   const { t } = useTranslation()
+  const isDark = useThemeStore((state) => state.isDark)
   const navigate = useNavigate()
   const {
     navOpen, searchOpen, profileOpen, toggleNav, openSearch, toggleProfile,
@@ -94,7 +97,7 @@ export function Header() {
           <FiMenu className="w-5 h-5" />
         </button>
         <Link to="/" className="shrink-0 flex items-center gap-2" onClick={() => { closeNav(); closeProfile() }}>
-          <img src={logo} alt="PC Builder" className="h-9 w-auto" />
+          <img src={isDark ? darkLogo : lightLogo} alt="PC Builder" className="h-9 w-auto" />
         </Link>
         <div className="flex-1 relative min-w-0">
           <div className="relative">
