@@ -15,14 +15,35 @@ vi.mock('react-icons/fi', () => ({
   FiWind: () => <div data-testid="fi-wind" />,
   FiServer: () => <div data-testid="fi-server" />,
   FiSettings: () => <div data-testid="fi-settings" />,
-  FiTag: () => <div data-testid="fi-tag" />,
-  FiHelpCircle: () => <div data-testid="fi-help" />,
-  FiInfo: () => <div data-testid="fi-info" />,
 }))
 
 vi.mock('react-icons/hi2', () => ({
   HiMiniChevronRight: () => <div data-testid="hi-chevron" />,
 }))
+
+const APPROVED_LABELS = [
+  'Главная',
+  'Конфигуратор ПК',
+  'Готовые сборки',
+  'Комплектующие',
+  'Периферия',
+  'Аксессуары',
+  'Охлаждение',
+  'Сетевое оборудование',
+  'Софт и сервисы',
+]
+
+const APPROVED_HREFS = [
+  '/',
+  '/builder',
+  '/catalog?category=prebuilt',
+  '/catalog?category=components',
+  '/catalog?category=peripheral',
+  '/catalog?category=accessories',
+  '/catalog?category=cooling',
+  '/catalog?category=network',
+  '/catalog?category=software',
+]
 
 const renderMenu = () =>
   render(
@@ -40,54 +61,45 @@ describe('NavigationMenu component', () => {
     await act(async () => { await i18n.changeLanguage('ru') })
   })
 
-  it('renders all 12 menu items', () => {
+  it('renders exactly the nine approved entries in order', () => {
     renderMenu()
-    const items = [
-      'Главная',
-      'Конфигуратор ПК',
-      'Готовые сборки',
-      'Комплектующие',
-      'Периферия',
-      'Аксессуары',
-      'Охлаждение',
-      'Сетевое оборудование',
-      'Софт и сервисы',
-      'Акции',
-      'Помощь',
-      'О нас',
-    ]
-    items.forEach(label => {
+    expect(menuLinks()).toHaveLength(APPROVED_LABELS.length)
+    expect(menuLinks().map((link) => link.textContent)).toEqual(APPROVED_LABELS)
+    APPROVED_LABELS.forEach(label => {
       expect(screen.getByText(label)).toBeTruthy()
     })
-    expect(menuLinks()).toHaveLength(items.length)
   })
 
-  it('places the PC configurator directly after the home entry and links to /builder', () => {
+  it('removes the sales, help and about entries', () => {
     renderMenu()
-    const hrefs = menuHrefs()
-    expect(hrefs[0]).toBe('/')
-    expect(hrefs[1]).toBe('/builder')
-    expect(hrefs.indexOf('/builder')).toBe(1)
+    expect(screen.queryByText('Акции')).toBeNull()
+    expect(screen.queryByText('Помощь')).toBeNull()
+    expect(screen.queryByText('О нас')).toBeNull()
+    expect(menuHrefs()).not.toContain('/catalog?category=sale')
+    expect(menuHrefs()).not.toContain('/account')
+  })
+
+  it('keeps every destination untouched', () => {
+    renderMenu()
+    expect(menuHrefs()).toEqual(APPROVED_HREFS)
     expect(menuLinks()[1].textContent).toContain('Конфигуратор ПК')
-    // The existing catalogue destinations are untouched, only shifted by one.
-    expect(hrefs.slice(2)).toEqual([
-      '/catalog?category=prebuilt',
-      '/catalog?category=components',
-      '/catalog?category=peripheral',
-      '/catalog?category=accessories',
-      '/catalog?category=cooling',
-      '/catalog?category=network',
-      '/catalog?category=software',
-      '/catalog?category=sale',
-      '/account',
-      '/account',
-    ])
+    expect(menuHrefs()[1]).toBe('/builder')
   })
 
-  it('keeps the configurator entry inside the approved item markup', () => {
+  it('renders no separator inside the menu', () => {
     renderMenu()
-    const configurator = menuLinks()[1]
-    expect(configurator.className).toBe(
+    expect(document.querySelectorAll('.border-t')).toHaveLength(0)
+    expect(document.querySelectorAll('.my-1')).toHaveLength(0)
+    // Every entry is a direct child of the menu panel, without wrapper elements.
+    const panel = document.querySelector('.w-\\[280px\\]') as HTMLElement
+    expect(panel.children).toHaveLength(APPROVED_LABELS.length)
+    expect([...panel.children].every((child) => child.tagName === 'A')).toBe(true)
+  })
+
+  it('keeps the approved item markup', () => {
+    renderMenu()
+    const [home, configurator] = menuLinks()
+    expect(home.className).toBe(
       'flex items-center gap-3 px-4 py-2.5 text-sm text-text-primary hover:bg-primary-light hover:text-primary rounded-lg transition-colors',
     )
     expect(configurator.querySelector('[data-testid="fi-tool"]')).not.toBeNull()
@@ -95,27 +107,22 @@ describe('NavigationMenu component', () => {
     expect(configurator.querySelector('[data-testid="hi-chevron"]')).not.toBeNull()
   })
 
-  it('keeps the separator between the catalogue group and the sale entry', () => {
+  it('renders an icon for every entry', () => {
     renderMenu()
-    const separator = document.querySelector('.mx-4.my-1.border-t') as HTMLElement
-    expect(separator).not.toBeNull()
-    // The separator belongs to the wrapper of the entry that follows it: «Акции».
-    const followingLink = separator.parentElement?.querySelector('a')
-    expect(followingLink?.textContent).toContain('Акции')
-    expect(followingLink?.getAttribute('href')).toBe('/catalog?category=sale')
-    const precedingLink = menuLinks()[menuHrefs().indexOf('/catalog?category=sale') - 1]
-    expect(precedingLink.textContent).toContain('Софт и сервисы')
+    const icons = document.querySelectorAll('[data-testid^="fi-"]')
+    expect(icons).toHaveLength(APPROVED_LABELS.length)
   })
 
-  it('localizes the new entry in Russian and English', async () => {
+  it('localizes the entries in Russian and English', async () => {
     renderMenu()
-    expect(screen.getByText('Конфигуратор ПК')).toBeTruthy()
+    expect(screen.getByText('Сетевое оборудование')).toBeTruthy()
 
     await act(async () => { await i18n.changeLanguage('en') })
+    expect(screen.getByText('Networking')).toBeTruthy()
     expect(screen.getByText('PC Configurator')).toBeTruthy()
-    expect(screen.queryByText('Конфигуратор ПК')).toBeNull()
-    // Position and destination survive the language switch.
-    expect(menuHrefs()[1]).toBe('/builder')
+    expect(screen.queryByText('Сетевое оборудование')).toBeNull()
+    expect(menuLinks()).toHaveLength(APPROVED_LABELS.length)
+    expect(menuHrefs()).toEqual(APPROVED_HREFS)
   })
 
   it('calls onClose when a menu item is clicked', () => {
@@ -129,26 +136,14 @@ describe('NavigationMenu component', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
-  it('closes the menu when the configurator entry is used', () => {
+  it('closes the menu from the last entry as well', () => {
     const onClose = vi.fn()
     render(
       <MemoryRouter>
         <NavigationMenu onClose={onClose} />
       </MemoryRouter>
     )
-    fireEvent.click(screen.getByText('Конфигуратор ПК'))
+    fireEvent.click(screen.getByText('Софт и сервисы'))
     expect(onClose).toHaveBeenCalled()
-  })
-
-  it('renders icons for each menu item', () => {
-    renderMenu()
-    const iconElements = document.querySelectorAll('[data-testid]')
-    expect(iconElements.length).toBeGreaterThan(0)
-  })
-
-  it('renders a separator line', () => {
-    renderMenu()
-    const separators = document.querySelectorAll('.border-t')
-    expect(separators.length).toBeGreaterThanOrEqual(1)
   })
 })

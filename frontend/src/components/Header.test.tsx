@@ -1,11 +1,13 @@
 import { render } from '../test-utils'
+import { act } from 'react'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { screen, fireEvent, cleanup } from '@testing-library/react'
-import { MemoryRouter } from 'react-router'
+import { MemoryRouter, useLocation } from 'react-router'
 import { Header } from './Header'
 import { useUIStore } from '../stores/uiStore'
 import { useCartStore } from '../stores/cartStore'
 import { useAccountStore } from '../stores/accountStore'
+import { useThemeStore } from '../stores/themeStore'
 
 vi.mock('react-icons/fi', () => ({
   FiMenu: () => <div data-testid="fi-menu" />,
@@ -18,7 +20,10 @@ vi.mock('react-icons/hi2', () => ({ HiMiniChevronRight: () => <div data-testid="
 vi.mock('./SearchDropdown', () => ({ SearchDropdown: () => <div data-testid="search-dropdown" /> }))
 vi.mock('./ProfileDropdown', () => ({ ProfileDropdown: () => <div data-testid="profile-dropdown" /> }))
 vi.mock('./NavigationMenu', () => ({ NavigationMenu: () => <div data-testid="navigation-menu" /> }))
-vi.mock('../assets/home/logo-pc-builder.png', () => ({ default: 'mock-logo.png' }))
+// The two approved theme assets are mocked so the component is asserted on the
+// module it resolves, not on Vite's hashed asset URL.
+vi.mock('../assets/logo/pc builder logo.png', () => ({ default: 'mock-logo-light.png' }))
+vi.mock('../assets/logo/pc builder logo dark.png', () => ({ default: 'mock-logo-dark.png' }))
 vi.mock('../assets/placeholder.jpg', () => ({ default: 'mock-placeholder.jpg' }))
 
 describe('Header', () => {
@@ -27,8 +32,10 @@ describe('Header', () => {
     useUIStore.setState({ navOpen: false, searchOpen: false, profileOpen: false, authModalOpen: false, searchQuery: '' })
     useAccountStore.setState({ accounts: {}, activeAccountId: null })
     useCartStore.setState({ items: [], orders: [], favorites: [], nextOrderId: 1, activeAccountId: null })
+    useThemeStore.setState({ isDark: false })
   })
   const renderHeader = () => render(<MemoryRouter><Header /></MemoryRouter>)
+  const logoImage = () => screen.getByAltText('PC Builder') as HTMLImageElement
 
   it('renders the hamburger, logo, search, cart and profile controls', () => {
     renderHeader()
@@ -85,4 +92,47 @@ describe('Header', () => {
     fireEvent.keyDown(search, { key: 'Escape' })
     expect(screen.queryByTestId('search-dropdown')).toBeNull()
   })
+
+  it('renders the light logo in light theme', () => {
+    renderHeader()
+    expect(logoImage().getAttribute('src')).toBe('mock-logo-light.png')
+    expect(logoImage().getAttribute('alt')).toBe('PC Builder')
+    expect(logoImage().className).toBe('h-9 w-auto')
+  })
+
+  it('renders the dark logo in dark theme', () => {
+    useThemeStore.setState({ isDark: true })
+    renderHeader()
+    expect(logoImage().getAttribute('src')).toBe('mock-logo-dark.png')
+  })
+
+  it('swaps the logo as soon as the theme store changes, without remounting', () => {
+    renderHeader()
+    const before = logoImage()
+    expect(before.getAttribute('src')).toBe('mock-logo-light.png')
+    act(() => { useThemeStore.getState().toggle() })
+    expect(useThemeStore.getState().isDark).toBe(true)
+    expect(logoImage().getAttribute('src')).toBe('mock-logo-dark.png')
+    // Same DOM node: the header is updated in place, not re-rendered from scratch.
+    expect(logoImage()).toBe(before)
+    act(() => { useThemeStore.getState().toggle() })
+    expect(logoImage().getAttribute('src')).toBe('mock-logo-light.png')
+  })
+
+  it('keeps the logo linked to the home page', () => {
+    render(
+      <MemoryRouter initialEntries={['/catalog']}>
+        <Header />
+        <LocationProbe />
+      </MemoryRouter>
+    )
+    expect(screen.getByTestId('location').textContent).toBe('/catalog')
+    fireEvent.click(logoImage())
+    expect(screen.getByTestId('location').textContent).toBe('/')
+  })
 })
+
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location">{`${location.pathname}${location.search}`}</output>
+}
